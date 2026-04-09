@@ -1,0 +1,3 @@
+[build]
+publish = "apps/v9"
+command = ""
