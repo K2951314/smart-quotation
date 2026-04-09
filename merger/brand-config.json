@@ -1,0 +1,7 @@
+﻿{
+  "defaultBrand": "UNMAPPED",
+  "brands": [
+    { "id": "MITSUBISHI", "prefixes": ["三菱", "MITSU"] },
+    { "id": "OSG", "prefixes": ["OSG"] }
+  ]
+}
