@@ -17,6 +17,7 @@ const HOLD_REPEAT_INTERVAL_MS = 70;
 const MMC_URL = "https://mcweb.mitsubishi-materials.com/concerto-mmsc-ec/login.jsp";
 const MMC_PASSWORD = "%461971#";
 const DEFAULT_DISCOUNT_STORAGE_KEY = "v9-default-discount-config";
+const SEARCH_MODE = "spec-first"; // 可选：spec-only | spec-first | all-fields
 
 const DiscountEngine = window.DiscountUtils || {
   DEFAULT_DISCOUNT_CONFIG: Object.freeze({ ex: 32, osg: 36, mitsubishi: 55, other: 55 }),
@@ -582,7 +583,7 @@ function renderStateCard(kind, title, message, hint) {
 }
 
 function renderLoadingState(message) { renderStateCard("loading", "数据同步", message, "仅在初次进入时拉取，后续皆为0延迟的极速缓存。"); }
-function renderEmptyState(message) { renderStateCard("empty", "等待查询", message, "支持规格、代码、助记码、别名、备注和特价关键词。"); }
+function renderEmptyState(message) { renderStateCard("empty", "等待查询", message, "默认优先规格型号匹配，无结果时再扩展关键词匹配。"); }
 function renderErrorState(message) { renderStateCard("error", "加载失败", message, "网络或节点连接失败，请稍后重试。"); }
 
 function getCurrentPriceSettings() {
@@ -620,14 +621,34 @@ function getSearchTarget(spec, item) {
   return { spec: spec || "", code: item.c || "", mnemonic: item.m || "", remark: item.r || "", alias: item.a || "", special: item.s || "" };
 }
 
-function findMatchesByRegex(line, allKeys, onlyInStock) {
-  const re = convertPlainLineToRegex(line);
-  if (!re) return[];
+function filterKeysByStock(allKeys, onlyInStock) {
   return allKeys.filter((key) => {
     const item = DB[key] || {};
     if (onlyInStock && !hasStockValue(item.i)) return false;
+    return true;
+  });
+}
+
+function findMatchesBySpecRegex(re, allKeys, onlyInStock) {
+  return filterKeysByStock(allKeys, onlyInStock).filter((key) => matchRegexTarget({ spec: key || "" }, re));
+}
+
+function findMatchesByAllFieldsRegex(re, allKeys, onlyInStock) {
+  return filterKeysByStock(allKeys, onlyInStock).filter((key) => {
+    const item = DB[key] || {};
     return matchRegexTarget(getSearchTarget(key, item), re);
   });
+}
+
+function findMatchesByRegex(line, allKeys, onlyInStock) {
+  const re = convertPlainLineToRegex(line);
+  if (!re) return[];
+  if (SEARCH_MODE === "spec-only") return findMatchesBySpecRegex(re, allKeys, onlyInStock);
+  if (SEARCH_MODE === "all-fields") return findMatchesByAllFieldsRegex(re, allKeys, onlyInStock);
+
+  const specMatches = findMatchesBySpecRegex(re, allKeys, onlyInStock);
+  if (specMatches.length > 0) return specMatches;
+  return Array.from(new Set(findMatchesByAllFieldsRegex(re, allKeys, onlyInStock)));
 }
 
 function getRowById(id) {
