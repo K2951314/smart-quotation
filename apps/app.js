@@ -1,5 +1,7 @@
 let PRICE_DATA = { bySpec: {} };
 let STOCK_DATA = { byCode: {} };
+let PRICE_ROWS = [];
+let STOCK_ROWS = [];
 let PRICE_META = null;
 let STOCK_META = null;
 let DB = {};
@@ -11,11 +13,11 @@ let g_DiscountPressState = null;
 let g_RemoteDefaultDiscountConfig = null;
 let g_HasLocalDefaultDiscountConfig = false;
 let g_LayoutMetricsFrame = null;
+let g_AppConfig = null;
 
 const HOLD_START_DELAY_MS = 280;
 const HOLD_REPEAT_INTERVAL_MS = 70;
 const MMC_URL = "https://mcweb.mitsubishi-materials.com/concerto-mmsc-ec/login.jsp";
-const MMC_PASSWORD = "***REMOVED***";
 const DEFAULT_DISCOUNT_STORAGE_KEY = "v9-default-discount-config";
 
 const DiscountEngine = window.DiscountUtils || {
@@ -71,6 +73,106 @@ const DiscountEngine = window.DiscountUtils || {
     return Math.min(100, Math.max(0, Math.round(next * 100) / 100));
   }
 };
+
+// ================== 字段配置化（Phase 1） ==================
+const DEFAULT_FIELDS = {
+  "c":     { label: "代码",   source: "data" },
+  "spec":  { label: "规格型号", source: "key" },
+  "p":     { label: "面价",   source: "data" },
+  "price": { label: "报价",   source: "computed" },
+  "s":     { label: "特价",   source: "data" },
+  "i":     { label: "库存",   source: "data" },
+  "r":     { label: "备注",   source: "data" },
+  "b":     { label: "品牌",   source: "data" },
+  "n":     { label: "名称",   source: "data" },
+  "m":     { label: "助记码", source: "data" },
+  "a":     { label: "别名",   source: "data" }
+};
+
+const DEFAULT_COPY_COLUMNS = [
+  { field: "c",     id: "chk_code",    label: "代码", default: true },
+  { field: "spec",  id: "chk_spec",    label: "规格", default: true },
+  { field: "price", id: "chk_price",   label: "报价", default: true },
+  { field: "s",     id: "chk_special", label: "特价", default: false },
+  { field: "i",     id: "chk_stock",   label: "库存", default: false },
+  { field: "r",     id: "chk_remark",  label: "备注", default: false }
+];
+
+function getFieldConfig() {
+  const cfg = getAppConfig();
+  const fields = {};
+  (cfg.fields || []).forEach((field) => { fields[field.key] = field; });
+  const copyColumns = (cfg.copy && cfg.copy.columns) || DEFAULT_COPY_COLUMNS;
+  const copyPrefix = (cfg.copy && cfg.copy.price_prefix) || "含税";
+  const stockPrefix = (cfg.labels && cfg.labels.stock_prefix) || "库存 ";
+  return { fields, copyColumns, copyPrefix, stockPrefix };
+}
+
+function getFieldLabel(key) {
+  const normalizedKey = normalizeFieldKey(key);
+  if (window.ConfigCore) return window.ConfigCore.getField(getAppConfig(), normalizedKey).label || normalizedKey;
+  const { fields } = getFieldConfig();
+  return (fields[normalizedKey] && fields[normalizedKey].label) || normalizedKey;
+}
+
+function getCopyColumns() {
+  return getFieldConfig().copyColumns;
+}
+// ================== 字段配置化（Phase 1）结束 ==================
+
+function normalizeFieldKey(key) {
+  const map = { c: "code", p: "face_price", s: "special", i: "stock", r: "remark", b: "brand", n: "name", m: "mnemonic", a: "alias", price: "quote_price" };
+  return map[key] || key;
+}
+
+function getAppConfig() {
+  if (!window.ConfigCore) return window.APP_CONFIG || {};
+  if (!g_AppConfig) g_AppConfig = window.ConfigCore.normalizeConfig(window.APP_CONFIG || {});
+  return g_AppConfig;
+}
+
+function cloneConfig(config) {
+  return JSON.parse(JSON.stringify(config || {}));
+}
+
+function getRuntimeAppConfig() {
+  if (!window.ConfigCore) return getAppConfig();
+  const cfg = cloneConfig(getAppConfig());
+  const overrides = getDefaultDiscountConfig();
+  const legacyMap = { ex: "ex", osg: "osg", mitsubishi: "mitsubishi", other: "other" };
+  cfg.discount_rules = (cfg.discount_rules || []).map((rule) => {
+    const id = String(rule.id || "").toLowerCase();
+    const key = Object.keys(legacyMap).find((name) => legacyMap[name] === id);
+    return key ? { ...rule, percent: overrides[key] } : rule;
+  });
+  return window.ConfigCore.normalizeConfig(cfg);
+}
+
+function deriveLegacyDiscountConfig(config) {
+  const cfg = window.ConfigCore ? window.ConfigCore.normalizeConfig(config || {}) : config || {};
+  const out = {};
+  (cfg.discount_rules || []).forEach((rule) => {
+    const id = String(rule.id || "").toLowerCase();
+    if (id === "ex") out.ex = rule.percent;
+    if (id === "osg") out.osg = rule.percent;
+    if (id === "mitsubishi") out.mitsubishi = rule.percent;
+    if (id === "other" || rule.default) out.other = rule.percent;
+  });
+  return DiscountEngine.sanitizeDiscountConfig(out);
+}
+
+function applyAppConfig(rawConfig) {
+  if (!window.ConfigCore) {
+    window.APP_CONFIG = rawConfig || {};
+    return;
+  }
+  window.APP_CONFIG = rawConfig || {};
+  g_AppConfig = window.ConfigCore.normalizeConfig(rawConfig || {});
+  applyRemoteDefaultDiscountConfig(deriveLegacyDiscountConfig(g_AppConfig));
+  syncPricingControlsFromConfig();
+  syncStaticLabelsFromConfig();
+  renderConfigDrivenControls();
+}
 
 let g_DefaultDiscountConfig = DiscountEngine.sanitizeDiscountConfig(DiscountEngine.DEFAULT_DISCOUNT_CONFIG);
 
@@ -195,9 +297,9 @@ function resetDefaultDiscountConfig() {
 
 function applyDefaultDiscountPresetToRow(row, flash) {
   if (!row) return;
-  const preset = DiscountEngine.getDefaultDiscountPreset({
-    spec: row.spec, special: row.special, brand: row.brand, name: row.name
-  }, getDefaultDiscountConfig());
+  const preset = window.ConfigCore
+    ? window.ConfigCore.getDiscountPreset(toCoreRow(row), getRuntimeAppConfig())
+    : DiscountEngine.getDefaultDiscountPreset({ spec: row.spec, special: row.special, brand: row.brand, name: row.name }, getDefaultDiscountConfig());
   row.discountPercent = preset.percent;
   row.discountLabel = preset.label;
   row.discountCategory = preset.category || "";
@@ -220,8 +322,91 @@ function saveDefaultDiscountConfig() {
   showToast("默认折扣已更新");
 }
 
+function syncPricingControlsFromConfig() {
+  const cfg = getAppConfig();
+  const decimalsInput = document.getElementById("decimals");
+  const thresholdInput = document.getElementById("threshold");
+  const stepInput = document.getElementById("discountStep");
+  if (decimalsInput) decimalsInput.value = String(cfg.pricing?.decimal_places ?? 1);
+  if (thresholdInput) thresholdInput.value = String(cfg.pricing?.rounding_threshold ?? 100);
+  if (stepInput) stepInput.value = formatCompactNumber(cfg.pricing?.discount_step?.default ?? DiscountEngine.DEFAULT_STEP_PERCENT);
+}
+
+function syncStaticLabelsFromConfig() {
+  const cfg = getAppConfig();
+  const labels = cfg.labels || {};
+  const title = document.querySelector(".brand-line h1");
+  if (title) title.textContent = labels.app_title || "智能询价系统";
+  const searchBtn = document.getElementById("btnSearch");
+  const stockBtn = document.getElementById("btnRegexConvert");
+  const mmcBtn = document.getElementById("btnMmc");
+  const copyBtn = document.getElementById("btnCopy");
+  if (searchBtn) { searchBtn.textContent = labels.search_button || "智能查询"; searchBtn.dataset.defaultText = searchBtn.textContent; }
+  if (stockBtn) { stockBtn.textContent = labels.stock_search_button || "库存查询"; stockBtn.dataset.defaultText = stockBtn.textContent; }
+  if (mmcBtn) mmcBtn.textContent = labels.mmc_button || "三菱库存";
+  if (copyBtn) { copyBtn.textContent = labels.copy_button || "复制勾选"; copyBtn.dataset.baseText = copyBtn.textContent; }
+  const queryInput = document.getElementById("queryInput");
+  if (queryInput) queryInput.placeholder = labels.query_placeholder || queryInput.placeholder;
+  const inputTitle = document.querySelector(".query-panel .section-head h2");
+  const resultTitle = document.querySelector(".result-panel .section-head h2");
+  if (inputTitle) inputTitle.textContent = labels.input_title || "输入";
+  if (resultTitle) resultTitle.textContent = labels.result_title || "结果";
+}
+
+function makeCopyCheckboxId(field) {
+  return "copy_" + String(field || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function renderConfigDrivenControls() {
+  const cfg = getAppConfig();
+  const stepWrap = document.getElementById("stepPresetControls");
+  if (stepWrap) {
+    const existingConfigButton = document.getElementById("btnDefaultDiscounts");
+    const resultStat = stepWrap.querySelector(".result-stat");
+    const selectAll = stepWrap.querySelector(".select-all-toggle");
+    stepWrap.innerHTML = "";
+    (cfg.pricing?.discount_step?.presets || [0.1, 0.5, 1]).forEach((step) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "step-preset";
+      button.dataset.step = String(step);
+      button.textContent = formatCompactNumber(step);
+      stepWrap.appendChild(button);
+    });
+    const configButton = existingConfigButton || document.createElement("button");
+    configButton.id = "btnDefaultDiscounts";
+    configButton.type = "button";
+    configButton.className = "step-preset step-preset-action";
+    configButton.textContent = cfg.labels?.config_button || "配置";
+    stepWrap.appendChild(configButton);
+    if (resultStat) stepWrap.appendChild(resultStat);
+    if (selectAll) stepWrap.appendChild(selectAll);
+  }
+
+  const copyWrap = document.getElementById("copyColumnControls");
+  if (copyWrap) {
+    copyWrap.innerHTML = "";
+    getCopyColumns().forEach((column) => {
+      const label = document.createElement("label");
+      label.className = "opt-lbl" + (column.field === "remark" ? " is-accent" : "");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.id = makeCopyCheckboxId(column.field);
+      input.dataset.copyField = column.field;
+      input.checked = column.default === true;
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(column.label || getFieldLabel(column.field)));
+      copyWrap.appendChild(label);
+    });
+  }
+
+  syncDiscountStepInput(document.getElementById("discountStep")?.value || cfg.pricing?.discount_step?.default || DiscountEngine.DEFAULT_STEP_PERCENT);
+  requestLayoutMetricsSync();
+}
+
 window.onload = async function () {
   g_DefaultDiscountConfig = loadLocalDefaultDiscountConfig() || getSystemDefaultDiscountConfig();
+  applyAppConfig(window.APP_CONFIG || {});
   bindUiEvents();
   syncDefaultDiscountButtonSummary();
   syncDefaultDiscountForm(g_DefaultDiscountConfig);
@@ -292,74 +477,44 @@ async function decryptData(base64Data, password) {
 // ================== 新版 Supabase 缓存加载模块开始 ==================
 const SUPABASE_BASE_URL = "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/quotation-data";
 
+function getDataSourceConfig() {
+  const cfg = getAppConfig();
+  return {
+    base_url: cfg.data_source?.base_url || SUPABASE_BASE_URL,
+    version_file: cfg.data_source?.version_file || "version.json",
+    config_file: cfg.data_source?.config_file || "config.json",
+    price_bundle_file: cfg.data_source?.price_bundle_file || "price.bundle.json",
+    stock_bundle_file: cfg.data_source?.stock_bundle_file || "stock.bundle.json",
+    cache_name: cfg.data_source?.cache_name || "quotation-cache-v2"
+  };
+}
+
 async function loadDataWithCache() {
   console.log("开始检查版本更新...");
-  const versionRes = await fetch(`${SUPABASE_BASE_URL}/version.json?t=${Date.now()}`);
+  let source = getDataSourceConfig();
+  const versionRes = await fetch(`${source.base_url}/${source.version_file}?t=${Date.now()}`);
   const { version } = await versionRes.json();
 
+  try {
+    await fetchFileWithCache(source.config_file, version, "json", source);
+  } catch (err) {
+    console.warn("远程配置加载失败，使用内置默认配置:", err);
+    applyAppConfig(window.APP_CONFIG || {});
+  }
+
+  source = getDataSourceConfig();
   await Promise.all([
-    fetchFileWithCache(`config.json`, version, 'json'),
-    fetchFileWithCache(`price.bundle.js`, version, 'js'),
-    fetchFileWithCache(`stock.bundle.js`, version, 'js')
+    fetchFileWithCache(source.price_bundle_file, version, "bundle", source).then(data => { window.PRICE_BUNDLE = data; }),
+    fetchFileWithCache(source.stock_bundle_file, version, "bundle", source).then(data => { window.STOCK_BUNDLE = data; })
   ]);
 
   console.log("✅ 数据与配置加载完毕，当前版本：", version);
-  
-  // ========================================================
-  // ⭐ 神奇的魔法：将云端 config.json 完美对接到你原有的系统中
-  // ========================================================
-  if (window.APP_CONFIG) {
-    // 1. 同步折扣到原项目的远程配置项
-    if (window.APP_CONFIG.discounts) {
-      applyRemoteDefaultDiscountConfig({
-        ex: window.APP_CONFIG.discounts["EX"],
-        osg: window.APP_CONFIG.discounts["OSG"],
-        mitsubishi: window.APP_CONFIG.discounts["三菱"],
-        other: window.APP_CONFIG.discounts["其他"]
-      });
-    }
-    // 2. 自动填入 取整阈值 和 小数位数 的输入框
-    if (window.APP_CONFIG.rounding_threshold !== undefined) {
-      const thresholdInput = document.getElementById("threshold");
-      if (thresholdInput) thresholdInput.value = window.APP_CONFIG.rounding_threshold;
-    }
-    if (window.APP_CONFIG.decimal_places !== undefined) {
-      const decimalsInput = document.getElementById("decimals");
-      if (decimalsInput) decimalsInput.value = window.APP_CONFIG.decimal_places;
-    }
-    // 3. 完美处理：自动勾选默认展示列
-    if (window.APP_CONFIG.default_checked && Array.isArray(window.APP_CONFIG.default_checked)) {
-      // 建立配置文字和 HTML id 的映射关系
-      const mapping = {
-        "代码": "chk_code",
-        "规格": "chk_spec",
-        "报价": "chk_price",
-        "特价": "chk_special",
-        "库存": "chk_stock",
-        "备注": "chk_remark"
-      };
-      
-      // 第一步：先将页面上的列全部取消勾选
-      Object.values(mapping).forEach(id => {
-        const chk = document.getElementById(id);
-        if (chk) chk.checked = false;
-      });
-      
-      // 第二步：根据云端配置，精准勾选需要的列
-      window.APP_CONFIG.default_checked.forEach(name => {
-        const id = mapping[name];
-        if (id) {
-          const chk = document.getElementById(id);
-          if (chk) chk.checked = true;
-        }
-      });
-    }
-  }
 }
 
-async function fetchFileWithCache(filename, version, fileType) {
-  const cacheName = `quotation-cache-v1`; 
-  const fileUrl = `${SUPABASE_BASE_URL}/${filename}?v=${version}`;
+async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
+  const source = sourceConfig || getDataSourceConfig();
+  const cacheName = source.cache_name || "quotation-cache-v2";
+  const fileUrl = `${source.base_url}/${filename}?v=${version}`;
 
   const cache = await caches.open(cacheName);
   let response = await cache.match(fileUrl);
@@ -377,13 +532,17 @@ async function fetchFileWithCache(filename, version, fileType) {
   }
 
   const text = await response.text();
-  if (fileType === 'json') {
-    window.APP_CONFIG = JSON.parse(text);
-  } else if (fileType === 'js') {
-    const script = document.createElement('script');
-    script.text = text;
-    document.body.appendChild(script);
+  try {
+    if (fileType === 'json') {
+      applyAppConfig(JSON.parse(text));
+    } else if (fileType === 'bundle') {
+      return JSON.parse(text);
+    }
+  } catch (e) {
+    console.error(`[${filename}] JSON 解析失败:`, e);
+    throw new Error(`${filename} 数据格式异常，无法解析`);
   }
+  return null;
 }
 
 async function cleanOldCache(cache, filename, currentUrl) {
@@ -419,14 +578,14 @@ async function parsePriceBundle(priceObj) {
     jsonText = decodePlainPayload(priceObj.payload || "");
   }
   const parsed = JSON.parse(jsonText || "{}");
-  return { bySpec: parsed.bySpec || {}, meta: priceObj.meta || null };
+  return { payload: parsed, meta: priceObj.meta || null };
 }
 
 function parseStockBundle(stockObj) {
   if (!stockObj) throw new Error("未找到远程库存包");
   if (stockObj.secured) throw new Error("库存包必须保持明文");
   const parsed = JSON.parse(decodePlainPayload(stockObj.payload || "") || "{}");
-  return { byCode: parsed.byCode || {}, meta: stockObj.meta || null };
+  return { payload: parsed, meta: stockObj.meta || null };
 }
 
 // 彻底重构的 ensureDataLoaded（将旧版的 fetchWithMirrors 摘除，接入了最新的缓存机制）
@@ -454,9 +613,9 @@ async function ensureDataLoaded() {
       const parsedPrice = await parsePriceBundle(priceObj);
       const parsedStock = parseStockBundle(stockObj);
 
-      PRICE_DATA = { bySpec: parsedPrice.bySpec || {} };
+      PRICE_DATA = parsedPrice.payload || { bySpec: {} };
       PRICE_META = parsedPrice.meta || null;
-      STOCK_DATA = { byCode: parsedStock.byCode || {} };
+      STOCK_DATA = parsedStock.payload || { byCode: {} };
       STOCK_META = parsedStock.meta || null;
 
       updateVersionText();
@@ -481,18 +640,43 @@ async function ensureDataLoaded() {
 
 function rebuildMergedDB() {
   DB = {};
+  const cfg = getRuntimeAppConfig();
+  if (window.ConfigCore) {
+    PRICE_ROWS = window.ConfigCore.adaptPricePayload(PRICE_DATA, cfg);
+    STOCK_ROWS = window.ConfigCore.adaptStockPayload(STOCK_DATA, cfg);
+    const rows = window.ConfigCore.mergePriceAndStockRows(PRICE_ROWS, STOCK_ROWS, cfg);
+    rows.forEach((row) => {
+      const key = row.key || window.ConfigCore.getFieldValue(row, window.ConfigCore.getPrimaryField(cfg));
+      if (!key) return;
+      DB[key] = createLegacyCompatibleItem(row);
+    });
+    return;
+  }
+
   const bySpec = PRICE_DATA.bySpec || {};
   const byCode = STOCK_DATA.byCode || {};
-
   Object.keys(bySpec).forEach((spec) => {
     const item = bySpec[spec] || {};
     const code = item.c || "";
-    DB[spec] = {
-      c: code, p: Number(item.p) || 0, s: item.s || "",
-      r: item.r || "", b: item.b || "", n: item.n || "",
-      m: item.m || "", a: item.a || "", i: byCode[code] || ""
-    };
+    DB[spec] = { c: code, p: Number(item.p) || 0, s: item.s || "", r: item.r || "", b: item.b || "", n: item.n || "", m: item.m || "", a: item.a || "", i: byCode[code] || "" };
   });
+}
+
+function createLegacyCompatibleItem(row) {
+  const fields = row.fields || {};
+  return {
+    key: row.key,
+    fields: fields,
+    c: fields.code || "",
+    p: Number(fields.face_price) || 0,
+    s: fields.special || "",
+    r: fields.remark || "",
+    b: fields.brand || "",
+    n: fields.name || "",
+    m: fields.mnemonic || "",
+    a: fields.alias || "",
+    i: fields.stock || ""
+  };
 }
 
 function pickVersion(meta) {
@@ -523,6 +707,34 @@ function convertPlainLineToRegex(line) {
 function matchRegexTarget(target, re) {
   if (!window.QueryRegex || typeof window.QueryRegex.matchRegexTarget !== "function") throw new Error("正则模块未加载");
   return window.QueryRegex.matchRegexTarget(target, re);
+}
+
+function toCoreRow(rowOrKey, item) {
+  if (rowOrKey && rowOrKey.fields) return { key: rowOrKey.key || rowOrKey.spec || "", fields: rowOrKey.fields };
+  if (item && item.fields) return { key: rowOrKey || item.key || "", fields: item.fields };
+  const source = item || {};
+  return {
+    key: rowOrKey || source.spec || "",
+    fields: {
+      code: source.c || source.code || "",
+      spec: rowOrKey || source.spec || "",
+      face_price: Number(source.p || source.facePrice) || 0,
+      quote_price: source.price || "",
+      special: source.s || source.special || "",
+      stock: source.i || source.stock || "",
+      remark: source.r || source.remark || "",
+      brand: source.b || source.brand || "",
+      name: source.n || source.name || "",
+      mnemonic: source.m || source.mnemonic || "",
+      alias: source.a || source.alias || ""
+    }
+  };
+}
+
+function getConfiguredValue(row, fieldKey) {
+  const key = normalizeFieldKey(fieldKey);
+  if (window.ConfigCore) return window.ConfigCore.getFieldValue(toCoreRow(row), key);
+  return row && row[key] !== undefined ? row[key] : "";
 }
 
 function escapeHtml(value) {
@@ -582,7 +794,7 @@ function renderStateCard(kind, title, message, hint) {
 }
 
 function renderLoadingState(message) { renderStateCard("loading", "数据同步", message, "仅在初次进入时拉取，后续皆为0延迟的极速缓存。"); }
-function renderEmptyState(message) { renderStateCard("empty", "等待查询", message, "支持规格、代码、助记码、别名、备注和特价关键词。"); }
+function renderEmptyState(message) { renderStateCard("empty", "等待查询", message, getAppConfig().labels?.empty_hint || "支持规格、代码、助记码、别名、备注和特价关键词。"); }
 function renderErrorState(message) { renderStateCard("error", "加载失败", message, "网络或节点连接失败，请稍后重试。"); }
 
 function getCurrentPriceSettings() {
@@ -596,6 +808,7 @@ function getCurrentDiscountStep() { return DiscountEngine.sanitizeStepPercent(do
 function updateStepPresetState(stepValue) {
   const normalized = DiscountEngine.sanitizeStepPercent(stepValue);
   document.querySelectorAll(".step-preset").forEach((button) => {
+    if (!button.dataset.step) { button.classList.remove("is-active"); return; }
     button.classList.toggle("is-active", DiscountEngine.sanitizeStepPercent(button.dataset.step) === normalized);
   });
 }
@@ -625,7 +838,9 @@ function findMatchesByRegex(line, allKeys, onlyInStock) {
   if (!re) return[];
   return allKeys.filter((key) => {
     const item = DB[key] || {};
-    if (onlyInStock && !hasStockValue(item.i)) return false;
+    const row = toCoreRow(key, item);
+    if (onlyInStock && !hasStockValue(window.ConfigCore ? window.ConfigCore.getFieldValue(row, "stock") : item.i)) return false;
+    if (window.ConfigCore) return window.ConfigCore.rowMatchesText(row, line, getRuntimeAppConfig());
     return matchRegexTarget(getSearchTarget(key, item), re);
   });
 }
@@ -666,6 +881,9 @@ function refreshRowPrice(row, flash) {
   const settings = getCurrentPriceSettings();
   const priceInfo = calcDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
   row.price = priceInfo.display;
+  if (!row.fields) row.fields = {};
+  row.fields.quote_price = priceInfo.display;
+  row.fields.price = priceInfo.display;
 
   const resultCard = row.cardEl || document.querySelector('.result-card[data-row-id="' + row.id + '"]');
   if (!resultCard) return;
@@ -719,42 +937,78 @@ function getDiscountButtonMarkup(rowId, direction) {
   const label = direction < 0 ? "降低折扣" : "提高折扣";
   return[
     '<button type="button" class="discount-stepper-btn"',
-    ' onpointerdown="startDiscountPress(event, ', rowId, ", ", direction, ')"',
-    ' onclick="handleDiscountButtonClick(event, ', rowId, ", ", direction, ')"',
+    ' data-row-id="', rowId, '" data-direction="', direction, '"',
     ' aria-label="', label, '">', symbol, "</button>"
   ].join("");
 }
 
 function appendResultRow(resultList, matchKey, item, shouldCheck, isExact) {
-  const preset = DiscountEngine.getDefaultDiscountPreset({ spec: matchKey, special: item.s || "", brand: item.b || "", name: item.n || "" }, getDefaultDiscountConfig());
+  const coreRow = toCoreRow(matchKey, item);
+  const fields = { ...(coreRow.fields || {}) };
+  const runtimeConfig = getRuntimeAppConfig();
+  const preset = window.ConfigCore
+    ? window.ConfigCore.getDiscountPreset({ key: coreRow.key, fields }, runtimeConfig)
+    : DiscountEngine.getDefaultDiscountPreset({ spec: matchKey, special: item.s || "", brand: item.b || "", name: item.n || "" }, getDefaultDiscountConfig());
   const settings = getCurrentPriceSettings();
-  const priceInfo = calcDiscountedPrice(item.p, preset.percent / 100, settings.decimals, settings.threshold);
+  const facePrice = Number(fields.face_price !== undefined ? fields.face_price : item.p) || 0;
+  const priceInfo = calcDiscountedPrice(facePrice, preset.percent / 100, settings.decimals, settings.threshold);
+  fields.quote_price = priceInfo.display;
+  fields.price = priceInfo.display;
   const rowData = {
-    id: g_Results.length, orderIndex: g_Results.length, code: item.c || "", spec: matchKey,
-    brand: item.b || "", name: item.n || "", mnemonic: item.m || "", alias: item.a || "",
-    price: priceInfo.display, facePrice: Number(item.p) || 0, remark: item.r || "",
-    special: item.s || "", stock: item.i || "", discountPercent: preset.percent,
+    id: g_Results.length, orderIndex: g_Results.length, key: coreRow.key || matchKey, fields,
+    code: fields.code || "", spec: fields.spec || matchKey,
+    brand: fields.brand || "", name: fields.name || "", mnemonic: fields.mnemonic || "", alias: fields.alias || "",
+    price: priceInfo.display, facePrice: facePrice, remark: fields.remark || "",
+    special: fields.special || "", stock: fields.stock || "", discountPercent: preset.percent,
     discountLabel: preset.label, discountCategory: preset.category || "", hasCustomDiscount: false, checked: shouldCheck
   };
   g_Results.push(rowData);
 
-  const stockMarkup = hasStockValue(rowData.stock) ? '<span class="stock-chip">库存 ' + escapeHtml(rowData.stock) + "</span>" : "";
-  const specialMarkup = rowData.special ? '<span class="special-chip">' + escapeHtml(rowData.special) + "</span>" : "";
-  const remarkMarkup = rowData.remark ? '<span class="info-note info-note-inline">' + escapeHtml(rowData.remark) + "</span>" : "";
-  const metaLineMarkup = (specialMarkup || remarkMarkup) ? '<div class="meta-line">' + specialMarkup + remarkMarkup + "</div>" : "";
+  const layout = runtimeConfig.result_layout || {};
+  const identityFields = (layout.identity || ["code", "spec"]).filter(Boolean);
+  const primaryIdentity = identityFields[0] || "code";
+  const titleIdentity = identityFields[1] || "spec";
+  const chipFields = (layout.chips || ["stock", "special"]).filter(Boolean);
+  const metricFields = (layout.metrics || ["face_price", "quote_price"]).filter(Boolean);
+  const detailFields = (layout.details || ["remark"]).filter(Boolean);
+
+  const identityLead = getConfiguredValue(rowData, primaryIdentity) || ("未设置" + getFieldLabel(primaryIdentity));
+  const identityTitle = getConfiguredValue(rowData, titleIdentity) || rowData.key;
+  const extraIdentityMarkup = identityFields.slice(2).map((field) => {
+    const value = getConfiguredValue(rowData, field);
+    return value ? '<span class="identity-code">' + escapeHtml(value) + "</span>" : "";
+  }).join("");
+  const chipMarkup = chipFields.map((field) => {
+    const value = getConfiguredValue(rowData, field);
+    if (!value) return "";
+    const label = field === "stock" ? getFieldConfig().stockPrefix : "";
+    const cls = field === "stock" ? "stock-chip" : "special-chip";
+    return '<span class="' + cls + '">' + escapeHtml(label + value) + "</span>";
+  }).join("");
+  const detailMarkup = detailFields.map((field) => {
+    const value = getConfiguredValue(rowData, field);
+    return value ? '<span class="info-note info-note-inline">' + escapeHtml(value) + "</span>" : "";
+  }).join("");
+  const metaLineMarkup = (chipMarkup || detailMarkup) ? '<div class="meta-line">' + chipMarkup + detailMarkup + "</div>" : "";
+  const metricMarkup = metricFields.map((field) => {
+    const value = field === "quote_price" ? priceInfo.display : getConfiguredValue(rowData, field);
+    const display = field === "face_price" ? formatCompactNumber(value || 0) : value;
+    const priceClass = field === "quote_price" ? " price" : "";
+    const accentClass = field === "quote_price" ? " metric-inline-accent" : "";
+    return '<div class="metric-inline' + accentClass + '"><span class="metric-label">' + escapeHtml(getFieldLabel(field)) + '</span><strong class="' + priceClass.trim() + '">' + escapeHtml(display) + '</strong></div>';
+  }).join("");
 
   const resultCard = document.createElement("article");
   resultCard.className = "result-card" + (isExact ? " match-exact" : "");
   resultCard.setAttribute("data-row-id", String(rowData.id));
   resultCard.innerHTML =[
     '<div class="result-row">',
-    '<label class="select-chip discount-select-chip"><input type="checkbox" data-id="', rowData.id, '" ', rowData.checked ? "checked" : "", '><span>勾选</span></label>',
+    '<label class="select-chip discount-select-chip"><input type="checkbox" data-id="', rowData.id, '" ', rowData.checked ? "checked" : "", '><span>', escapeHtml(runtimeConfig.labels?.selected_label || "勾选"), '</span></label>',
     '<div class="result-summary">',
-    '<div class="identity-line"><div class="identity-code">', escapeHtml(rowData.code || "未设置代码"), "</div>",
-    '<h3 class="identity-spec">', escapeHtml(matchKey), "</h3>", stockMarkup, "</div>", metaLineMarkup, "</div>",
+    '<div class="identity-line"><div class="identity-code">', escapeHtml(identityLead), "</div>",
+    '<h3 class="identity-spec">', escapeHtml(identityTitle), "</h3>", extraIdentityMarkup, "</div>", metaLineMarkup, "</div>",
     '<div class="result-side"><div class="result-metrics">',
-    '<div class="metric-inline"><span class="metric-label">面价</span><strong>', escapeHtml(formatCompactNumber(item.p || 0)), '</strong></div>',
-    '<div class="metric-inline metric-inline-accent"><span class="metric-label">报价</span><strong class="price">', escapeHtml(priceInfo.display), '</strong></div>',
+    metricMarkup,
     "</div>",
     '<div class="discount-panel"><div class="discount-stepper" data-id="', rowData.id, '">',
     getDiscountButtonMarkup(rowData.id, -1),
@@ -902,24 +1156,10 @@ function doCopy() {
   const selected = g_Results.filter((row) => row.checked);
   if (selected.length === 0) { showToast("请先勾选需要复制的行"); return; }
 
-  const showCode = document.getElementById("chk_code").checked;
-  const showSpec = document.getElementById("chk_spec").checked;
-  const showPrice = document.getElementById("chk_price").checked;
-  const showSpecial = document.getElementById("chk_special").checked;
-  const showStock = document.getElementById("chk_stock").checked;
-  const showRemark = document.getElementById("chk_remark").checked;
-
-  let text = "";
-  selected.forEach((row) => {
-    const line1Parts =[];
-    if (showCode) line1Parts.push(row.code);
-    if (showSpec) line1Parts.push(row.spec);
-    if (showPrice) line1Parts.push("含税" + row.price);
-    if (showSpecial && row.special) line1Parts.push(row.special);
-    if (showStock && row.stock) line1Parts.push(row.stock);
-    text += line1Parts.join(" ") + "\n";
-    if (showRemark && row.remark) text += row.remark + "\n";
-  });
+  const selectedFields = Array.from(document.querySelectorAll('#copyColumnControls input[type="checkbox"][data-copy-field]:checked')).map((input) => input.dataset.copyField);
+  const text = window.ConfigCore
+    ? window.ConfigCore.renderCopyText(selected.map((row) => toCoreRow(row)), getRuntimeAppConfig(), selectedFields)
+    : selected.map((row) => [row.code, row.spec, getFieldConfig().copyPrefix + row.price].filter(Boolean).join(" ")).join("\n") + "\n";
   copyToClipboard(text);
 }
 
@@ -934,7 +1174,7 @@ function toggleAll(source) {
   updateSelectionUi();
 }
 
-function openMmcLogin() { copyToClipboard(MMC_PASSWORD); showToast("已复制密码"); window.open(MMC_URL, "_blank", "noopener"); }
+function openMmcLogin() { window.open(MMC_URL, "_blank", "noopener"); }
 
 function copyToClipboard(text) {
   if (navigator.clipboard && window.isSecureContext) {
@@ -986,7 +1226,40 @@ function syncMobileActionDockState() {
   }
 }
 
-function bindUiEvents() {["defaultDiscountEx", "defaultDiscountOsg", "defaultDiscountMitsubishi", "defaultDiscountOther"].forEach((id) => {
+function bindUiEvents() {
+  const searchBtn = document.getElementById("btnSearch");
+  const stockBtn = document.getElementById("btnRegexConvert");
+  const mmcBtn = document.getElementById("btnMmc");
+  const copyBtn = document.getElementById("btnCopy");
+  const backTopBtn = document.getElementById("btnBackToTop");
+  const stepWrap = document.getElementById("stepPresetControls");
+  const toggleAllInput = document.getElementById("toggleAllResults");
+  if (searchBtn) searchBtn.addEventListener("click", doSearch);
+  if (stockBtn) stockBtn.addEventListener("click", doRegexSearchConverted);
+  if (mmcBtn) mmcBtn.addEventListener("click", openMmcLogin);
+  if (copyBtn) copyBtn.addEventListener("click", doCopy);
+  if (backTopBtn) backTopBtn.addEventListener("click", scrollToTop);
+  if (toggleAllInput) toggleAllInput.addEventListener("change", function () { toggleAll(this); });
+  if (stepWrap) {
+    stepWrap.addEventListener("click", function (event) {
+      const button = event.target && event.target.closest ? event.target.closest("button") : null;
+      if (!button || !stepWrap.contains(button)) return;
+      if (button.id === "btnDefaultDiscounts") { openDefaultDiscountConfig(); return; }
+      if (button.classList.contains("step-preset")) setDiscountStepPreset(button);
+    });
+  }
+  const closeDefaultBtn = document.getElementById("btnCloseDefaultDiscounts");
+  const resetDefaultBtn = document.getElementById("btnResetDefaultDiscounts");
+  const cancelDefaultBtn = document.getElementById("btnCancelDefaultDiscounts");
+  const saveDefaultBtn = document.getElementById("btnSaveDefaultDiscounts");
+  const defaultBackdrop = document.getElementById("defaultDiscountBackdrop");
+  if (closeDefaultBtn) closeDefaultBtn.addEventListener("click", closeDefaultDiscountConfig);
+  if (resetDefaultBtn) resetDefaultBtn.addEventListener("click", resetDefaultDiscountConfig);
+  if (cancelDefaultBtn) cancelDefaultBtn.addEventListener("click", closeDefaultDiscountConfig);
+  if (saveDefaultBtn) saveDefaultBtn.addEventListener("click", saveDefaultDiscountConfig);
+  if (defaultBackdrop) defaultBackdrop.addEventListener("click", closeDefaultDiscountConfig);
+
+  ["defaultDiscountEx", "defaultDiscountOsg", "defaultDiscountMitsubishi", "defaultDiscountOther"].forEach((id) => {
     const input = document.getElementById(id);
     if (!input) return;
     input.addEventListener("blur", function () {
@@ -996,12 +1269,28 @@ function bindUiEvents() {["defaultDiscountEx", "defaultDiscountOsg", "defaultDis
     });
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); saveDefaultDiscountConfig(); } });
   });
-  document.getElementById("discountStep").addEventListener("input", function () { updateStepPresetState(this.value); });
-  document.getElementById("discountStep").addEventListener("change", function () { syncDiscountStepInput(this.value); });
-  document.getElementById("discountStep").addEventListener("blur", function () { syncDiscountStepInput(this.value); });
-  document.getElementById("decimals").addEventListener("change", refreshRenderedPrices);
-  document.getElementById("threshold").addEventListener("change", refreshRenderedPrices);
-  document.getElementById("resultBody").addEventListener("change", function (event) {
+  const discountStep = document.getElementById("discountStep");
+  if (discountStep) {
+    discountStep.addEventListener("input", function () { updateStepPresetState(this.value); });
+    discountStep.addEventListener("change", function () { syncDiscountStepInput(this.value); });
+    discountStep.addEventListener("blur", function () { syncDiscountStepInput(this.value); });
+  }
+  const decimalsInput = document.getElementById("decimals");
+  const thresholdInput = document.getElementById("threshold");
+  if (decimalsInput) decimalsInput.addEventListener("change", refreshRenderedPrices);
+  if (thresholdInput) thresholdInput.addEventListener("change", refreshRenderedPrices);
+  const resultBody = document.getElementById("resultBody");
+  resultBody.addEventListener("pointerdown", function (event) {
+    const target = event.target && event.target.closest ? event.target.closest(".discount-stepper-btn") : null;
+    if (!target) return;
+    startDiscountPress(event, target.dataset.rowId, target.dataset.direction);
+  });
+  resultBody.addEventListener("click", function (event) {
+    const target = event.target && event.target.closest ? event.target.closest(".discount-stepper-btn") : null;
+    if (!target) return;
+    handleDiscountButtonClick(event, target.dataset.rowId, target.dataset.direction);
+  });
+  resultBody.addEventListener("change", function (event) {
     const target = event.target;
     if (!target || typeof target.matches !== "function") return;
     if (target.matches('input[type="checkbox"][data-id]')) {
@@ -1011,7 +1300,7 @@ function bindUiEvents() {["defaultDiscountEx", "defaultDiscountOsg", "defaultDis
     }
     if (target.matches(".discount-manual")) applyManualDiscount(target.getAttribute("data-id"), target.value);
   });
-  document.getElementById("resultBody").addEventListener("keydown", function (event) {
+  resultBody.addEventListener("keydown", function (event) {
     const target = event.target;
     if (target && target.matches(".discount-manual") && event.key === "Enter") { event.preventDefault(); target.blur(); }
   });

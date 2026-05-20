@@ -121,12 +121,15 @@
   }
 
   function toWindowScript(varName, obj) {
-    return "window." + varName + " = " + JSON.stringify(obj) + ";";
+    return JSON.stringify(obj);
   }
 
   async function encodePriceBundle(priceDataset, password) {
-    var bySpec = (priceDataset && priceDataset.bySpec) || {};
-    var json = JSON.stringify({ bySpec: bySpec });
+    var dataset = priceDataset || {};
+    var legacyBySpec = dataset.bySpec || {};
+    var json = dataset.schema_version === 2
+      ? JSON.stringify(dataset)
+      : JSON.stringify({ bySpec: legacyBySpec });
     var secured = !!(password && String(password).trim());
     var payload = secured
       ? await encryptText(json, String(password).trim())
@@ -137,7 +140,7 @@
       payload: payload,
       meta: {
         version: new Date().toISOString(),
-        rowCount: Object.keys(bySpec).length,
+        rowCount: dataset.schema_version === 2 && Array.isArray(dataset.rows) ? dataset.rows.length : Object.keys(legacyBySpec).length,
       },
     };
   }
@@ -151,19 +154,21 @@
     } else {
       text = decodePlainPayload(data.payload || "");
     }
-    var parsed = JSON.parse(text || "{}");
-    return { bySpec: parsed.bySpec || {} };
+    return JSON.parse(text || "{}");
   }
 
-  function encodeStockBundle(stockByCode) {
-    var byCode = stockByCode || {};
-    var json = JSON.stringify({ byCode: byCode });
+  function encodeStockBundle(stockDataset) {
+    var dataset = stockDataset || {};
+    var legacyByCode = dataset.byCode || dataset;
+    var json = dataset.schema_version === 2
+      ? JSON.stringify(dataset)
+      : JSON.stringify({ byCode: legacyByCode });
     return {
       secured: false,
       payload: DataUtils.utf8ToBase64(json),
       meta: {
         version: new Date().toISOString(),
-        rowCount: Object.keys(byCode).length,
+        rowCount: dataset.schema_version === 2 && Array.isArray(dataset.rows) ? dataset.rows.length : Object.keys(legacyByCode).length,
       },
     };
   }
@@ -172,8 +177,7 @@
     var data = bundle || {};
     if (data.secured) throw new Error("Stock bundle should remain plain in this architecture");
     var text = decodePlainPayload(data.payload || "");
-    var parsed = JSON.parse(text || "{}");
-    return { byCode: parsed.byCode || {} };
+    return JSON.parse(text || "{}");
   }
 
   return {
@@ -183,6 +187,7 @@
     decodeStockBundle: decodeStockBundle,
     encryptText: encryptText,
     decryptText: decryptText,
+    decodePlainPayload: decodePlainPayload,
     toWindowScript: toWindowScript,
   };
 });

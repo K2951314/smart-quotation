@@ -1,10 +1,10 @@
 ﻿(function (root, factory) {
   if (typeof module === "object" && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require("../../apps/lib/config-core"));
   } else {
-    root.DataUtils = factory();
+    root.DataUtils = factory(root.ConfigCore);
   }
-})(typeof self !== "undefined" ? self : this, function () {
+})(typeof self !== "undefined" ? self : this, function (ConfigCore) {
   var STANDARD_PRICE_COLS = [
     "代码",
     "规格型号",
@@ -42,20 +42,43 @@
     });
   }
 
-  function normalizePriceRows(rows) {
+  function normalizePriceRows(rows, config) {
     var list = Array.isArray(rows) ? rows : [];
     if (!list.length) return [];
 
     var columns = Object.keys(list[0]);
     var generic = isGenericColumns(columns);
     var genericCols = generic ? sortGenericColumns(columns) : [];
+    var cfg = ConfigCore ? ConfigCore.normalizeConfig(config || {}) : null;
+    var configuredPriceFields = cfg ? cfg.fields.filter(function (field) {
+      return field.source === "price" && field.type !== "computed";
+    }) : [];
     var out = [];
 
     for (var i = 0; i < list.length; i++) {
       var row = list[i] || {};
       var normalized = {};
 
-      if (generic) {
+      if (cfg) {
+        var sourceRow = row;
+        if (generic) {
+          sourceRow = {};
+          for (var g = 0; g < configuredPriceFields.length; g++) {
+            var genericKey = genericCols[g];
+            var targetField = configuredPriceFields[g];
+            if (genericKey && targetField) sourceRow[targetField.key] = row[genericKey];
+          }
+        }
+        var fields = ConfigCore.mapExcelRowToFields(sourceRow, cfg, "price");
+        configuredPriceFields.forEach(function (field) {
+          if (fields[field.key] !== undefined) normalized[field.label] = fields[field.key];
+        });
+        if (Object.prototype.hasOwnProperty.call(sourceRow, "brand")) {
+          normalized.brand = toStringSafe(sourceRow.brand);
+        } else if (fields.brand) {
+          normalized.brand = toStringSafe(fields.brand);
+        }
+      } else if (generic) {
         for (var j = 0; j < STANDARD_PRICE_COLS.length; j++) {
           var key = genericCols[j];
           normalized[STANDARD_PRICE_COLS[j]] = toStringSafe(key ? row[key] : "");
@@ -71,7 +94,9 @@
         normalized.brand = toStringSafe(row.brand);
       }
 
-      normalized["销售单价"] = parseMoney(normalized["销售单价"]);
+      if (Object.prototype.hasOwnProperty.call(normalized, "销售单价")) {
+        normalized["销售单价"] = parseMoney(normalized["销售单价"]);
+      }
       out.push(normalized);
     }
 
@@ -106,17 +131,24 @@
     return defaultBrand;
   }
 
+  function getBrandConfig(config) {
+    var cfg = config || {};
+    if (cfg.merger && cfg.merger.brand_rules) return cfg.merger.brand_rules;
+    return cfg;
+  }
+
   function splitPriceFilesByBrand(files, config, overrides) {
     var list = Array.isArray(files) ? files : [];
     var overrideMap = overrides || {};
+    var brandConfig = getBrandConfig(config);
     var grouped = {};
     var fileBrands = [];
 
     for (var i = 0; i < list.length; i++) {
       var item = list[i] || {};
       var filename = toStringSafe(item.filename);
-      var normalizedRows = normalizePriceRows(item.rows || []);
-      var detected = detectBrandByFilename(filename, config);
+      var normalizedRows = normalizePriceRows(item.rows || [], config);
+      var detected = detectBrandByFilename(filename, brandConfig);
       var selected = toStringSafe(overrideMap[filename]) || detected;
 
       if (!grouped[selected]) grouped[selected] = [];
@@ -137,17 +169,33 @@
     return { grouped: grouped, fileBrands: fileBrands };
   }
 
-  function mergePriceTables(tables) {
+  function mergePriceTables(tables, config) {
     var list = Array.isArray(tables) ? tables : [];
     var merged = [];
     for (var i = 0; i < list.length; i++) {
-      var rows = normalizePriceRows(list[i] || []);
+      var rows = normalizePriceRows(list[i] || [], config);
       for (var j = 0; j < rows.length; j++) merged.push(rows[j]);
     }
     return merged;
   }
 
-  function buildPriceDataset(rows) {
+  function buildPriceDataset(rows, config) {
+    if (ConfigCore) {
+      var cfg = ConfigCore.normalizeConfig(config || {});
+      var primary = ConfigCore.getPrimaryField(cfg);
+      var sourceRows = Array.isArray(rows) ? rows : [];
+      var normalizedRows = [];
+      for (var x = 0; x < sourceRows.length; x++) {
+        var sourceRow = sourceRows[x] || {};
+        var fields = ConfigCore.mapExcelRowToFields(sourceRow, cfg, "price");
+        if (sourceRow.brand && !fields.brand) fields.brand = toStringSafe(sourceRow.brand);
+        var key = toStringSafe(fields[primary]);
+        if (!key) continue;
+        normalizedRows.push({ key: key, fields: fields });
+      }
+      return { schema_version: 2, primary_field: primary, rows: normalizedRows };
+    }
+
     var normalized = normalizePriceRows(rows);
     var bySpec = {};
     for (var i = 0; i < normalized.length; i++) {
@@ -176,7 +224,18 @@
     return "";
   }
 
-  function buildStockByCode(stockRows) {
+  function getConfiguredStockColumns(config, columns, genericCols) {
+    var cfg = ConfigCore ? ConfigCore.normalizeConfig(config || {}) : null;
+    var stockCfg = cfg && cfg.merger && cfg.merger.stock_columns ? cfg.merger.stock_columns : {};
+    return {
+      code: resolveColumn(columns, stockCfg.code || ["物料长代码", "代码", "物料编码", "编码"]) || genericCols[0] || "",
+      warehouse: resolveColumn(columns, stockCfg.warehouse || ["发料仓库", "仓库", "仓位", "仓"]) || genericCols[1] || "",
+      quantity: resolveColumn(columns, stockCfg.quantity || ["库存数量", "数量", "可用数量", "库存"]) || genericCols[2] || "",
+      status: resolveColumn(columns, stockCfg.status || ["参考状态", "状态", "备注"]) || genericCols[3] || "",
+    };
+  }
+
+  function buildStockByCode(stockRows, config) {
     var rows = Array.isArray(stockRows) ? stockRows : [];
     if (!rows.length) return {};
 
@@ -184,17 +243,11 @@
     var generic = isGenericColumns(columns);
     var genericCols = generic ? sortGenericColumns(columns) : [];
 
-    var codeCol = resolveColumn(columns, ["物料长代码", "代码", "物料编码", "编码"]);
-    var whCol = resolveColumn(columns, ["发料仓库", "仓库", "仓位", "仓"]);
-    var qtyCol = resolveColumn(columns, ["库存数量", "数量", "可用数量", "库存"]);
-    var statusCol = resolveColumn(columns, ["参考状态", "状态", "备注"]);
-
-    if (generic) {
-      codeCol = codeCol || genericCols[0] || "";
-      whCol = whCol || genericCols[1] || "";
-      qtyCol = qtyCol || genericCols[2] || "";
-      statusCol = statusCol || genericCols[3] || "";
-    }
+    var mapped = getConfiguredStockColumns(config, columns, genericCols);
+    var codeCol = mapped.code;
+    var whCol = mapped.warehouse;
+    var qtyCol = mapped.quantity;
+    var statusCol = mapped.status;
 
     var bucket = {};
     for (var i = 0; i < rows.length; i++) {
@@ -224,6 +277,22 @@
       byCode[c] = bucket[c].join(" | ");
     }
     return byCode;
+  }
+
+  function buildStockDataset(stockRows, config) {
+    var cfg = ConfigCore ? ConfigCore.normalizeConfig(config || {}) : null;
+    var byCode = buildStockByCode(stockRows, cfg);
+    var keyField = cfg ? ConfigCore.getStockKeyField(cfg) : "code";
+    return {
+      schema_version: 2,
+      key_field: keyField,
+      rows: Object.keys(byCode).map(function (code) {
+        var fields = {};
+        fields[keyField] = code;
+        fields.stock = byCode[code];
+        return { key: code, fields: fields };
+      }),
+    };
   }
 
   function bytesToBase64(bytes) {
@@ -259,6 +328,7 @@
     mergePriceTables: mergePriceTables,
     buildPriceDataset: buildPriceDataset,
     buildStockByCode: buildStockByCode,
+    buildStockDataset: buildStockDataset,
     bytesToBase64: bytesToBase64,
     utf8ToBase64: utf8ToBase64,
   };
