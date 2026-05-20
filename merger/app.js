@@ -1,6 +1,6 @@
 ﻿(function () {
   var state = {
-    brandConfig: null,
+    appConfig: null,
     stage1Files: [],
     stage1Overrides: {},
     stage2Rows: [],
@@ -58,23 +58,26 @@
 
   function getConfigFromEditor() {
     try {
-      var raw = $("brandConfig").value;
+      var raw = $("appConfig").value;
       var cfg = JSON.parse(raw);
-      if (!cfg || !Array.isArray(cfg.brands)) throw new Error("brands must be an array");
-      return cfg;
+      var normalized = ConfigCore.normalizeConfig(cfg && cfg.brands ? { merger: { brand_rules: cfg } } : cfg);
+      var validation = ConfigCore.validateConfig(normalized);
+      if (!validation.ok) throw new Error(validation.errors.join("; "));
+      return normalized;
     } catch (err) {
-      throw new Error("品牌配置不是合法 JSON: " + err.message);
+      throw new Error("配置不是合法 JSON: " + err.message);
     }
   }
 
   function getBrandOptions(cfg) {
     var list = [];
-    var brands = Array.isArray(cfg.brands) ? cfg.brands : [];
+    var brandCfg = cfg && cfg.merger ? cfg.merger.brand_rules : cfg;
+    var brands = Array.isArray(brandCfg.brands) ? brandCfg.brands : [];
     for (var i = 0; i < brands.length; i++) {
       var id = String(brands[i].id || "").trim();
       if (id) list.push(id);
     }
-    var fallback = String(cfg.defaultBrand || "UNMAPPED").trim() || "UNMAPPED";
+    var fallback = String(brandCfg.defaultBrand || "UNMAPPED").trim() || "UNMAPPED";
     if (list.indexOf(fallback) < 0) list.push(fallback);
     return list;
   }
@@ -128,6 +131,42 @@
     $("stage1Summary").textContent = summary || "无";
   }
 
+  function renderConfigPreview(cfg) {
+    var config = cfg || getConfigFromEditor();
+    var fields = config.fields || [];
+    var searchable = fields.filter(function (field) { return field.searchable; }).map(function (field) { return field.label; }).join(" / ");
+    var copy = (config.copy.columns || []).filter(function (column) { return column.default; }).map(function (column) { return column.label; }).join(" / ");
+    var priceAliases = fields.filter(function (field) { return field.source === "price"; }).map(function (field) {
+      return field.label + ": " + field.excel_aliases.join("|");
+    }).join("\n");
+    $("configPreview").textContent = [
+      "字段数: " + fields.length,
+      "搜索字段: " + (searchable || "无"),
+      "默认复制: " + (copy || "无"),
+      "",
+      "价格列别名:",
+      priceAliases || "无"
+    ].join("\n");
+  }
+
+  function validateConfigEditor() {
+    try {
+      var cfg = getConfigFromEditor();
+      renderConfigPreview(cfg);
+      setStatus("配置校验通过", "ok");
+      return cfg;
+    } catch (err) {
+      setStatus(err.message, "error");
+      throw err;
+    }
+  }
+
+  function exportConfigJson() {
+    var cfg = validateConfigEditor();
+    triggerDownload("config.json", JSON.stringify(cfg, null, 2), "application/json;charset=utf-8");
+    setStatus("已导出 config.json", "ok");
+  }
+
   async function analyzeStage1() {
     var input = $("stage1Files");
     if (!input.files.length) {
@@ -153,7 +192,8 @@
 
     var cfg = getConfigFromEditor();
     var splitResult = DataUtils.splitPriceFilesByBrand(state.stage1Files, cfg, state.stage1Overrides);
-    var defaultBrand = String(cfg.defaultBrand || "UNMAPPED").trim() || "UNMAPPED";
+    var brandCfg = cfg.merger ? cfg.merger.brand_rules : cfg;
+    var defaultBrand = String(brandCfg.defaultBrand || "UNMAPPED").trim() || "UNMAPPED";
     var hasUnmapped = Object.prototype.hasOwnProperty.call(splitResult.grouped, defaultBrand);
     if (hasUnmapped) {
       setStatus("仍存在 UNMAPPED 文件，请先手动改判再导出", "warn");
@@ -177,7 +217,8 @@
     }
 
     var files = await readExcelFiles(input.files);
-    state.stage2Rows = DataUtils.mergePriceTables(files.map(function (f) { return f.rows; }));
+    var cfg = getConfigFromEditor();
+    state.stage2Rows = DataUtils.mergePriceTables(files.map(function (f) { return f.rows; }), cfg);
     updateCounters();
     setStatus("阶段2文件已加载", "ok");
   }
@@ -206,9 +247,10 @@
     }
 
     var password = $("pricePassword").value.trim();
-    var result = await ExportUtils.createPriceBundleScript(state.stage2Rows, password);
-    triggerDownload("price.bundle.js", result.script, "text/javascript;charset=utf-8");
-    setStatus("已导出 price.bundle.js", "ok");
+    var cfg = getConfigFromEditor();
+    var result = await ExportUtils.createPriceBundleScript(state.stage2Rows, password, cfg);
+    triggerDownload("price.bundle.json", result.script, "application/json;charset=utf-8");
+    setStatus("已导出 price.bundle.json", "ok");
   }
 
   function exportStockBundleOnly() {
@@ -217,9 +259,10 @@
       return;
     }
 
-    var result = ExportUtils.createStockBundleScript(state.stockRows);
-    triggerDownload("stock.bundle.js", result.script, "text/javascript;charset=utf-8");
-    setStatus("已导出 stock.bundle.js", "ok");
+    var cfg = getConfigFromEditor();
+    var result = ExportUtils.createStockBundleScript(state.stockRows, cfg);
+    triggerDownload("stock.bundle.json", result.script, "application/json;charset=utf-8");
+    setStatus("已导出 stock.bundle.json", "ok");
   }
 
   async function exportAllBundles() {
@@ -233,39 +276,50 @@
     }
 
     var password = $("pricePassword").value.trim();
-    var price = await ExportUtils.createPriceBundleScript(state.stage2Rows, password);
-    var stock = ExportUtils.createStockBundleScript(state.stockRows);
+    var cfg = getConfigFromEditor();
+    var price = await ExportUtils.createPriceBundleScript(state.stage2Rows, password, cfg);
+    var stock = ExportUtils.createStockBundleScript(state.stockRows, cfg);
 
     downloadRowsAsWorkbook(state.stage2Rows, "price_all_merged.xlsx");
-    triggerDownload("price.bundle.js", price.script, "text/javascript;charset=utf-8");
-    triggerDownload("stock.bundle.js", stock.script, "text/javascript;charset=utf-8");
+    triggerDownload("price.bundle.json", price.script, "application/json;charset=utf-8");
+    triggerDownload("stock.bundle.json", stock.script, "application/json;charset=utf-8");
 
-    setStatus("已导出: price_all_merged.xlsx + price.bundle.js + stock.bundle.js", "ok");
+    setStatus("已导出: price_all_merged.xlsx + price.bundle.json + stock.bundle.json", "ok");
   }
 
   async function loadDefaultConfig() {
-    var fallback = {
-      defaultBrand: "UNMAPPED",
-      brands: [
-        { id: "MITSUBISHI", prefixes: ["三菱", "MITSU"] },
-        { id: "OSG", prefixes: ["OSG"] },
-      ],
-    };
+    var fallback = ConfigCore.normalizeConfig({});
 
     try {
-      var resp = await fetch("./brand-config.json", { cache: "no-store" });
+      var resp = await fetch("../config.example.json", { cache: "no-store" });
       if (!resp.ok) throw new Error("HTTP " + resp.status);
-      state.brandConfig = await resp.json();
+      state.appConfig = ConfigCore.normalizeConfig(await resp.json());
     } catch (err) {
-      state.brandConfig = fallback;
+      try {
+        var brandResp = await fetch("./brand-config.json", { cache: "no-store" });
+        if (!brandResp.ok) throw new Error("HTTP " + brandResp.status);
+        var brandConfig = await brandResp.json();
+        state.appConfig = ConfigCore.normalizeConfig({ merger: { brand_rules: brandConfig } });
+      } catch (fallbackErr) {
+        state.appConfig = fallback;
+      }
     }
 
-    $("brandConfig").value = JSON.stringify(state.brandConfig, null, 2);
+    $("appConfig").value = JSON.stringify(state.appConfig, null, 2);
+    renderConfigPreview(state.appConfig);
   }
 
   function bindEvents() {
     $("analyzeStage1Btn").onclick = function () {
       analyzeStage1().catch(function (err) { setStatus("阶段1分析失败: " + err.message, "error"); });
+    };
+
+    $("validateConfigBtn").onclick = function () {
+      try { validateConfigEditor(); } catch (err) {}
+    };
+
+    $("exportConfigBtn").onclick = function () {
+      try { exportConfigJson(); } catch (err) {}
     };
 
     $("exportStage1Btn").onclick = function () {

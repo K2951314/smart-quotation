@@ -79,6 +79,22 @@
 
     textarea { height: 160px; font-family: Consolas, monospace; }
 
+    #appConfig { height: 280px; }
+
+    .preview-box {
+      min-height: 120px;
+      max-height: 220px;
+      overflow: auto;
+      margin: 8px 0 0;
+      padding: 10px;
+      border: 1px solid #dbe3ef;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #334155;
+      font: 12px/1.5 Consolas, monospace;
+      white-space: pre-wrap;
+    }
+
     button {
       border: none;
       border-radius: 8px;
@@ -113,9 +129,14 @@
 
     <div class="grid">
       <div class="card">
-        <h2>品牌规则配置</h2>
-        <div class="meta">默认按文件名前缀匹配品牌，可直接编辑 JSON。</div>
-        <textarea id="brandConfig"></textarea>
+        <h2>运行配置</h2>
+        <div class="meta">字段、列别名、复制输出、折扣规则和品牌识别都在这里维护。可校验后导出为主站使用的 config.json。</div>
+        <textarea id="appConfig"></textarea>
+        <div class="row">
+          <button id="validateConfigBtn" class="secondary">校验并预览配置</button>
+          <button id="exportConfigBtn" class="success">导出 config.json</button>
+        </div>
+        <pre id="configPreview" class="preview-box">等待配置加载...</pre>
       </div>
 
       <div class="card">
@@ -181,6 +202,7 @@
   </div>
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <script src="../apps/lib/config-core.js"></script>
   <script src="./lib/data-utils.js"></script>
   <script src="./lib/bundle-utils.js"></script>
   <script src="./lib/export-utils.js"></script>

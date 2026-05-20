@@ -23,10 +23,10 @@
 
   <section class="toolbar" aria-label="查询控制台">
     <div class="toolbar-actions">
-      <button id="btnSearch" class="btn btn-search" onclick="doSearch()">智能查询</button>
-      <button id="btnRegexConvert" class="btn btn-regex" onclick="doRegexSearchConverted()">库存查询</button>
-      <button class="btn btn-mmc" type="button" onclick="openMmcLogin()">三菱库存</button>
-      <button id="btnCopy" class="btn btn-copy" onclick="doCopy()">复制勾选</button>
+      <button id="btnSearch" class="btn btn-search" type="button">智能查询</button>
+      <button id="btnRegexConvert" class="btn btn-regex" type="button">库存查询</button>
+      <button id="btnMmc" class="btn btn-mmc" type="button">三菱库存</button>
+      <button id="btnCopy" class="btn btn-copy" type="button">复制勾选</button>
     </div>
 
     <div class="toolbar-main">
@@ -56,27 +56,17 @@
     <div class="toolbar-secondary">
       <div class="toolbar-secondary-main">
         <div class="toolbar-control-band">
-          <div class="step-presets toolbar-step-presets">
-            <button type="button" class="step-preset is-active" data-step="0.1" onclick="setDiscountStepPreset(this)">0.1</button>
-            <button type="button" class="step-preset" data-step="0.5" onclick="setDiscountStepPreset(this)">0.5</button>
-            <button type="button" class="step-preset" data-step="1" onclick="setDiscountStepPreset(this)">1</button>
-            <button id="btnDefaultDiscounts" type="button" class="step-preset step-preset-action" onclick="openDefaultDiscountConfig()">配置</button>
+          <div id="stepPresetControls" class="step-presets toolbar-step-presets">
+            <button id="btnDefaultDiscounts" type="button" class="step-preset step-preset-action">配置</button>
             <div class="result-stat"><strong id="resultCount">0</strong><span>结果</span></div>
             <label class="select-all-toggle">
-              <input id="toggleAllResults" type="checkbox" onchange="toggleAll(this)">
+              <input id="toggleAllResults" type="checkbox">
               <span>全选</span>
             </label>
           </div>
         </div>
 
-        <div class="toolbar-copy toolbar-copy-inline">
-          <label class="opt-lbl"><input type="checkbox" id="chk_code" checked>代码</label>
-          <label class="opt-lbl"><input type="checkbox" id="chk_spec" checked>规格</label>
-          <label class="opt-lbl"><input type="checkbox" id="chk_price" checked>报价</label>
-          <label class="opt-lbl"><input type="checkbox" id="chk_special">特价</label>
-          <label class="opt-lbl"><input type="checkbox" id="chk_stock">库存</label>
-          <label class="opt-lbl is-accent"><input type="checkbox" id="chk_remark">备注</label>
-        </div>
+        <div id="copyColumnControls" class="toolbar-copy toolbar-copy-inline"></div>
       </div>
     </div>
   </section>
@@ -107,14 +97,14 @@
 </div>
 
 <div id="defaultDiscountModal" class="discount-config-modal" hidden>
-  <div class="discount-config-backdrop" onclick="closeDefaultDiscountConfig()"></div>
+    <div id="defaultDiscountBackdrop" class="discount-config-backdrop"></div>
   <section class="discount-config-card" role="dialog" aria-modal="true" aria-labelledby="defaultDiscountTitle">
     <div class="discount-config-head">
       <div>
         <p class="discount-config-kicker">Default Discount</p>
         <h2 id="defaultDiscountTitle">默认折扣设置</h2>
       </div>
-      <button type="button" class="discount-config-close" onclick="closeDefaultDiscountConfig()" aria-label="关闭">×</button>
+      <button id="btnCloseDefaultDiscounts" type="button" class="discount-config-close" aria-label="关闭">×</button>
     </div>
 
     <p class="discount-config-copy">按品牌或活动设置默认折扣。保存后，新查询结果会自动套用，未手动改过折扣的当前结果也会同步更新。</p>
@@ -151,19 +141,20 @@
     </div>
 
     <div class="discount-config-actions">
-      <button type="button" class="btn btn-ghost" onclick="resetDefaultDiscountConfig()">恢复默认</button>
-      <button type="button" class="btn btn-ghost" onclick="closeDefaultDiscountConfig()">取消</button>
-      <button type="button" class="btn btn-search" onclick="saveDefaultDiscountConfig()">保存</button>
+      <button id="btnResetDefaultDiscounts" type="button" class="btn btn-ghost">恢复默认</button>
+      <button id="btnCancelDefaultDiscounts" type="button" class="btn btn-ghost">取消</button>
+      <button id="btnSaveDefaultDiscounts" type="button" class="btn btn-search">保存</button>
     </div>
   </section>
 </div>
 
-<button id="btnBackToTop" class="mobile-back-top" type="button" onclick="scrollToTop()">回到顶部</button>
+<button id="btnBackToTop" class="mobile-back-top" type="button">回到顶部</button>
 
 <!-- 把绝对路径改成相对路径，确保前面有 ./ -->
 <script src="./lib/query-regex.js"></script>
 <script src="./lib/discount-utils.js"></script>
 <script src="./lib/result-sort.js"></script>
+<script src="./lib/config-core.js"></script>
 <!-- 干干净净的主程序 -->
 <script src="./app.js"></script>
 </body>

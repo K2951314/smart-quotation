@@ -7,23 +7,25 @@
 })(typeof self !== "undefined" ? self : this, function (DataUtils, BundleUtils) {
   if (!DataUtils || !BundleUtils) throw new Error("DataUtils and BundleUtils are required");
 
-  function createStockBundleScript(stockRows) {
+  function createStockBundleScript(stockRows, config) {
     var rows = Array.isArray(stockRows) ? stockRows : [];
-    var stockByCode = DataUtils.buildStockByCode(rows);
-    var stockBundle = BundleUtils.encodeStockBundle(stockByCode);
+    var stockDataset = DataUtils.buildStockDataset(rows, config);
+    var stockBundle = BundleUtils.encodeStockBundle(stockDataset);
     return {
-      byCode: stockByCode,
+      dataset: stockDataset,
+      byCode: DataUtils.buildStockByCode(rows, config),
       bundle: stockBundle,
       script: BundleUtils.toWindowScript("STOCK_BUNDLE", stockBundle),
     };
   }
 
-  async function createPriceBundleScript(priceRows, password) {
+  async function createPriceBundleScript(priceRows, password, config) {
     var rows = Array.isArray(priceRows) ? priceRows : [];
-    var dataset = DataUtils.buildPriceDataset(rows);
+    var dataset = DataUtils.buildPriceDataset(rows, config);
     var priceBundle = await BundleUtils.encodePriceBundle(dataset, password || "");
     return {
-      bySpec: dataset.bySpec,
+      dataset: dataset,
+      rows: dataset.rows || [],
       bundle: priceBundle,
       script: BundleUtils.toWindowScript("PRICE_BUNDLE", priceBundle),
     };
