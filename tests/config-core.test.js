@@ -25,6 +25,28 @@ test("normalizes partial v2 config with safe defaults", () => {
   assert.equal(ConfigCore.getField(config, "stock").label, "库存");
 });
 
+test("normalizes config-level version and current Supabase bucket defaults", () => {
+  const config = ConfigCore.normalizeConfig({
+    schema_version: 2,
+    version: "2026-06-01.1",
+  });
+
+  assert.equal(config.version, "2026-06-01.1");
+  assert.equal(
+    config.data_source.base_url,
+    "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q"
+  );
+  assert.equal(ConfigCore.getConfigVersion(config), "2026-06-01.1");
+});
+
+test("falls back to legacy version fields for cache version compatibility", () => {
+  assert.equal(
+    ConfigCore.getConfigVersion({ data_source: { cache_version: "2026-06-legacy" } }),
+    "2026-06-legacy"
+  );
+  assert.equal(ConfigCore.getConfigVersion({}), "");
+});
+
 test("maps Excel rows by configured aliases and preserves configured extra fields", () => {
   const config = ConfigCore.normalizeConfig({
     fields: [

@@ -1,7 +1,8 @@
 {
   "schema_version": 2,
+  "version": "2026年6月1日",
   "data_source": {
-    "base_url": "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/quotation-data",
+    "base_url": "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q",
     "version_file": "version.json",
     "config_file": "config.json",
     "price_bundle_file": "price.bundle.json",
@@ -12,7 +13,7 @@
     "decimal_places": 1,
     "rounding_threshold": 100,
     "discount_step": {
-      "default": 0.1,
+      "default": 1,
       "min": 0.1,
       "presets": [0.1, 0.5, 1]
     }
@@ -37,11 +38,10 @@
     "columns": [
       { "field": "code", "label": "代码", "default": true, "line": "main" },
       { "field": "spec", "label": "规格", "default": true, "line": "main" },
-      { "field": "quote_price", "label": "报价", "default": true, "line": "main", "prefix": "含税" },
+      { "field": "quote_price", "label": "报价", "default": true, "line": "main" },
       { "field": "special", "label": "特价", "default": false, "line": "main" },
       { "field": "stock", "label": "库存", "default": false, "line": "main" },
-      { "field": "remark", "label": "备注", "default": false, "line": "detail" },
-      { "field": "delivery", "label": "交期", "default": false, "line": "detail", "prefix": "交期 " }
+      { "field": "remark", "label": "备注", "default": false, "line": "detail" }
     ]
   },
   "result_layout": {
