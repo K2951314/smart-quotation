@@ -475,12 +475,16 @@ async function decryptData(base64Data, password) {
 }
 
 // ================== 新版 Supabase 缓存加载模块开始 ==================
-const SUPABASE_BASE_URL = "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/quotation-data";
+const SUPABASE_BASE_URL = "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q";
+
+function normalizeBaseUrl(value) {
+  return String(value || SUPABASE_BASE_URL).replace(/\/+$/, "");
+}
 
 function getDataSourceConfig() {
   const cfg = getAppConfig();
   return {
-    base_url: cfg.data_source?.base_url || SUPABASE_BASE_URL,
+    base_url: normalizeBaseUrl(cfg.data_source?.base_url || SUPABASE_BASE_URL),
     version_file: cfg.data_source?.version_file || "version.json",
     config_file: cfg.data_source?.config_file || "config.json",
     price_bundle_file: cfg.data_source?.price_bundle_file || "price.bundle.json",
@@ -489,20 +493,63 @@ function getDataSourceConfig() {
   };
 }
 
+function buildRemoteFileUrl(source, filename, query) {
+  const name = String(filename || "");
+  const separator = name.indexOf("?") >= 0 ? "&" : "?";
+  if (/^https?:\/\//i.test(name)) return query ? name + separator + query : name;
+  return `${source.base_url}/${name.replace(/^\/+/, "")}${query ? "?" + query : ""}`;
+}
+
+function getConfigCacheVersion(config) {
+  if (window.ConfigCore && typeof window.ConfigCore.getConfigVersion === "function") {
+    return window.ConfigCore.getConfigVersion(config || getAppConfig());
+  }
+  const cfg = config || getAppConfig() || {};
+  return String(cfg.version || cfg.data_version || cfg.data_source?.cache_version || cfg.data_source?.version || "").trim();
+}
+
+async function fetchRemoteJson(url, label) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`${label} download failed (${response.status})`);
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`${label} is not valid JSON`);
+  }
+}
+
+async function loadRemoteConfig(source) {
+  const configUrl = buildRemoteFileUrl(source, source.config_file, `t=${Date.now()}`);
+  const config = await fetchRemoteJson(configUrl, source.config_file);
+  applyAppConfig(config);
+  return config;
+}
+
+async function loadLegacyVersion(source) {
+  try {
+    const versionUrl = buildRemoteFileUrl(source, source.version_file, `t=${Date.now()}`);
+    const data = await fetchRemoteJson(versionUrl, source.version_file);
+    return String(data.version || data.cache_version || "").trim();
+  } catch (err) {
+    console.warn("Legacy version file unavailable; falling back to a no-store cache key", err);
+    return "";
+  }
+}
+
 async function loadDataWithCache() {
   console.log("开始检查版本更新...");
   let source = getDataSourceConfig();
-  const versionRes = await fetch(`${source.base_url}/${source.version_file}?t=${Date.now()}`);
-  const { version } = await versionRes.json();
 
   try {
-    await fetchFileWithCache(source.config_file, version, "json", source);
+    await loadRemoteConfig(source);
   } catch (err) {
     console.warn("远程配置加载失败，使用内置默认配置:", err);
     applyAppConfig(window.APP_CONFIG || {});
   }
 
   source = getDataSourceConfig();
+  const version = getConfigCacheVersion(getAppConfig()) || await loadLegacyVersion(source) || String(Date.now());
   await Promise.all([
     fetchFileWithCache(source.price_bundle_file, version, "bundle", source).then(data => { window.PRICE_BUNDLE = data; }),
     fetchFileWithCache(source.stock_bundle_file, version, "bundle", source).then(data => { window.STOCK_BUNDLE = data; })
@@ -514,7 +561,7 @@ async function loadDataWithCache() {
 async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
   const source = sourceConfig || getDataSourceConfig();
   const cacheName = source.cache_name || "quotation-cache-v2";
-  const fileUrl = `${source.base_url}/${filename}?v=${version}`;
+  const fileUrl = buildRemoteFileUrl(source, filename, `v=${encodeURIComponent(version)}`);
 
   const cache = await caches.open(cacheName);
   let response = await cache.match(fileUrl);

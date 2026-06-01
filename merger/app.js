@@ -7,6 +7,8 @@
     stockRows: [],
   };
 
+  var SUPABASE_ANON_KEY_STORAGE_KEY = "quotation-merger-supabase-anon-key";
+
   function $(id) { return document.getElementById(id); }
 
   function setStatus(msg, type) {
@@ -54,6 +56,51 @@
   function readExcelFiles(fileList) {
     var files = Array.prototype.slice.call(fileList || []);
     return Promise.all(files.map(readExcelFile));
+  }
+
+  function normalizeBaseUrl(value) {
+    return String(value || "").replace(/\/+$/, "");
+  }
+
+  function getDataSourceConfig(cfg) {
+    var config = ConfigCore.normalizeConfig(cfg || state.appConfig || {});
+    return {
+      base_url: normalizeBaseUrl(config.data_source && config.data_source.base_url),
+      config_file: (config.data_source && config.data_source.config_file) || "config.json",
+    };
+  }
+
+  function buildRemoteFileUrl(source, filename, query) {
+    var name = String(filename || "");
+    var separator = name.indexOf("?") >= 0 ? "&" : "?";
+    if (/^https?:\/\//i.test(name)) return query ? name + separator + query : name;
+    return source.base_url + "/" + name.replace(/^\/+/, "") + (query ? "?" + query : "");
+  }
+
+  function getSupabaseObjectWriteUrl(cfg) {
+    var source = getDataSourceConfig(cfg);
+    var file = source.config_file || "config.json";
+    var publicUrl = /^https?:\/\//i.test(file)
+      ? file
+      : source.base_url + "/" + file.replace(/^\/+/, "");
+    var writeUrl = publicUrl.replace("/storage/v1/object/public/", "/storage/v1/object/");
+    if (writeUrl === publicUrl) throw new Error("data_source.base_url 必须是 Supabase Storage public object URL");
+    return writeUrl;
+  }
+
+  function loadStoredSupabaseAnonKey() {
+    try {
+      return window.localStorage.getItem(SUPABASE_ANON_KEY_STORAGE_KEY) || "";
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function persistSupabaseAnonKey(key) {
+    try {
+      if (key) window.localStorage.setItem(SUPABASE_ANON_KEY_STORAGE_KEY, key);
+    } catch (err) {
+    }
   }
 
   function getConfigFromEditor() {
@@ -139,7 +186,10 @@
     var priceAliases = fields.filter(function (field) { return field.source === "price"; }).map(function (field) {
       return field.label + ": " + field.excel_aliases.join("|");
     }).join("\n");
+    var source = getDataSourceConfig(config);
     $("configPreview").textContent = [
+      "版本: " + (ConfigCore.getConfigVersion(config) || "未设置"),
+      "远端目录: " + (source.base_url || "未设置"),
       "字段数: " + fields.length,
       "搜索字段: " + (searchable || "无"),
       "默认复制: " + (copy || "无"),
@@ -165,6 +215,52 @@
     var cfg = validateConfigEditor();
     triggerDownload("config.json", JSON.stringify(cfg, null, 2), "application/json;charset=utf-8");
     setStatus("已导出 config.json", "ok");
+  }
+
+  async function loadRemoteConfig() {
+    var cfg;
+    try {
+      cfg = getConfigFromEditor();
+    } catch (err) {
+      cfg = state.appConfig || ConfigCore.normalizeConfig({});
+    }
+    var source = getDataSourceConfig(cfg);
+    if (!source.base_url) throw new Error("配置缺少 data_source.base_url");
+    var url = buildRemoteFileUrl(source, source.config_file, "t=" + Date.now());
+    var resp = await fetch(url, { cache: "no-store" });
+    if (!resp.ok) throw new Error("远端配置读取失败: HTTP " + resp.status);
+    var remote = ConfigCore.normalizeConfig(await resp.json());
+    state.appConfig = remote;
+    $("appConfig").value = JSON.stringify(remote, null, 2);
+    renderConfigPreview(remote);
+    setStatus("已读取 Supabase config.json", "ok");
+  }
+
+  async function saveRemoteConfig() {
+    var cfg = validateConfigEditor();
+    var key = $("supabaseAnonKey").value.trim();
+    if (!key) {
+      setStatus("请先填写 Supabase anon key", "warn");
+      return;
+    }
+    persistSupabaseAnonKey(key);
+    var writeUrl = getSupabaseObjectWriteUrl(cfg);
+    var body = JSON.stringify(cfg, null, 2);
+    var resp = await fetch(writeUrl, {
+      method: "PUT",
+      headers: {
+        "apikey": key,
+        "authorization": "Bearer " + key,
+        "content-type": "application/json;charset=utf-8",
+        "x-upsert": "true",
+      },
+      body: body,
+    });
+    if (!resp.ok) {
+      var text = await resp.text();
+      throw new Error("远端配置保存失败: HTTP " + resp.status + " " + text.slice(0, 180));
+    }
+    setStatus("已保存到 Supabase config.json；更新 version 后主站会刷新数据包缓存", "ok");
   }
 
   async function analyzeStage1() {
@@ -322,6 +418,14 @@
       try { exportConfigJson(); } catch (err) {}
     };
 
+    $("loadRemoteConfigBtn").onclick = function () {
+      loadRemoteConfig().catch(function (err) { setStatus("读取远端配置失败: " + err.message, "error"); });
+    };
+
+    $("saveRemoteConfigBtn").onclick = function () {
+      saveRemoteConfig().catch(function (err) { setStatus("保存远端配置失败: " + err.message, "error"); });
+    };
+
     $("exportStage1Btn").onclick = function () {
       try { exportStage1ByBrand(); } catch (err) { setStatus("阶段1导出失败: " + err.message, "error"); }
     };
@@ -349,6 +453,7 @@
 
   async function bootstrap() {
     await loadDefaultConfig();
+    $("supabaseAnonKey").value = loadStoredSupabaseAnonKey();
     bindEvents();
     updateCounters();
     setStatus("就绪：先执行阶段1分析", "info");

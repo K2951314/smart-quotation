@@ -7,8 +7,9 @@
 })(typeof self !== "undefined" ? self : this, function () {
   var DEFAULT_CONFIG = Object.freeze({
     schema_version: 2,
+    version: "",
     data_source: {
-      base_url: "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/quotation-data",
+      base_url: "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q",
       version_file: "version.json",
       config_file: "config.json",
       price_bundle_file: "price.bundle.json",
@@ -281,6 +282,7 @@
     var raw = rawConfig || {};
     var merged = mergePlain(DEFAULT_CONFIG, raw);
     merged.schema_version = 2;
+    merged.version = getConfigVersion(raw);
     merged.data_source = mergePlain(DEFAULT_CONFIG.data_source, raw.data_source || {});
     merged.pricing = normalizePricing(raw.pricing || {
       decimal_places: raw.decimal_places,
@@ -293,6 +295,16 @@
     merged.merger = mergePlain(DEFAULT_CONFIG.merger, raw.merger || {});
     merged.labels = mergePlain(DEFAULT_CONFIG.labels, raw.labels || {});
     return merged;
+  }
+
+  function getConfigVersion(config) {
+    var raw = config || {};
+    return toStringSafe(
+      raw.version ||
+      raw.data_version ||
+      (raw.data_source && (raw.data_source.cache_version || raw.data_source.version)) ||
+      ""
+    );
   }
 
   function getField(config, key) {
@@ -528,6 +540,7 @@
     LEGACY_FIELD_MAP: LEGACY_FIELD_MAP,
     normalizeConfig: normalizeConfig,
     validateConfig: validateConfig,
+    getConfigVersion: getConfigVersion,
     getField: getField,
     getFieldsByArea: getFieldsByArea,
     getPrimaryField: getPrimaryField,

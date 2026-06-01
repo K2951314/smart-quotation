@@ -135,6 +135,12 @@
         <div class="row">
           <button id="validateConfigBtn" class="secondary">校验并预览配置</button>
           <button id="exportConfigBtn" class="success">导出 config.json</button>
+          <button id="loadRemoteConfigBtn" class="secondary">读取 Supabase 配置</button>
+          <button id="saveRemoteConfigBtn" class="warn">保存到 Supabase</button>
+        </div>
+        <div class="row">
+          <label>Anon key</label>
+          <input id="supabaseAnonKey" type="password" placeholder="仅保存配置时使用，保存在本机浏览器" />
         </div>
         <pre id="configPreview" class="preview-box">等待配置加载...</pre>
       </div>
