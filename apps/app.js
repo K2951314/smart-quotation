@@ -14,6 +14,9 @@ let g_RemoteDefaultDiscountConfig = null;
 let g_HasLocalDefaultDiscountConfig = false;
 let g_LayoutMetricsFrame = null;
 let g_AppConfig = null;
+let g_RuntimeConfigCache = null;
+let g_RuntimeConfigDiscountFingerprint = null;
+let g_SearchIndex = null;
 
 const HOLD_START_DELAY_MS = 280;
 const HOLD_REPEAT_INTERVAL_MS = 70;
@@ -110,7 +113,14 @@ function getFieldConfig() {
 
 function getFieldLabel(key) {
   const normalizedKey = normalizeFieldKey(key);
-  if (window.ConfigCore) return window.ConfigCore.getField(getAppConfig(), normalizedKey).label || normalizedKey;
+  if (window.ConfigCore) {
+    const cfg = getAppConfig();
+    const fields = cfg.fields || [];
+    for (let i = 0; i < fields.length; i++) {
+      if (fields[i].key === normalizedKey) return fields[i].label || normalizedKey;
+    }
+    return normalizedKey;
+  }
   const { fields } = getFieldConfig();
   return (fields[normalizedKey] && fields[normalizedKey].label) || normalizedKey;
 }
@@ -137,15 +147,26 @@ function cloneConfig(config) {
 
 function getRuntimeAppConfig() {
   if (!window.ConfigCore) return getAppConfig();
-  const cfg = cloneConfig(getAppConfig());
   const overrides = getDefaultDiscountConfig();
+  const fingerprint = overrides.ex + "|" + overrides.osg + "|" + overrides.mitsubishi + "|" + overrides.other;
+  if (g_RuntimeConfigCache && fingerprint === g_RuntimeConfigDiscountFingerprint) return g_RuntimeConfigCache;
+  const cfg = cloneConfig(getAppConfig());
   const legacyMap = { ex: "ex", osg: "osg", mitsubishi: "mitsubishi", other: "other" };
   cfg.discount_rules = (cfg.discount_rules || []).map((rule) => {
     const id = String(rule.id || "").toLowerCase();
     const key = Object.keys(legacyMap).find((name) => legacyMap[name] === id);
     return key ? { ...rule, percent: overrides[key] } : rule;
   });
-  return window.ConfigCore.normalizeConfig(cfg);
+  g_RuntimeConfigCache = window.ConfigCore.normalizeConfig(cfg);
+  g_RuntimeConfigDiscountFingerprint = fingerprint;
+  return g_RuntimeConfigCache;
+}
+
+function invalidateRuntimeConfigCache() {
+  g_RuntimeConfigCache = null;
+  g_RuntimeConfigDiscountFingerprint = null;
+  g_SearchIndex = null;
+  if (g_DataReady) rebuildSearchIndex();
 }
 
 function deriveLegacyDiscountConfig(config) {
@@ -168,6 +189,7 @@ function applyAppConfig(rawConfig) {
   }
   window.APP_CONFIG = rawConfig || {};
   g_AppConfig = window.ConfigCore.normalizeConfig(rawConfig || {});
+  invalidateRuntimeConfigCache();
   applyRemoteDefaultDiscountConfig(deriveLegacyDiscountConfig(g_AppConfig));
   syncPricingControlsFromConfig();
   syncStaticLabelsFromConfig();
@@ -316,6 +338,7 @@ function refreshRowsWithDefaultDiscounts() {
 function saveDefaultDiscountConfig() {
   g_DefaultDiscountConfig = readDefaultDiscountForm();
   persistDefaultDiscountConfig(g_DefaultDiscountConfig);
+  invalidateRuntimeConfigCache();
   syncDefaultDiscountButtonSummary();
   refreshRowsWithDefaultDiscounts();
   closeDefaultDiscountConfig();
@@ -667,6 +690,7 @@ async function ensureDataLoaded() {
 
       updateVersionText();
       rebuildMergedDB();
+      rebuildSearchIndex();
       g_DataReady = true;
       setStatus("数据库就绪", "ok");
       return true;
@@ -726,6 +750,26 @@ function createLegacyCompatibleItem(row) {
   };
 }
 
+function rebuildSearchIndex() {
+  g_SearchIndex = {};
+  if (!window.ConfigCore) return;
+  const cfg = getRuntimeAppConfig();
+  const searchableKeys = cfg.fields.filter(f => f.searchable).map(f => f.key);
+  const allKeys = Object.keys(DB);
+  for (let i = 0; i < allKeys.length; i++) {
+    const key = allKeys[i];
+    const item = DB[key];
+    if (!item) continue;
+    const fields = item.fields || {};
+    const parts = [];
+    for (let j = 0; j < searchableKeys.length; j++) {
+      const val = String(fields[searchableKeys[j]] || "").trim();
+      if (val) parts.push(val.toUpperCase());
+    }
+    g_SearchIndex[key] = parts.join(" ");
+  }
+}
+
 function pickVersion(meta) {
   return String(meta?.updated_at || meta?.content_updated_at || meta?.generated_at || meta?.version || "-").trim() || "-";
 }
@@ -780,8 +824,9 @@ function toCoreRow(rowOrKey, item) {
 
 function getConfiguredValue(row, fieldKey) {
   const key = normalizeFieldKey(fieldKey);
-  if (window.ConfigCore) return window.ConfigCore.getFieldValue(toCoreRow(row), key);
-  return row && row[key] !== undefined ? row[key] : "";
+  if (row && row.fields && row.fields[key] !== undefined) return row.fields[key];
+  if (row && row[key] !== undefined) return row[key];
+  return "";
 }
 
 function escapeHtml(value) {
@@ -882,12 +927,24 @@ function getSearchTarget(spec, item) {
 
 function findMatchesByRegex(line, allKeys, onlyInStock) {
   const re = convertPlainLineToRegex(line);
-  if (!re) return[];
+  if (!re) return [];
+  const runtimeConfig = getRuntimeAppConfig();
+  const tokens = line.toUpperCase().split(/\s+/).filter(Boolean);
+  const useSearchIndex = window.ConfigCore && g_SearchIndex && tokens.length > 0;
   return allKeys.filter((key) => {
     const item = DB[key] || {};
-    const row = toCoreRow(key, item);
-    if (onlyInStock && !hasStockValue(window.ConfigCore ? window.ConfigCore.getFieldValue(row, "stock") : item.i)) return false;
-    if (window.ConfigCore) return window.ConfigCore.rowMatchesText(row, line, getRuntimeAppConfig());
+    if (onlyInStock) {
+      const stockVal = window.ConfigCore ? ((item.fields && item.fields.stock) || item.i) : item.i;
+      if (!hasStockValue(stockVal)) return false;
+    }
+    if (useSearchIndex) {
+      const combined = g_SearchIndex[key] || "";
+      for (let t = 0; t < tokens.length; t++) {
+        if (combined.indexOf(tokens[t]) < 0) return false;
+      }
+      return true;
+    }
+    if (window.ConfigCore) return window.ConfigCore.rowMatchesText(toCoreRow(key, item), line, runtimeConfig);
     return matchRegexTarget(getSearchTarget(key, item), re);
   });
 }
@@ -989,10 +1046,10 @@ function getDiscountButtonMarkup(rowId, direction) {
   ].join("");
 }
 
-function appendResultRow(resultList, matchKey, item, shouldCheck, isExact) {
+function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runtimeConfig) {
   const coreRow = toCoreRow(matchKey, item);
   const fields = { ...(coreRow.fields || {}) };
-  const runtimeConfig = getRuntimeAppConfig();
+  if (!runtimeConfig) runtimeConfig = getRuntimeAppConfig();
   const preset = window.ConfigCore
     ? window.ConfigCore.getDiscountPreset({ key: coreRow.key, fields }, runtimeConfig)
     : DiscountEngine.getDefaultDiscountPreset({ spec: matchKey, special: item.s || "", brand: item.b || "", name: item.n || "" }, getDefaultDiscountConfig());
@@ -1083,6 +1140,7 @@ function renderSearchResults(lines, onlyInStock) {
   }
 
   const allKeys = Object.keys(DB);
+  const runtimeConfig = getRuntimeAppConfig();
   lines.forEach((line) => {
     const matches = findMatchesByRegex(line, allKeys, onlyInStock);
     const defaultChecked = matches.length === 1;
@@ -1090,7 +1148,7 @@ function renderSearchResults(lines, onlyInStock) {
       const item = DB[matchKey];
       if (!item) return;
       const isExact = isExactSpecMatch(line, matchKey);
-      appendResultRow(resultList, matchKey, item, isExact || defaultChecked, isExact);
+      appendResultRow(resultList, matchKey, item, isExact || defaultChecked, isExact, runtimeConfig);
     });
   });
 

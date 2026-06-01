@@ -278,8 +278,16 @@
     return pricing;
   }
 
+  var _normalizeCache = new Map();
+  var _normalizeCacheMax = 8;
+
   function normalizeConfig(rawConfig) {
     var raw = rawConfig || {};
+    if (raw._normalized) return raw;
+    var cacheKey = "";
+    try { cacheKey = JSON.stringify(raw); } catch (e) { cacheKey = ""; }
+    if (cacheKey && _normalizeCache.has(cacheKey)) return _normalizeCache.get(cacheKey);
+
     var merged = mergePlain(DEFAULT_CONFIG, raw);
     merged.schema_version = 2;
     merged.version = getConfigVersion(raw);
@@ -294,6 +302,12 @@
     merged.discount_rules = normalizeDiscountRules(raw);
     merged.merger = mergePlain(DEFAULT_CONFIG.merger, raw.merger || {});
     merged.labels = mergePlain(DEFAULT_CONFIG.labels, raw.labels || {});
+    merged._normalized = true;
+
+    if (cacheKey) {
+      if (_normalizeCache.size >= _normalizeCacheMax) _normalizeCache.clear();
+      _normalizeCache.set(cacheKey, merged);
+    }
     return merged;
   }
 
@@ -438,20 +452,42 @@
     return value;
   }
 
+  var _searchableFieldsCache = null;
+  var _searchableFieldsCacheKey = null;
+
   function rowMatchesText(row, text, config) {
     var query = toStringSafe(text).toUpperCase();
     if (!query) return false;
-    var cfg = normalizeConfig(config);
+    var cfg = config && config._normalized ? config : normalizeConfig(config);
     var tokens = query.split(/\s+/).filter(Boolean);
-    var values = cfg.fields.filter(function (field) {
-      return field.searchable;
-    }).map(function (field) {
-      return toStringSafe(getFieldValue(row, field.key)).toUpperCase();
-    });
+    if (tokens.length === 0) return false;
+    var fieldKeys;
+    var cacheKey = cfg.schema_version + "|" + cfg.fields.length;
+    if (_searchableFieldsCacheKey === cacheKey && _searchableFieldsCache) {
+      fieldKeys = _searchableFieldsCache;
+    } else {
+      fieldKeys = cfg.fields.filter(function (field) { return field.searchable; }).map(function (field) { return field.key; });
+      _searchableFieldsCache = fieldKeys;
+      _searchableFieldsCacheKey = cacheKey;
+    }
+    var fields = (row && row.fields) || {};
+    var values = [];
+    for (var i = 0; i < fieldKeys.length; i++) {
+      var v = toStringSafe(fields[fieldKeys[i]]).toUpperCase();
+      if (v) values.push(v);
+    }
     var combined = values.join(" ");
-    return tokens.every(function (token) {
-      return combined.indexOf(token) >= 0 || values.some(function (value) { return value.indexOf(token) >= 0; });
-    });
+    for (var t = 0; t < tokens.length; t++) {
+      var token = tokens[t];
+      var found = combined.indexOf(token) >= 0;
+      if (!found) {
+        for (var j = 0; j < values.length; j++) {
+          if (values[j].indexOf(token) >= 0) { found = true; break; }
+        }
+      }
+      if (!found) return false;
+    }
+    return true;
   }
 
   function conditionMatches(row, condition) {
