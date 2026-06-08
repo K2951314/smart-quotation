@@ -1,8 +1,60 @@
 # 智能询价系统
 
-一个纯前端静态询价工具，主站部署在 `apps/`，数据包生成工具在 `merger/`。系统通过远端 `config.json`、`price.bundle.json`、`stock.bundle.json` 和 `version.json` 运行，不需要 Node 服务端或构建流程。
+本项目包含两套独立系统：
 
-## 当前架构
+1. **静态前端报价台**（`apps/`）：纯前端工具，部署 Netlify，通过远端 `config.json`、`price.bundle.json`、`stock.bundle.json` 运行，无需服务端。
+2. **多租户 GUI 配置平台**（`backend/` + `admin/`）：FastAPI + SQLite 后端，提供可视化配置中心，支持多公司、配置版本管理、审计日志、一键回滚。
+
+---
+
+## 多租户 GUI 配置平台
+
+### 快速启动
+
+```powershell
+pip install -r requirements.txt
+py -m backend.smart_quotation
+```
+
+打开浏览器：
+
+- 配置中心 GUI：`http://127.0.0.1:8001/admin/`
+- API 健康检查：`http://127.0.0.1:8001/api/health`
+
+### 文档
+
+- [GUI 配置中心操作手册](docs/gui-admin-guide.md) — 面向非技术人员，覆盖 10 个功能区的完整操作指南
+- [多租户配置平台技术说明](docs/multitenant-config-v1-zh.md) — 面向开发人员，含架构、API 参考、数据库模型
+
+### 功能概览
+
+| 功能 | 说明 |
+|------|------|
+| 多公司隔离 | 所有数据按 `company_id` 完全隔离 |
+| 可视化字段配置 | 定义字段、类型、Excel 别名、搜索/复制/显示区域 |
+| 报价规则构建器 | 条件+动作可视化配置折扣规则，无需写代码 |
+| 复制模板配置 | 自定义复制输出的列、前缀、行类型 |
+| 页面显示配置 | 修改标题文案和结果卡布局，无需改前端代码 |
+| 数据导入 + 预览 | JSON 导入 + 字段映射预览（高亮已定义字段） |
+| 数据回滚/撤销 | 支持按 `data_revision` 撤销最近导入的数据版本 |
+| 配置版本历史 | 查看所有 revision，一键回滚到任意历史版本 |
+| 审计日志 | 按公司隔离，记录所有配置和数据操作 |
+| 热加载 | 发布新配置无需重启，下次请求立即生效 |
+| ERPNext 预留 | 接口已预留，v1 为 stub，不阻塞独立运行 |
+
+### 运行测试
+
+```powershell
+py -m unittest tests.test_backend_v1 tests.test_admin_gui -v
+```
+
+当前 34 条测试全绿。
+
+---
+
+## 静态前端报价台
+
+### 当前架构
 
 ```text
 智能询价/
@@ -23,12 +75,14 @@
 │     ├─ data-utils.js
 │     ├─ bundle-utils.js
 │     └─ export-utils.js
+├─ backend/                  # 多租户 GUI 配置平台后端
+├─ admin/                    # GUI 配置中心前端
 ├─ config.example.json       # schema v2 完整配置样例
-├─ tests/                    # Node 原生测试
+├─ tests/                    # Node 原生测试 + Python 后端测试
 └─ netlify.toml
 ```
 
-## 运行方式
+### 运行方式
 
 本地推荐用静态服务器打开，避免浏览器对 `file://` 的缓存和跨路径限制：
 
@@ -465,7 +519,7 @@ Netlify 当前发布目录是 `apps`，线上根路径直接进入主站。
 5. 上传库存 Excel，按 `merger.stock_columns` 解析并导出 `stock.bundle.json`。
 6. 修改配置或 `version` 后，可点击"保存到 Supabase"直接覆盖远端 `config.json`；也可点击"导出 config.json"保留本地备份。
 
-"保存到 Supabase"需要填写 Supabase anon key，并且 Storage 对应桶需要允许该 key 更新 `config.json`。该 key 只保存在本机浏览器 localStorage，不会写入仓库。
+"保存到 Supabase"需要填写 Supabase anon key，并且 Storage 对应桶需要允许该 key 更新 `config.json`。该 key 仅在浏览器会话中临时保留（sessionStorage），不会写入仓库或长期存储。
 
 价格包可加密；库存包保持明文，便于主站库存过滤。
 

@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
   var state = {
     appConfig: null,
     stage1Files: [],
@@ -7,20 +7,21 @@
     stockRows: [],
   };
 
-  var SUPABASE_ANON_KEY_STORAGE_KEY = "quotation-merger-supabase-anon-key";
+  var SUPABASE_KEY_STORAGE = "quotation-admin-merger-supabase-anon-key";
 
   function $(id) { return document.getElementById(id); }
 
   function setStatus(msg, type) {
-    var box = $("statusBox");
+    var box = $("merger-statusBox");
+    if (!box) return;
     box.textContent = msg;
-    box.className = "status " + (type || "info");
+    box.className = "merger-status" + (type ? " " + type : "");
   }
 
   function updateCounters() {
-    $("stage1Count").textContent = String(state.stage1Files.length);
-    $("stage2Count").textContent = String(state.stage2Rows.length);
-    $("stockCount").textContent = String(state.stockRows.length);
+    $("merger-stage1Count").textContent = String(state.stage1Files.length);
+    $("merger-stage2Count").textContent = String(state.stage2Rows.length);
+    $("merger-stockCount").textContent = String(state.stockRows.length);
   }
 
   function triggerDownload(filename, content, mime) {
@@ -32,7 +33,7 @@
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(url); }, 500);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
   }
 
   function downloadRowsAsWorkbook(rows, filename) {
@@ -90,7 +91,7 @@
 
   function loadStoredSupabaseAnonKey() {
     try {
-      return window.sessionStorage.getItem(SUPABASE_ANON_KEY_STORAGE_KEY) || "";
+      return window.sessionStorage.getItem(SUPABASE_KEY_STORAGE) || "";
     } catch (err) {
       return "";
     }
@@ -98,19 +99,18 @@
 
   function persistSupabaseAnonKey(key) {
     try {
-      // 使用 sessionStorage，仅在当前会话内保留，浏览器关闭或刷新后清除。
-      if (key) window.sessionStorage.setItem(SUPABASE_ANON_KEY_STORAGE_KEY, key);
+      if (key) window.sessionStorage.setItem(SUPABASE_KEY_STORAGE, key);
     } catch (err) {
     }
   }
 
   function clearStoredSupabaseAnonKey() {
-    try { window.sessionStorage.removeItem(SUPABASE_ANON_KEY_STORAGE_KEY); } catch (e) {}
+    try { window.sessionStorage.removeItem(SUPABASE_KEY_STORAGE); } catch (e) { }
   }
 
   function getConfigFromEditor() {
     try {
-      var raw = $("appConfig").value;
+      var raw = $("merger-appConfig").value;
       var cfg = JSON.parse(raw);
       var normalized = ConfigCore.normalizeConfig(cfg && cfg.brands ? { merger: { brand_rules: cfg } } : cfg);
       var validation = ConfigCore.validateConfig(normalized);
@@ -135,7 +135,8 @@
   }
 
   function renderStage1Mappings(splitResult, cfg) {
-    var body = $("mappingBody");
+    var body = $("merger-mappingBody");
+    if (!body) return;
     body.innerHTML = "";
     var brands = getBrandOptions(cfg);
 
@@ -180,7 +181,11 @@
     var summary = Object.keys(splitResult.grouped).map(function (k) {
       return k + ": " + splitResult.grouped[k].length;
     }).join(" | ");
-    $("stage1Summary").textContent = summary || "无";
+    $("merger-stage1Summary").textContent = summary || "无";
+
+    // 显示映射表
+    var tableWrap = $("merger-stage1TableWrap");
+    if (tableWrap) tableWrap.style.display = splitResult.fileBrands.length > 0 ? "" : "none";
   }
 
   function renderConfigPreview(cfg) {
@@ -192,7 +197,7 @@
       return field.label + ": " + field.excel_aliases.join("|");
     }).join("\n");
     var source = getDataSourceConfig(config);
-    $("configPreview").textContent = [
+    var preview = [
       "版本: " + (ConfigCore.getConfigVersion(config) || "未设置"),
       "远端目录: " + (source.base_url || "未设置"),
       "字段数: " + fields.length,
@@ -202,6 +207,8 @@
       "价格列别名:",
       priceAliases || "无"
     ].join("\n");
+    var previewEl = $("merger-configPreview");
+    if (previewEl) previewEl.textContent = preview;
   }
 
   function validateConfigEditor() {
@@ -236,14 +243,14 @@
     if (!resp.ok) throw new Error("远端配置读取失败: HTTP " + resp.status);
     var remote = ConfigCore.normalizeConfig(await resp.json());
     state.appConfig = remote;
-    $("appConfig").value = JSON.stringify(remote, null, 2);
+    $("merger-appConfig").value = JSON.stringify(remote, null, 2);
     renderConfigPreview(remote);
     setStatus("已读取 Supabase config.json", "ok");
   }
 
   async function saveRemoteConfig() {
     var cfg = validateConfigEditor();
-    var key = $("supabaseAnonKey").value.trim();
+    var key = $("merger-supabaseAnonKey").value.trim();
     if (!key) {
       setStatus("请先填写 Supabase anon key", "warn");
       return;
@@ -269,8 +276,8 @@
   }
 
   async function analyzeStage1() {
-    var input = $("stage1Files");
-    if (!input.files.length) {
+    var input = $("merger-stage1Files");
+    if (!input || !input.files.length) {
       setStatus("请先选择品牌原始 Excel 文件", "warn");
       return;
     }
@@ -311,8 +318,8 @@
   }
 
   async function loadStage2Files() {
-    var input = $("stage2Files");
-    if (!input.files.length) {
+    var input = $("merger-stage2Files");
+    if (!input || !input.files.length) {
       setStatus("请先选择处理后的品牌文件", "warn");
       return;
     }
@@ -325,8 +332,8 @@
   }
 
   async function loadStockFiles() {
-    var input = $("stockFiles");
-    if (!input.files.length) {
+    var input = $("merger-stockFiles");
+    if (!input || !input.files.length) {
       setStatus("请先选择库存 Excel 文件", "warn");
       return;
     }
@@ -347,11 +354,14 @@
       return;
     }
 
-    var password = $("pricePassword").value.trim();
+    var password = $("merger-pricePassword").value.trim();
     var cfg = getConfigFromEditor();
     var result = await ExportUtils.createPriceBundleScript(state.stage2Rows, password, cfg);
+    // 同时挂到全局，让发布配置区可直接读取（无需手动下载再上传）
+    window._mergerBundles = window._mergerBundles || {};
+    window._mergerBundles.price = result.script;
     triggerDownload("price.bundle.json", result.script, "application/json;charset=utf-8");
-    setStatus("已导出 price.bundle.json", "ok");
+    setStatus("已导出 price.bundle.json（发布区可直接一键上传）", "ok");
   }
 
   function exportStockBundleOnly() {
@@ -362,8 +372,11 @@
 
     var cfg = getConfigFromEditor();
     var result = ExportUtils.createStockBundleScript(state.stockRows, cfg);
+    // 同时挂到全局
+    window._mergerBundles = window._mergerBundles || {};
+    window._mergerBundles.stock = result.script;
     triggerDownload("stock.bundle.json", result.script, "application/json;charset=utf-8");
-    setStatus("已导出 stock.bundle.json", "ok");
+    setStatus("已导出 stock.bundle.json（发布区可直接一键上传）", "ok");
   }
 
   async function exportAllBundles() {
@@ -376,89 +389,89 @@
       return;
     }
 
-    var password = $("pricePassword").value.trim();
+    var password = $("merger-pricePassword").value.trim();
     var cfg = getConfigFromEditor();
     var price = await ExportUtils.createPriceBundleScript(state.stage2Rows, password, cfg);
     var stock = ExportUtils.createStockBundleScript(state.stockRows, cfg);
+
+    // 挂到全局供发布区直接读取
+    window._mergerBundles = { price: price.script, stock: stock.script };
 
     downloadRowsAsWorkbook(state.stage2Rows, "price_all_merged.xlsx");
     triggerDownload("price.bundle.json", price.script, "application/json;charset=utf-8");
     triggerDownload("stock.bundle.json", stock.script, "application/json;charset=utf-8");
 
-    setStatus("已导出: price_all_merged.xlsx + price.bundle.json + stock.bundle.json", "ok");
+    setStatus("已导出: price_all_merged.xlsx + price.bundle.json + stock.bundle.json（发布区可直接一键上传）", "ok");
   }
 
   async function loadDefaultConfig() {
     var fallback = ConfigCore.normalizeConfig({});
 
-    try {
-      var resp = await fetch("../config.example.json", { cache: "no-store" });
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      state.appConfig = ConfigCore.normalizeConfig(await resp.json());
-    } catch (err) {
-      try {
-        var brandResp = await fetch("./brand-config.json", { cache: "no-store" });
-        if (!brandResp.ok) throw new Error("HTTP " + brandResp.status);
-        var brandConfig = await brandResp.json();
-        state.appConfig = ConfigCore.normalizeConfig({ merger: { brand_rules: brandConfig } });
-      } catch (fallbackErr) {
-        state.appConfig = fallback;
-      }
+    // 优先使用主程序的全局配置，不发起无意义的网络请求
+    if (window.state && window.state.config) {
+      state.appConfig = ConfigCore.normalizeConfig(window.state.config);
+    } else {
+      state.appConfig = fallback;
     }
 
-    $("appConfig").value = JSON.stringify(state.appConfig, null, 2);
+    if ($("merger-appConfig")) {
+      $("merger-appConfig").value = JSON.stringify(state.appConfig, null, 2);
+    }
     renderConfigPreview(state.appConfig);
   }
 
   function bindEvents() {
-    $("analyzeStage1Btn").onclick = function () {
+    $("merger-analyzeStage1Btn").onclick = function () {
       analyzeStage1().catch(function (err) { setStatus("阶段1分析失败: " + err.message, "error"); });
     };
-
-    $("validateConfigBtn").onclick = function () {
-      try { validateConfigEditor(); } catch (err) {}
-    };
-
-    $("exportConfigBtn").onclick = function () {
-      try { exportConfigJson(); } catch (err) {}
-    };
-
-    $("loadRemoteConfigBtn").onclick = function () {
-      loadRemoteConfig().catch(function (err) { setStatus("读取远端配置失败: " + err.message, "error"); });
-    };
-
-    $("saveRemoteConfigBtn").onclick = function () {
-      saveRemoteConfig().catch(function (err) { setStatus("保存远端配置失败: " + err.message, "error"); });
-    };
-
-    $("exportStage1Btn").onclick = function () {
+    $("merger-exportStage1Btn").onclick = function () {
       try { exportStage1ByBrand(); } catch (err) { setStatus("阶段1导出失败: " + err.message, "error"); }
     };
-
-    $("loadStage2Btn").onclick = function () {
+    $("merger-loadStage2Btn").onclick = function () {
       loadStage2Files().catch(function (err) { setStatus("加载阶段2文件失败: " + err.message, "error"); });
     };
-
-    $("loadStockBtn").onclick = function () {
+    $("merger-loadStockBtn").onclick = function () {
       loadStockFiles().catch(function (err) { setStatus("加载库存文件失败: " + err.message, "error"); });
     };
-
-    $("exportPriceBtn").onclick = function () {
+    $("merger-exportPriceBtn").onclick = function () {
       exportPriceBundleOnly().catch(function (err) { setStatus("导出价格包失败: " + err.message, "error"); });
     };
-
-    $("exportStockBtn").onclick = function () {
+    $("merger-exportStockBtn").onclick = function () {
       try { exportStockBundleOnly(); } catch (err) { setStatus("导出库存包失败: " + err.message, "error"); }
     };
-
-    $("exportAllBtn").onclick = function () {
+    $("merger-exportAllBtn").onclick = function () {
       exportAllBundles().catch(function (err) { setStatus("全部导出失败: " + err.message, "error"); });
+    };
+    // 可选按钮（如果 UI 中存在则绑定）
+    var validateBtn = $("merger-validateConfigBtn");
+    if (validateBtn) validateBtn.onclick = function () {
+      try { validateConfigEditor(); } catch (err) { console.warn("配置校验失败:", err); }
+    };
+    var exportCfgBtn = $("merger-exportConfigBtn");
+    if (exportCfgBtn) exportCfgBtn.onclick = function () {
+      try { exportConfigJson(); } catch (err) { setStatus("导出配置失败: " + err.message, "error"); }
+    };
+    var loadRemoteBtn = $("merger-loadRemoteConfigBtn");
+    if (loadRemoteBtn) loadRemoteBtn.onclick = function () {
+      loadRemoteConfig().catch(function (err) { setStatus("读取远端配置失败: " + err.message, "error"); });
+    };
+    var saveRemoteBtn = $("merger-saveRemoteConfigBtn");
+    if (saveRemoteBtn) saveRemoteBtn.onclick = function () {
+      saveRemoteConfig().catch(function (err) { setStatus("保存远端配置失败: " + err.message, "error"); });
+    };
+    var clearAnonKeyBtn = $("merger-clearAnonKeyBtn");
+    if (clearAnonKeyBtn) clearAnonKeyBtn.onclick = function () {
+      clearStoredSupabaseAnonKey();
+      var anonField = $("merger-supabaseAnonKey");
+      if (anonField) anonField.value = "";
+      setStatus("已清除 Supabase Anon Key", "ok");
     };
   }
 
   async function bootstrap() {
     await loadDefaultConfig();
-    $("supabaseAnonKey").value = loadStoredSupabaseAnonKey();
+    var anonField = $("merger-supabaseAnonKey");
+    if (anonField) anonField.value = loadStoredSupabaseAnonKey();
     bindEvents();
     updateCounters();
     setStatus("就绪：先执行阶段1分析", "info");

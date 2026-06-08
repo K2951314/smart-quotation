@@ -23,6 +23,15 @@ const HOLD_REPEAT_INTERVAL_MS = 70;
 const MMC_URL = "https://mcweb.mitsubishi-materials.com/concerto-mmsc-ec/login.jsp";
 const DEFAULT_DISCOUNT_STORAGE_KEY = "v9-default-discount-config";
 
+window.addEventListener("error", (event) => {
+  const msg = event?.message || "未知错误";
+  const status = document.getElementById("status");
+  if (status) {
+    status.textContent = `JS 错误：${msg}`;
+    status.className = "status-badge danger";
+  }
+});
+
 const DiscountEngine = window.DiscountUtils || {
   DEFAULT_DISCOUNT_CONFIG: Object.freeze({ ex: 32, osg: 36, mitsubishi: 55, other: 55 }),
   DEFAULT_STEP_PERCENT: 0.1,
@@ -157,6 +166,8 @@ function getRuntimeAppConfig() {
     const key = Object.keys(legacyMap).find((name) => legacyMap[name] === id);
     return key ? { ...rule, percent: overrides[key] } : rule;
   });
+  // 删除 cfg.rules 避免 normalizeConfig 二次从 v3 原始 rules 覆盖已应用的折扣覆盖值
+  delete cfg.rules;
   g_RuntimeConfigCache = window.ConfigCore.normalizeConfig(cfg);
   g_RuntimeConfigDiscountFingerprint = fingerprint;
   return g_RuntimeConfigCache;
@@ -498,7 +509,7 @@ async function decryptData(base64Data, password) {
 }
 
 // ================== 新版 Supabase 缓存加载模块开始 ==================
-const SUPABASE_BASE_URL = "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q";
+const SUPABASE_BASE_URL = "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/ex";
 
 function normalizeBaseUrl(value) {
   return String(value || SUPABASE_BASE_URL).replace(/\/+$/, "");
@@ -606,6 +617,7 @@ async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
     if (fileType === 'json') {
       applyAppConfig(JSON.parse(text));
     } else if (fileType === 'bundle') {
+      // Bundle files are stored as pure JSON data, not executable JS.
       return JSON.parse(text);
     }
   } catch (e) {

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>智能询价 · 管理后台</title>
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <span class="brand-mark">SQ</span>
+        <div>
+          <strong>配置中心</strong>
+          <span id="activeRevision">未发布</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <a href="#company">🏢 公司管理</a>
+        <a href="#fields">📋 字段配置</a>
+        <a href="#rules">⚖️ 报价规则</a>
+        <a href="#copy">📋 复制模板</a>
+        <a href="#ui-config">🖥️ 页面显示</a>
+        <a href="#merger">🔀 数据拼接</a>
+        <a href="#publish">🚀 发布配置</a>
+        <a href="#erp">🔗 ERPNext</a>
+        <a href="#history">📚 版本历史</a>
+        <a href="#audit">📝 审计日志</a>
+      </nav>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <h1>智能询价配置中心</h1>
+          <p id="statusText" role="status" aria-live="polite">本地草稿</p>
+        </div>
+        <div class="actions top-actions">
+          <div class="primary-actions">
+            <button id="publishBtn" class="primary" type="button"><span aria-hidden="true">↑</span> 发布配置</button>
+          </div>
+          <div class="secondary-actions">
+            <button id="loadConfigBtn" type="button" title="从服务器读取当前公司配置"><span aria-hidden="true">↻</span> 读取</button>
+            <button id="saveDraftBtn" type="button" title="保存为草稿"><span aria-hidden="true">✓</span> 保存</button>
+          </div>
+        </div>
+      </header>
+      <div class="js-status-bar"><span>JS 状态：</span><strong id="jsStatus">等待初始化</strong></div>
+
+      <!-- 公司管理 -->
+      <section id="company" class="band">
+        <div class="section-head">
+          <h2>公司管理</h2>
+          <div class="actions">
+            <button id="listCompaniesBtn" type="button"><span aria-hidden="true">☰</span>刷新列表</button>
+            <button id="createCompanyBtn" type="button"><span aria-hidden="true">＋</span>创建公司</button>
+          </div>
+        </div>
+        <div class="form-grid">
+          <label>公司名称<input id="companyName" value="演示公司"></label>
+          <label>company_id<input id="companyId" value="demo-company"></label>
+          <label>配置版本<input id="revision" value=""></label>
+        </div>
+        <div id="companyList" class="company-list" style="display:none;margin-top:12px;"></div>
+
+        <!-- 内联重命名面板（默认隐藏） -->
+        <div id="renamePanel" class="rename-panel" style="display:none;">
+          <strong>重命名公司</strong>
+          <input id="renameTarget" readonly style="color:var(--muted);">
+          <input id="renameNewName" placeholder="新名称">
+          <input id="renameNewId" placeholder="新 company_id（留空则不变）">
+          <button id="confirmRenameBtn" type="button" class="primary small-btn">确认</button>
+          <button id="cancelRenameBtn" type="button" class="small-btn">取消</button>
+        </div>
+      </section>
+
+      <!-- 字段配置 -->
+      <section id="fields" class="band">
+        <div class="section-head">
+          <h2>字段配置</h2>
+          <button id="addFieldBtn" type="button"><span aria-hidden="true">＋</span>添加字段</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>字段Key</th>
+                <th>显示名</th>
+                <th>类型</th>
+                <th>来源</th>
+                <th>Excel 别名</th>
+                <th>搜索</th>
+                <th>复制</th>
+                <th>显示区域</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="fieldRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 报价规则 -->
+      <section id="rules" class="band">
+        <div class="section-head">
+          <h2>报价规则</h2>
+          <button id="addRuleBtn" type="button"><span aria-hidden="true">＋</span>添加规则</button>
+        </div>
+        <p class="hint">规则分为“条件规则”和“默认规则”。默认规则应当提供一个兜底折扣，确保所有报价都能计算到结果。</p>
+        <div id="ruleRows" class="rule-list"></div>
+      </section>
+
+      <!-- 复制模板 -->
+      <section id="copy" class="band">
+        <div class="section-head">
+          <h2>复制模板</h2>
+          <button id="addCopyColumnBtn" type="button"><span aria-hidden="true">＋</span> 添加列</button>
+        </div>
+        <p class="hint">从字段列表选择要复制的列，显示名自动使用字段配置。</p>
+        <p class="hint">默认列会显示 ✅；前缀可写“含税”“含运费”。</p>
+        <div id="copyRows" class="copy-list"></div>
+      </section>
+
+      <!-- 页面显示配置 -->
+      <section id="ui-config" class="band">
+        <div class="section-head">
+          <h2>页面显示</h2>
+          <p class="hint">直接勾选需要展示的字段，系统会根据字段配置的结果区域自动分组。</p>
+        </div>
+        <div class="form-grid">
+          <label class="wide">应用标题<input id="uiAppTitle" value="智能询价系统"></label>
+        </div>
+        <div id="uiFieldLayout" class="ui-field-layout"></div>
+        <div class="section-head" style="margin-top:16px;">
+          <h3>定价设置</h3>
+        </div>
+        <div class="form-grid">
+          <label>默认公式<input id="pricingFormula" value="face_price * discount_percent / 100"></label>
+          <label>小数位<input id="pricingDecimals" type="number" value="1" min="0" max="4"></label>
+          <label>折扣步长（%）<input id="pricingDiscountStep" type="number" value="0.1" min="0.1" max="50" step="0.1"></label>
+          <label>步长预设（逗号分隔）<input id="pricingDiscountStepPresets" value="0.1, 0.5, 1" placeholder="0.1, 0.5, 1"></label>
+          <label>取整模式<select id="pricingRoundMode">
+            <option value="ceil">向上取整 (ceil)</option>
+            <option value="floor">向下取整 (floor)</option>
+            <option value="round">四舍五入 (round)</option>
+          </select></label>
+          <label>整数阈值<input id="pricingIntegerAbove" type="number" value="100"><small>面价超出此值时取整为整数</small></label>
+        </div>
+      </section>
+
+      <!-- 数据拼接 -->
+      <section id="merger" class="band">
+        <div class="section-head">
+          <h2>数据拼接</h2>
+          <p class="hint">阶段1同品牌拼接，阶段2跨品牌拼接，导出价格包与库存包。</p>
+        </div>
+        <div id="merger-statusBox" class="merger-status info">就绪：先执行阶段1分析</div>
+
+        <!-- 两列卡片行 1：阶段1 + 阶段2 -->
+        <div class="merger-cards">
+
+          <!-- 阶段1 -->
+          <div class="mcard">
+            <div class="mcard-head">
+              <span class="mcard-icon">①</span>
+              <div>
+                <h3>阶段1：同品牌拼接</h3>
+                <p class="mcard-desc">上传原始报价文件，自动识别品牌后可手动修正，再导出分品牌文件。</p>
+              </div>
+            </div>
+            <div class="mcard-body">
+              <label class="mcard-label">品牌原始文件
+                <input id="merger-stage1Files" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
+              </label>
+              <div class="mcard-meta">
+                <span>文件数：<strong id="merger-stage1Count">0</strong></span>
+                <span>品牌汇总：<strong id="merger-stage1Summary">—</strong></span>
+              </div>
+            </div>
+            <div class="mcard-foot">
+              <button id="merger-analyzeStage1Btn" type="button" class="mcard-btn primary">分析并识别品牌</button>
+              <button id="merger-exportStage1Btn" type="button" class="mcard-btn secondary">导出各品牌文件</button>
+            </div>
+            <!-- 品牌映射表（识别后显示） -->
+            <div id="merger-stage1TableWrap" style="display:none;margin-top:12px;">
+              <table class="mcard-table">
+                <thead>
+                  <tr><th>文件名</th><th>识别品牌</th><th>人工修正</th><th>行数</th></tr>
+                </thead>
+                <tbody id="merger-mappingBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 阶段2 -->
+          <div class="mcard">
+            <div class="mcard-head">
+              <span class="mcard-icon">②</span>
+              <div>
+                <h3>阶段2：跨品牌拼接</h3>
+                <p class="mcard-desc">加载按品牌拆分的文件，合并为价格数据集，随后导出价格包。</p>
+              </div>
+            </div>
+            <div class="mcard-body">
+              <label class="mcard-label">处理后品牌文件
+                <input id="merger-stage2Files" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
+              </label>
+              <div class="mcard-meta">
+                <span>总行数：<strong id="merger-stage2Count">0</strong></span>
+              </div>
+            </div>
+            <div class="mcard-foot">
+              <button id="merger-loadStage2Btn" type="button" class="mcard-btn secondary">加载文件</button>
+              <button id="merger-exportPriceBtn" type="button" class="mcard-btn primary">导出价格包</button>
+            </div>
+          </div>
+
+        </div><!-- /.merger-cards -->
+
+        <!-- 两列卡片行 2：库存 + 全量导出 -->
+        <div class="merger-cards" style="margin-top:12px;">
+
+          <!-- 库存 -->
+          <div class="mcard">
+            <div class="mcard-head">
+              <span class="mcard-icon">③</span>
+              <div>
+                <h3>库存包</h3>
+                <p class="mcard-desc">加载库存 Excel，单独导出库存包 stock.bundle.json。</p>
+              </div>
+            </div>
+            <div class="mcard-body">
+              <label class="mcard-label">库存文件
+                <input id="merger-stockFiles" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
+              </label>
+              <div class="mcard-meta">
+                <span>库存行数：<strong id="merger-stockCount">0</strong></span>
+              </div>
+            </div>
+            <div class="mcard-foot">
+              <button id="merger-loadStockBtn" type="button" class="mcard-btn secondary">加载库存</button>
+              <button id="merger-exportStockBtn" type="button" class="mcard-btn primary">导出库存包</button>
+            </div>
+          </div>
+
+          <!-- 全量导出 -->
+          <div class="mcard mcard--highlight">
+            <div class="mcard-head">
+              <span class="mcard-icon mcard-icon--accent">↓</span>
+              <div>
+                <h3>全量导出</h3>
+                <p class="mcard-desc">同时导出总表 xlsx、价格包与库存包三个文件，可选价格包加密。</p>
+              </div>
+            </div>
+            <div class="mcard-body">
+              <label class="mcard-label">价格包密码（可选）
+                <input id="merger-pricePassword" type="password" placeholder="为空则不加密" class="mcard-input">
+              </label>
+            </div>
+            <div class="mcard-foot">
+              <button id="merger-exportAllBtn" type="button" class="mcard-btn primary mcard-btn--wide">全部导出（总表 + 价格包 + 库存包）</button>
+            </div>
+          </div>
+
+        </div><!-- /.merger-cards -->
+
+        <!-- 隐藏：merger-app.js 仍需要这些 DOM 节点，但不在 UI 中显示 -->
+        <textarea id="merger-appConfig" style="display:none;"></textarea>
+        <pre id="merger-configPreview" style="display:none;"></pre>
+        <input id="merger-supabaseAnonKey" type="password" style="display:none;">
+      </section>
+
+
+        <!-- Supabase 部署面板 -->
+        <div class="supabase-panel">
+          <div class="supabase-panel-head">
+            <div>
+              <h3>🗄️ 部署到 Supabase</h3>
+              <p>直接上传 config.json、价格包和库存包到 Supabase Storage，无需手动下载后上传。</p>
+            </div>
+          </div>
+
+          <!-- 凭证输入 -->
+          <div class="supabase-creds">
+            <label>Supabase Base URL（config 中的 data_source.base_url）
+              <input id="sb-baseUrl" type="text" placeholder="https://xxx.supabase.co/storage/v1/object/public/quotation/...">
+            </label>
+            <label>Supabase Anon Key
+              <input id="sb-anonKey" type="password" placeholder="eyJhbGci... （仅保存在本页会话中）">
+            </label>
+          </div>
+
+          <!-- 三列部署卡片 -->
+          <div class="supabase-deploy-grid">
+
+            <!-- config.json -->
+            <div class="deploy-card">
+              <div class="deploy-card-name">配置文件</div>
+              <div class="deploy-card-file">config.json</div>
+              <p style="font-size:11px;color:var(--muted);margin:0;">上传当前草稿配置，主站下次刷新即可读取。</p>
+              <button id="sb-uploadConfigBtn" type="button" class="primary small-btn">
+                <span aria-hidden="true">↑</span> 上传配置
+              </button>
+            </div>
+
+            <!-- price.bundle.json -->
+            <div class="deploy-card">
+              <div class="deploy-card-name">价格包</div>
+              <div class="deploy-card-file">price.bundle.json</div>
+              <p style="font-size:11px;color:var(--muted);margin:0;">在数据拼接区导出价格包后可直接上传；或手动选择文件。</p>
+              <label style="text-transform:none;font-weight:400;font-size:11px;letter-spacing:0;color:var(--muted);">
+                备用文件（可选）
+                <input id="sb-priceFileInput" type="file" accept=".json" style="font-size:11px;">
+              </label>
+              <button id="sb-uploadPriceBtn" type="button" class="small-btn">
+                <span aria-hidden="true">↑</span> 上传价格包
+              </button>
+            </div>
+
+            <!-- stock.bundle.json -->
+            <div class="deploy-card">
+              <div class="deploy-card-name">库存包</div>
+              <div class="deploy-card-file">stock.bundle.json</div>
+              <p style="font-size:11px;color:var(--muted);margin:0;">在数据拼接区导出库存包后可直接上传；或手动选择文件。</p>
+              <label style="text-transform:none;font-weight:400;font-size:11px;letter-spacing:0;color:var(--muted);">
+                备用文件（可选）
+                <input id="sb-stockFileInput" type="file" accept=".json" style="font-size:11px;">
+              </label>
+              <button id="sb-uploadStockBtn" type="button" class="small-btn">
+                <span aria-hidden="true">↑</span> 上传库存包
+              </button>
+            </div>
+
+          </div><!-- /.supabase-deploy-grid -->
+
+          <div id="sb-statusBar" class="supabase-status"></div>
+        </div><!-- /.supabase-panel -->
+      </section>
+
+
+      <!-- 发布配置 -->
+      <section id="publish" class="band">
+
+        <div class="section-head">
+          <h2>发布配置</h2>
+          <div class="actions">
+            <button id="validateConfigBtn" type="button"><span aria-hidden="true">✓</span>校验配置</button>
+            <button id="exportJsonBtn" type="button"><span aria-hidden="true">↓</span>导出 JSON</button>
+            <button id="exportYamlBtn" type="button"><span aria-hidden="true">↓</span>导出 YAML</button>
+            <button id="importJsonBtn" type="button"><span aria-hidden="true">↑</span>从示例导入</button>
+          </div>
+        </div>
+        <!-- 校验结果 -->
+        <div id="validateResult" style="display:none;margin-bottom:12px;"></div>
+        <label class="advanced">高级 JSON（示例配置；点击"从示例导入"后会载入并导入草稿）<textarea id="advancedJson" rows="14"></textarea></label>
+
+      <!-- ERPNext -->
+      <section id="erp" class="band">
+        <div class="section-head">
+          <h2>ERPNext</h2>
+          <button id="testErpBtn" type="button"><span aria-hidden="true">◎</span>连接测试</button>
+        </div>
+        <div class="form-grid">
+          <label>启用<select id="erpEnabled"><option value="false">否</option><option value="true">是</option></select></label>
+          <label>Base URL<input id="erpBaseUrl" placeholder="https://erp.example.com"></label>
+          <label>物料字段<input id="erpItemCodeField" value="code"></label>
+          <label>价格表<input id="erpPriceList" value="Standard Selling"></label>
+        </div>
+      </section>
+
+      <!-- 版本历史 -->
+      <section id="history" class="band">
+        <div class="section-head">
+          <h2>版本历史</h2>
+          <button id="loadHistoryBtn" type="button"><span aria-hidden="true">↻</span>加载历史</button>
+        </div>
+        <div class="table-wrap">
+          <table id="historyTable">
+            <thead>
+              <tr>
+                <th>版本</th>
+                <th>状态</th>
+                <th>发布时间</th>
+                <th>创建时间</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="historyRows">
+              <tr><td colspan="5" style="color:var(--muted);text-align:center;">点击"加载历史"查看版本记录</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 审计日志 -->
+      <section id="audit" class="band">
+        <div class="section-head">
+          <h2>审计日志</h2>
+          <button id="loadAuditBtn" type="button"><span aria-hidden="true">↻</span>加载日志</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>操作</th>
+                <th>对象类型</th>
+                <th>对象 ID</th>
+                <th>操作人</th>
+              </tr>
+            </thead>
+            <tbody id="auditRows">
+              <tr><td colspan="5" style="color:var(--muted);text-align:center;">点击"加载日志"查看审计记录</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <script src="./lib/config-core.js"></script>
+  <script src="./lib/data-utils.js"></script>
+  <script src="./lib/bundle-utils.js"></script>
+  <script src="./lib/export-utils.js"></script>
+  <script src="./merger-app.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
