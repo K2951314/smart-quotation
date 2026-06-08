@@ -1,93 +1,332 @@
 {
-  "schema_version": 2,
-  "version": "2026年6月1日",
-  "data_source": {
-    "base_url": "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q",
-    "version_file": "version.json",
-    "config_file": "config.json",
-    "price_bundle_file": "price.bundle.json",
-    "stock_bundle_file": "stock.bundle.json",
-    "cache_name": "quotation-cache-v2"
-  },
+  "schema_version": 3,
+  "company_id": "TJLH",
+  "revision": "2026年6月8日",
   "pricing": {
+    "currency": "CNY",
     "decimal_places": 1,
-    "rounding_threshold": 100,
-    "discount_step": {
-      "default": 1,
-      "min": 0.1,
-      "presets": [0.1, 0.5, 1]
-    }
+    "rounding": {
+      "mode": "ceil",
+      "integer_above": 100
+    },
+    "default_formula": "face_price * discount_percent / 100"
   },
   "fields": [
-    { "key": "code", "label": "代码", "type": "text", "source": "price", "excel_aliases": ["代码", "货号", "物料编码", "编码"], "searchable": true, "copyable": true, "result_area": "identity", "required": false },
-    { "key": "spec", "label": "规格型号", "type": "text", "source": "price", "excel_aliases": ["规格型号", "规格", "型号", "产品型号"], "searchable": true, "copyable": true, "result_area": "identity", "required": true },
-    { "key": "face_price", "label": "面价", "type": "number", "source": "price", "excel_aliases": ["销售单价", "面价", "目录价", "含税单价", "单价"], "searchable": false, "copyable": false, "result_area": "metric", "required": false },
-    { "key": "quote_price", "label": "报价", "type": "computed", "source": "computed", "excel_aliases": [], "searchable": false, "copyable": true, "result_area": "metric", "required": false },
-    { "key": "special", "label": "特价", "type": "text", "source": "price", "excel_aliases": ["特价", "活动", "促销"], "searchable": true, "copyable": true, "result_area": "chip", "required": false },
-    { "key": "stock", "label": "库存", "type": "text", "source": "stock", "excel_aliases": ["库存", "库存数量", "可用数量", "数量"], "searchable": false, "copyable": true, "result_area": "chip", "required": false },
-    { "key": "remark", "label": "备注", "type": "text", "source": "price", "excel_aliases": ["补充说明", "备注", "说明"], "searchable": true, "copyable": true, "result_area": "detail", "required": false },
-    { "key": "brand", "label": "品牌", "type": "text", "source": "price", "excel_aliases": ["品牌", "厂家"], "searchable": true, "copyable": false, "result_area": "detail", "required": false },
-    { "key": "name", "label": "名称", "type": "text", "source": "price", "excel_aliases": ["名称", "品名", "类别"], "searchable": true, "copyable": false, "result_area": "detail", "required": false },
-    { "key": "mnemonic", "label": "助记码", "type": "text", "source": "price", "excel_aliases": ["助记码", "简码"], "searchable": true, "copyable": false, "result_area": "detail", "required": false },
-    { "key": "alias", "label": "别名", "type": "text", "source": "price", "excel_aliases": ["别名", "旧型号"], "searchable": true, "copyable": false, "result_area": "detail", "required": false },
-    { "key": "delivery", "label": "交期", "type": "text", "source": "price", "excel_aliases": ["交期", "货期"], "searchable": true, "copyable": true, "result_area": "detail", "required": false }
+    {
+      "key": "code",
+      "label": "代码",
+      "type": "text",
+      "source": "price",
+      "excel_aliases": [
+        "代码",
+        "货号",
+        "物料编码",
+        "编码"
+      ],
+      "searchable": true,
+      "copyable": true,
+      "required": false,
+      "result_area": "identity"
+    },
+    {
+      "key": "spec",
+      "label": "规格型号",
+      "type": "text",
+      "source": "price",
+      "excel_aliases": [
+        "规格型号",
+        "规格",
+        "型号",
+        "产品型号"
+      ],
+      "searchable": true,
+      "copyable": true,
+      "required": false,
+      "result_area": "identity"
+    },
+    {
+      "key": "face_price",
+      "label": "面价",
+      "type": "number",
+      "source": "price",
+      "excel_aliases": [
+        "销售单价",
+        "面价",
+        "目录价",
+        "含税单价",
+        "单价"
+      ],
+      "searchable": false,
+      "copyable": false,
+      "required": false,
+      "result_area": "metric"
+    },
+    {
+      "key": "quote_price",
+      "label": "报价",
+      "type": "computed",
+      "source": "computed",
+      "excel_aliases": [],
+      "searchable": false,
+      "copyable": true,
+      "required": false,
+      "result_area": "metric"
+    },
+    {
+      "key": "special",
+      "label": "特价",
+      "type": "text",
+      "source": "price",
+      "excel_aliases": [
+        "特价",
+        "活动",
+        "促销"
+      ],
+      "searchable": true,
+      "copyable": true,
+      "required": false,
+      "result_area": "chip"
+    },
+    {
+      "key": "stock",
+      "label": "库存",
+      "type": "text",
+      "source": "stock",
+      "excel_aliases": [
+        "库存",
+        "库存数量",
+        "可用数量",
+        "数量"
+      ],
+      "searchable": false,
+      "copyable": true,
+      "required": false,
+      "result_area": "chip"
+    },
+    {
+      "key": "remark",
+      "label": "备注",
+      "type": "text",
+      "source": "price",
+      "excel_aliases": [
+        "补充说明",
+        "备注",
+        "说明"
+      ],
+      "searchable": true,
+      "copyable": true,
+      "required": false,
+      "result_area": "detail"
+    },
+    {
+      "key": "brand",
+      "label": "品牌",
+      "type": "text",
+      "source": "price",
+      "excel_aliases": [
+        "品牌",
+        "厂家"
+      ],
+      "searchable": false,
+      "copyable": false,
+      "required": false,
+      "result_area": "detail"
+    },
+    {
+      "key": "name",
+      "label": "名称",
+      "type": "text",
+      "source": "price",
+      "excel_aliases": [
+        "名称",
+        "品名",
+        "类别"
+      ],
+      "searchable": false,
+      "copyable": false,
+      "required": false,
+      "result_area": "detail"
+    },
+    {
+      "key": "mnemonic",
+      "label": "助记码",
+      "type": "text",
+      "source": "price",
+      "excel_aliases": [
+        "助记码",
+        "简码"
+      ],
+      "searchable": false,
+      "copyable": false,
+      "required": false,
+      "result_area": "detail"
+    },
+    {
+      "key": "alias",
+      "label": "别名",
+      "type": "text",
+      "source": "price",
+      "excel_aliases": [
+        "别名",
+        "旧型号"
+      ],
+      "searchable": false,
+      "copyable": false,
+      "required": false,
+      "result_area": "detail"
+    }
+  ],
+  "rules": [
+    {
+      "id": "ex",
+      "label": "EX活动",
+      "priority": 10,
+      "default": false,
+      "actions": [
+        {
+          "type": "set_discount",
+          "percent": 32.5
+        }
+      ],
+      "when": {
+        "all": [
+          {
+            "field": "special",
+            "op": "contains",
+            "value": "EX活动"
+          }
+        ]
+      }
+    },
+    {
+      "id": "osg",
+      "label": "OSG",
+      "priority": 20,
+      "default": false,
+      "actions": [
+        {
+          "type": "set_discount",
+          "percent": 37
+        }
+      ],
+      "when": {
+        "all": [
+          {
+            "field": "name",
+            "op": "contains",
+            "value": "OSG"
+          }
+        ]
+      }
+    },
+    {
+      "id": "mitsubishi",
+      "label": "三菱",
+      "priority": 30,
+      "default": false,
+      "actions": [
+        {
+          "type": "set_discount",
+          "percent": 56
+        }
+      ],
+      "when": {
+        "all": [
+          {
+            "field": "name",
+            "op": "contains",
+            "value": "刀具"
+          }
+        ]
+      }
+    },
+    {
+      "id": "other",
+      "label": "其他",
+      "priority": 40,
+      "default": true,
+      "actions": [
+        {
+          "type": "set_discount",
+          "percent": 56
+        }
+      ]
+    }
   ],
   "copy": {
     "empty_value": "",
     "price_prefix": "含税",
+    "line_template": "",
     "columns": [
-      { "field": "code", "label": "代码", "default": true, "line": "main" },
-      { "field": "spec", "label": "规格", "default": true, "line": "main" },
-      { "field": "quote_price", "label": "报价", "default": true, "line": "main" },
-      { "field": "special", "label": "特价", "default": false, "line": "main" },
-      { "field": "stock", "label": "库存", "default": false, "line": "main" },
-      { "field": "remark", "label": "备注", "default": false, "line": "detail" }
+      {
+        "field": "code",
+        "label": "代码",
+        "line": "main",
+        "default": true,
+        "prefix": ""
+      },
+      {
+        "field": "spec",
+        "label": "规格型号",
+        "line": "main",
+        "default": true,
+        "prefix": ""
+      },
+      {
+        "field": "quote_price",
+        "label": "报价",
+        "line": "main",
+        "default": true,
+        "prefix": "含税"
+      },
+      {
+        "field": "special",
+        "label": "特价",
+        "line": "main",
+        "default": false,
+        "prefix": ""
+      },
+      {
+        "field": "stock",
+        "label": "库存",
+        "line": "main",
+        "default": false,
+        "prefix": ""
+      },
+      {
+        "field": "remark",
+        "label": "备注",
+        "line": "detail",
+        "default": false,
+        "prefix": ""
+      }
     ]
   },
-  "result_layout": {
-    "identity": ["code", "spec"],
-    "chips": ["stock", "special"],
-    "metrics": ["face_price", "quote_price"],
-    "details": ["remark", "delivery"]
-  },
-  "discount_rules": [
-    { "id": "ex", "label": "EX活动", "percent": 32, "conditions": [{ "field": "special", "contains": "EX活动" }] },
-    { "id": "osg", "label": "OSG", "percent": 36, "conditions": [{ "field": "brand", "regex": "OSG" }] },
-    { "id": "mitsubishi", "label": "三菱", "percent": 55, "conditions": [{ "field": "name", "equals": "刀具" }] },
-    { "id": "other", "label": "其他", "percent": 55, "default": true, "conditions": [] }
-  ],
-  "merger": {
-    "primary_field": "spec",
-    "stock_key_field": "code",
-    "passthrough_fields": ["delivery"],
-    "stock_format": "{warehouse}:{quantity}{status}",
-    "stock_joiner": " | ",
-    "stock_columns": {
-      "code": ["物料长代码", "代码", "物料编码", "编码"],
-      "warehouse": ["发料仓库", "仓库", "仓位", "仓"],
-      "quantity": ["库存数量", "数量", "可用数量", "库存"],
-      "status": ["参考状态", "状态", "备注"]
-    },
-    "brand_rules": {
-      "defaultBrand": "UNMAPPED",
-      "brands": [
-        { "id": "MITSUBISHI", "prefixes": ["三菱", "MITSU"] },
-        { "id": "OSG", "prefixes": ["OSG"] }
+  "ui": {
+    "app_title": "智能询价系统",
+    "result_layout": {
+      "identity": [
+        "code",
+        "spec"
+      ],
+      "metrics": [],
+      "chips": [],
+      "details": [
+        "face_price",
+        "quote_price",
+        "special",
+        "stock",
+        "remark"
       ]
     }
   },
-  "labels": {
-    "app_title": "智能询价系统",
-    "search_button": "智能查询",
-    "stock_search_button": "库存查询",
-    "mmc_button": "三菱库存",
-    "copy_button": "复制勾选",
-    "selected_label": "勾选",
-    "config_button": "配置",
-    "input_title": "输入",
-    "result_title": "结果",
-    "query_placeholder": "请输入规格型号...\n支持多关键词，例如：\nWNMG080408 UC5115",
-    "empty_hint": "支持规格、代码、助记码、别名、备注和特价关键词。",
-    "stock_prefix": "库存 "
+  "integrations": {
+    "erpnext": {
+      "enabled": false,
+      "base_url": "",
+      "item_code_field": "code",
+      "price_list": "Standard Selling",
+      "warehouse_map": {}
+    }
   }
 }
