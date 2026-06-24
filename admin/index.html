@@ -20,6 +20,7 @@
       </div>
       <nav class="nav">
         <a href="#company">🏢 公司管理</a>
+        <a href="#customers">👥 客户管理</a>
         <a href="#fields">📋 字段配置</a>
         <a href="#rules">⚖️ 报价规则</a>
         <a href="#copy">📋 复制模板</a>
@@ -74,6 +75,88 @@
           <input id="renameNewId" placeholder="新 company_id（留空则不变）">
           <button id="confirmRenameBtn" type="button" class="primary small-btn">确认</button>
           <button id="cancelRenameBtn" type="button" class="small-btn">取消</button>
+        </div>
+      </section>
+
+      <!-- 客户管理 -->
+      <section id="customers" class="band">
+        <div class="section-head">
+          <h2>客户管理</h2>
+          <div class="actions">
+            <button id="custListBtn" type="button"><span aria-hidden="true">☰</span>刷新客户</button>
+            <button id="custCreateBtn" type="button"><span aria-hidden="true">＋</span>创建客户</button>
+          </div>
+        </div>
+        <p class="hint">为客户创建登录账号。管理员账号可查看完整数据（含面价/折扣/配置），公司账号仅看到预设品牌价格（面价隐藏）。</p>
+
+        <!-- 创建客户表单 -->
+        <div id="custCreateForm" class="form-grid" style="display:none;">
+          <label>用户名<input id="custUsername" placeholder="login username"></label>
+          <label>密码<input id="custPassword" type="password" placeholder="初始密码"></label>
+          <label>客户名称<input id="custDisplayName" placeholder="显示名称"></label>
+          <label>账号类型<select id="custAccountType">
+            <option value="company">公司账号（脱敏，仅看预设价）</option>
+            <option value="admin">管理员（完整权限，看面价/折扣/配置）</option>
+          </select></label>
+          <label>折扣率<input id="custDiscountRate" type="number" step="0.01" min="0" max="1" value="0.65" placeholder="0.65 = 65折"></label>
+          <label>税率<input id="custTaxRate" type="number" step="0.01" min="0" max="1" value="0.13" placeholder="0.13 = 13%"></label>
+          <label>备注<input id="custNotes" placeholder="可选"></label>
+          <button id="custCreateConfirmBtn" type="button" class="primary small-btn">确认创建</button>
+          <button id="custCreateCancelBtn" type="button" class="small-btn">取消</button>
+        </div>
+
+        <!-- 客户列表 -->
+        <div id="custList" class="company-list" style="margin-top:12px;">
+          <p style="color:var(--muted);">点击"刷新客户"加载当前公司的客户列表</p>
+        </div>
+
+        <!-- 编辑客户面板（默认隐藏） -->
+        <div id="custEditPanel" class="rename-panel" style="display:none;">
+          <strong>编辑客户 — <span id="custEditName"></span></strong>
+          <input id="custEditId" type="hidden">
+          <label>客户名称<input id="custEditDisplayName" placeholder="显示名称"></label>
+          <label>账号类型<select id="custEditAccountType">
+            <option value="company">公司账号</option>
+            <option value="admin">管理员</option>
+          </select></label>
+          <label>折扣率<input id="custEditDiscountRate" type="number" step="0.01" min="0" max="1"></label>
+          <label>税率<input id="custEditTaxRate" type="number" step="0.01" min="0" max="1"></label>
+          <label>利润模式<select id="custEditProfitMode">
+            <option value="none">无</option>
+            <option value="percent">百分比 (%)</option>
+            <option value="amount">固定金额 (¥)</option>
+          </select></label>
+          <label>利润值<input id="custEditProfitValue" type="number" step="0.01" value="0"></label>
+          <label>状态<select id="custEditStatus">
+            <option value="active">活跃</option>
+            <option value="disabled">停用</option>
+          </select></label>
+          <button id="custEditSaveBtn" type="button" class="primary small-btn">保存</button>
+          <button id="custEditCancelBtn" type="button" class="small-btn">取消</button>
+        </div>
+
+        <!-- 价格覆盖面板（默认隐藏） -->
+        <div id="custPricePanel" style="display:none;margin-top:16px;">
+          <div class="section-head">
+            <h3>价格覆盖 — <span id="custPriceName"></span></h3>
+            <button id="custPriceAddBtn" type="button" class="small-btn"><span aria-hidden="true">＋</span>添加覆盖</button>
+          </div>
+          <p class="hint">为特定商品设定固定价格，优先于折扣率计算。搜索商品编码并设定覆盖价。</p>
+          <div class="form-grid" id="custPriceAddRow" style="display:none;">
+            <label>商品编码<input id="custPriceItemKey" placeholder="item_key"></label>
+            <label>覆盖价<input id="custPriceValue" type="number" step="0.01" min="0"></label>
+            <button id="custPriceSaveBtn" type="button" class="primary small-btn">添加</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>商品编码</th><th>覆盖价</th><th>备注</th><th></th></tr>
+              </thead>
+              <tbody id="custPriceRows">
+                <tr><td colspan="4" style="color:var(--muted);text-align:center;">暂无价格覆盖</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -426,6 +509,7 @@
   <script src="./lib/bundle-utils.js"></script>
   <script src="./lib/export-utils.js"></script>
   <script src="./merger-app.js"></script>
+  <script src="./customer-app.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

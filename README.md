@@ -1,9 +1,10 @@
 # 智能询价系统
 
-本项目包含两套独立系统：
+本项目包含三套子系统：
 
-1. **静态前端报价台**（`apps/`）：纯前端工具，部署 Netlify，通过远端 `config.json`、`price.bundle.json`、`stock.bundle.json` 运行，无需服务端。
-2. **多租户 GUI 配置平台**（`backend/` + `admin/`）：FastAPI + SQLite 后端，提供可视化配置中心，支持多公司、配置版本管理、审计日志、一键回滚。
+1. **客户门户**（`apps/index.html`）：统一登录门户，管理员/公司账号角色分离，品牌折扣定价 + 利润 + 含税/未税。
+2. **多租户 GUI 配置平台**（`backend/` + `admin/`）：FastAPI + SQLite 后端，提供可视化配置中心，支持多公司、配置版本管理、客户账号管理、审计日志、一键回滚。
+3. **静态前端报价台**（`apps/app.js`）：纯前端工具，通过远端 `config.json` + Supabase bundle 运行，无需后端。
 
 ---
 
@@ -52,7 +53,35 @@ py -m unittest tests.test_backend_v1 tests.test_admin_gui -v
 
 ---
 
-## 静态前端报价台
+## 客户门户 + 生产部署
+
+### 本地开发
+
+打开 `http://127.0.0.1:8001/apps/index.html`（后端需先启动）。
+
+测试账号：公司代码 `TJLH`，用户名 `cs`，密码 `cs`（管理员在 admin 后台管理客户密码）。
+
+### 生产部署（Netlify + 独立后端）
+
+客户门户（`apps/index.html` + `portal.js`）依赖 FastAPI 后端，需分两部分部署：
+
+1. **后端**：部署到 Railway / Render（免费 tier 足够）
+   - 启动命令：`python -m backend.smart_quotation`
+   - 记录部署后的域名，如 `https://smart-quotation.onrender.com`
+
+2. **Netlify 前端**：
+   - 修改 `apps/portal.js` 顶部 `HARDCODED_PROD_API` 为后端域名
+   - 或部署后通过 URL 参数指定：`https://xxx.netlify.app?api=https://smart-quotation.onrender.com`
+   - 更新 `netlify.toml` CSP 的 `connect-src` 添加后端域名
+   - `apps/login.html` / `customer.html` 为旧版备用入口（不通过 portal.js）
+
+### 静态报价台（纯前端模式）
+
+原始的纯前端模式仍可使用：访问非 index.html 的 apps/ 路径，由 `app.js` 驱动，无需登录，数据来自 Supabase 加密 bundle。
+
+---
+
+## 静态前端报价台（app.js 纯前端模式）
 
 ### 当前架构
 
@@ -139,7 +168,7 @@ Netlify 当前发布目录是 `apps`，线上根路径直接进入主站。
   "config_file": "config.json",
   "price_bundle_file": "price.bundle.json",
   "stock_bundle_file": "stock.bundle.json",
-  "cache_name": "quotation-cache-v2"
+  "cache_name": "quotation-cache-v3"
 }
 ```
 
