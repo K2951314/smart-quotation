@@ -9,12 +9,12 @@
     schema_version: 2,
     version: "",
     data_source: {
-      base_url: "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/ex",
+      base_url: "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q",
       version_file: "version.json",
       config_file: "config.json",
       price_bundle_file: "price.bundle.json",
       stock_bundle_file: "stock.bundle.json",
-      cache_name: "quotation-cache-v2",
+      cache_name: "quotation-cache-v3",
     },
     pricing: {
       decimal_places: 1,

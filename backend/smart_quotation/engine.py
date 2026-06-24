@@ -239,3 +239,132 @@ class QuotationEngine:
             return float(value or 0)
         except (TypeError, ValueError):
             return 0.0
+
+    # ─── Customer-facing pricing (brand-based + profit + tax) ────────
+
+    def quote_customer(self, customer: dict[str, Any], company_id: str, query: str) -> dict[str, Any]:
+        """客户报价入口：基于品牌配置规则定价 + 利润 + 税务。
+
+        - 公司账号(company)：使用 config rules 的品牌折扣 → base_price → +利润 → +税，脱敏面价/折扣
+        - 管理员(admin)：返回完整数据（含面价、折扣率、报价），不计算利润/税
+        """
+        config = self.store.get_active_config(company_id)
+        searchable = self.searchable_fields(config)
+        rows = self.store.search_items(company_id, query, searchable)
+        override_map = self.store.get_price_override_map(customer["id"])
+        pricing = config.get("pricing") or {}
+        rounding = pricing.get("rounding") or {}
+        decimals = int(pricing.get("decimal_places", 1))
+        is_admin = (customer.get("account_type") or "company") == "admin"
+
+        results = []
+        for row in rows:
+            # 先用品牌配置规则计算（engine.quote_row 的核心逻辑）
+            quoted = self.quote_row(row, config)
+            results.append(self._build_customer_result(
+                customer, quoted, row, config, override_map, rounding, decimals, is_admin
+            ))
+
+        return {
+            "company_id": company_id,
+            "config_revision": config["revision"],
+            "account_type": customer.get("account_type") or "company",
+            "results": results,
+        }
+
+    def _build_customer_result(
+        self,
+        customer: dict[str, Any],
+        quoted: dict[str, Any],
+        row: dict[str, Any],
+        config: dict[str, Any],
+        override_map: dict[str, float],
+        rounding: dict[str, Any],
+        decimals: int,
+        is_admin: bool,
+    ) -> dict[str, Any]:
+        """构建单行报价结果。
+
+        品牌折扣定价流程:
+          1. engine.quote_row → quote_price = face_price × brand_discount% (如 100×32.5%=32.5)
+          2. 若有价格覆盖 → base_price = override_price
+          3. base_price = quote_price (品牌折扣价)
+          4. final = base × (1+profit%) 或 base+amount 或 base
+          5. tax = final × tax_rate, incl_tax = final + tax
+        """
+        fields = dict(quoted.get("fields") or {})
+        item_key = quoted.get("item_key", "")
+        discount_percent = float(quoted.get("discount_percent") or 0)
+        list_price = self.to_number(fields.get("face_price"))
+
+        # 品牌折扣价 = engine 计算的 quote_price
+        brand_price = self.to_number(fields.get("quote_price"))
+
+        # 价格覆盖优先
+        if item_key in override_map:
+            base_price = override_map[item_key]
+        else:
+            base_price = brand_price
+
+        # 管理员：返回完整数据，不计算利润/税
+        if is_admin:
+            return {
+                "item_key": item_key,
+                "fields": fields,
+                "face_price": self._format_price(list_price, decimals),
+                "discount_percent": discount_percent,
+                "quote_price": self._format_price(brand_price, decimals),
+                "matched_rule": quoted.get("matched_rule"),
+                "copy_text": quoted.get("copy_text", ""),
+                "is_admin": True,
+            }
+
+        # 公司账号：计算利润 + 税务，脱敏
+        profit_mode = customer.get("profit_mode") or "none"
+        profit_value = float(customer.get("profit_value") or 0)
+        if profit_mode == "percent":
+            final_quote = base_price * (1 + profit_value / 100)
+        elif profit_mode == "amount":
+            final_quote = base_price + profit_value
+        else:
+            final_quote = base_price
+
+        final_quote = self._apply_rounding(final_quote, rounding, decimals)
+        base_price_r = self._apply_rounding(base_price, rounding, decimals)
+
+        tax_rate = float(customer.get("tax_rate") or 0)
+        tax_amount = self._apply_rounding(final_quote * tax_rate, rounding, decimals)
+        incl_tax = self._apply_rounding(final_quote + tax_amount, rounding, decimals)
+
+        # 脱敏：剔除 face_price 和 quote_price
+        sanitized_fields = {k: v for k, v in fields.items()
+                            if k not in ("face_price", "quote_price")}
+
+        return {
+            "item_key": item_key,
+            "fields": sanitized_fields,
+            "base_price": self._format_price(base_price_r, decimals),
+            "final_quote": self._format_price(final_quote, decimals),
+            "tax_rate": tax_rate,
+            "tax_amount": self._format_price(tax_amount, decimals),
+            "price_incl_tax": self._format_price(incl_tax, decimals),
+            "profit_mode": profit_mode,
+            "profit_value": profit_value,
+            "is_admin": False,
+        }
+
+    def _apply_rounding(self, value: float, rounding: dict[str, Any], decimals: int) -> float:
+        """应用取整规则（与 calculate_price 一致）。
+
+        先 round 到 6 位消除浮点误差（如 55.00000001 → 55.0），再 ceil。
+        """
+        # 消除浮点误差：先 round 到 6 位小数
+        value = round(value, 6)
+        if rounding.get("mode") == "ceil":
+            factor = 10 ** max(decimals, 0)
+            value = math.ceil(value * factor) / factor
+        return value
+
+    def _format_price(self, value: float, decimals: int) -> str:
+        """格式化价格字符串。"""
+        return f"{value:.{max(decimals, 0)}f}"

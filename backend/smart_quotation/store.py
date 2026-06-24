@@ -75,8 +75,53 @@ class QuotationStore:
                     payload_json text not null,
                     created_at text not null
                 );
+                create table if not exists customers (
+                    id text primary key,
+                    company_id text not null,
+                    username text not null,
+                    password_hash text not null,
+                    password_salt text not null,
+                    display_name text not null,
+                    status text not null default 'active',
+                    account_type text not null default 'company',
+                    discount_rate real not null default 1.0,
+                    tax_rate real not null default 0.13,
+                    profit_mode text not null default 'none',
+                    profit_value real not null default 0,
+                    notes text,
+                    created_at text not null,
+                    updated_at text not null,
+                    unique(company_id, username)
+                );
+                create index if not exists idx_customers_company on customers(company_id);
+                create table if not exists customer_prices (
+                    id integer primary key autoincrement,
+                    customer_id text not null,
+                    company_id text not null,
+                    item_key text not null,
+                    override_price real not null,
+                    notes text,
+                    created_at text not null,
+                    updated_at text not null,
+                    unique(customer_id, item_key)
+                );
+                create index if not exists idx_customer_prices_customer on customer_prices(customer_id);
+                create table if not exists customer_sessions (
+                    token_hash text primary key,
+                    customer_id text not null,
+                    company_id text not null,
+                    created_at text not null,
+                    expires_at text not null,
+                    last_used_at text
+                );
+                create index if not exists idx_sessions_customer on customer_sessions(customer_id);
                 """
             )
+            # Migration: 为已有 customers 表添加 account_type 列（SQLite 不支持 IF NOT EXISTS）
+            try:
+                conn.execute("ALTER TABLE customers ADD COLUMN account_type TEXT NOT NULL DEFAULT 'company'")
+            except sqlite3.OperationalError:
+                pass  # 列已存在
             conn.commit()
 
     def create_company(self, name: str, code: str) -> str:
@@ -334,9 +379,12 @@ class QuotationStore:
             conn.commit()
 
     def hard_delete_company(self, company_id: str) -> dict[str, Any]:
-        """彻底删除公司及其所有关联数据（配置、料号、审计）"""
+        """彻底删除公司及其所有关联数据（配置、料号、审计、客户、会话、价格覆盖）"""
         with closing(self.connect()) as conn:
-            # 先删除关联数据（外键约束）
+            # 先删除关联数据（无外键约束，手动级联）
+            conn.execute("delete from customer_sessions where company_id = ?", (company_id,))
+            conn.execute("delete from customer_prices where company_id = ?", (company_id,))
+            conn.execute("delete from customers where company_id = ?", (company_id,))
             conn.execute("delete from quotation_items where company_id = ?", (company_id,))
             conn.execute("delete from quotation_configs where company_id = ?", (company_id,))
             conn.execute("delete from audit_events where company_id = ?", (company_id,))
@@ -420,6 +468,9 @@ class QuotationStore:
                 conn.execute("update quotation_configs set company_id = ? where company_id = ?", (new_id, old_id))
                 conn.execute("update quotation_items set company_id = ? where company_id = ?", (new_id, old_id))
                 conn.execute("update audit_events set company_id = ? where company_id = ?", (new_id, old_id))
+                conn.execute("update customers set company_id = ? where company_id = ?", (new_id, old_id))
+                conn.execute("update customer_prices set company_id = ? where company_id = ?", (new_id, old_id))
+                conn.execute("update customer_sessions set company_id = ? where company_id = ?", (new_id, old_id))
             params.append(old_id)
             result = conn.execute(
                 f"update companies set {', '.join(updates)} where id = ?",  # noqa: S608
@@ -497,6 +548,228 @@ class QuotationStore:
 
     def now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    # ─── Customer Management ──────────────────────────────────────────
+
+    def create_customer(
+        self,
+        company_id: str,
+        username: str,
+        password_hash: str,
+        password_salt: str,
+        display_name: str,
+        discount_rate: float = 1.0,
+        tax_rate: float = 0.13,
+        notes: str = "",
+        account_type: str = "company",
+    ) -> dict[str, Any]:
+        import secrets as _secrets
+
+        customer_id = _secrets.token_hex(8)
+        now = self.now()
+        with closing(self.connect()) as conn:
+            try:
+                conn.execute(
+                    """
+                    insert into customers(id, company_id, username, password_hash, password_salt,
+                        display_name, status, account_type, discount_rate, tax_rate, profit_mode, profit_value,
+                        notes, created_at, updated_at)
+                    values(?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 'none', 0, ?, ?, ?)
+                    """,
+                    (customer_id, company_id, username, password_hash, password_salt,
+                     display_name, account_type, discount_rate, tax_rate, notes, now, now),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"用户名 '{username}' 在该公司已存在") from exc
+            self.audit(conn, company_id, None, "customer.create", "customer", customer_id,
+                       {"username": username, "display_name": display_name, "account_type": account_type})
+            conn.commit()
+        return self.get_customer(customer_id)
+
+    def get_customer(self, customer_id: str) -> dict[str, Any] | None:
+        with closing(self.connect()) as conn:
+            row = conn.execute(
+                "select * from customers where id = ?", (customer_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_customer_by_username(self, company_id: str, username: str) -> dict[str, Any] | None:
+        with closing(self.connect()) as conn:
+            row = conn.execute(
+                "select * from customers where company_id = ? and username = ?",
+                (company_id, username),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_customers(self, company_id: str) -> list[dict[str, Any]]:
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                """select id, company_id, username, display_name, status, account_type,
+                          discount_rate, tax_rate, profit_mode, profit_value, notes,
+                          created_at, updated_at
+                   from customers where company_id = ? order by created_at desc""",
+                (company_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_customer(self, customer_id: str, **fields) -> dict[str, Any]:
+        allowed = {"display_name", "status", "account_type", "discount_rate", "tax_rate",
+                   "profit_mode", "profit_value", "notes"}
+        updates: list[str] = []
+        params: list[Any] = []
+        for key, val in fields.items():
+            if key in allowed and val is not None:
+                updates.append(f"{key} = ?")
+                params.append(val)
+        if not updates:
+            raise ValueError("no valid fields to update")
+        updates.append("updated_at = ?")
+        params.append(self.now())
+        params.append(customer_id)
+        with closing(self.connect()) as conn:
+            result = conn.execute(
+                f"update customers set {', '.join(updates)} where id = ?",  # noqa: S608
+                params,
+            )
+            if result.rowcount == 0:
+                raise LookupError(f"customer {customer_id} not found")
+            # 先取 company_id 用于审计（commit 前从同一连接读）
+            row = conn.execute(
+                "select company_id from customers where id = ?", (customer_id,)
+            ).fetchone()
+            company_id_for_audit = row["company_id"] if row else ""
+            self.audit(conn, company_id_for_audit, None, "customer.update", "customer", customer_id, fields)
+            conn.commit()
+        return self.get_customer(customer_id)
+
+    def delete_customer(self, customer_id: str) -> dict[str, Any]:
+        customer = self.get_customer(customer_id)
+        if not customer:
+            raise LookupError(f"customer {customer_id} not found")
+        with closing(self.connect()) as conn:
+            conn.execute("delete from customer_sessions where customer_id = ?", (customer_id,))
+            conn.execute("delete from customer_prices where customer_id = ?", (customer_id,))
+            conn.execute("delete from customers where id = ?", (customer_id,))
+            self.audit(conn, customer["company_id"], None, "customer.delete", "customer", customer_id,
+                       {"username": customer["username"]})
+            conn.commit()
+        return {"customer_id": customer_id, "status": "deleted"}
+
+    def reset_customer_password(self, customer_id: str, password_hash: str, password_salt: str) -> dict[str, Any]:
+        customer = self.get_customer(customer_id)
+        if not customer:
+            raise LookupError(f"customer {customer_id} not found")
+        with closing(self.connect()) as conn:
+            conn.execute(
+                "update customers set password_hash = ?, password_salt = ?, updated_at = ? where id = ?",
+                (password_hash, password_salt, self.now(), customer_id),
+            )
+            # 作废该客户所有会话
+            conn.execute("delete from customer_sessions where customer_id = ?", (customer_id,))
+            self.audit(conn, customer["company_id"], None, "customer.reset_password", "customer", customer_id, {})
+            conn.commit()
+        return {"customer_id": customer_id, "status": "password_reset"}
+
+    # ─── Session Management ───────────────────────────────────────────
+
+    def create_session(self, customer_id: str, company_id: str, token_hash: str, expires_at: str) -> dict[str, Any]:
+        now = self.now()
+        with closing(self.connect()) as conn:
+            conn.execute(
+                """insert into customer_sessions(token_hash, customer_id, company_id, created_at, expires_at, last_used_at)
+                   values(?, ?, ?, ?, ?, ?)""",
+                (token_hash, customer_id, company_id, now, expires_at, now),
+            )
+            conn.commit()
+        return {"token_hash": token_hash, "customer_id": customer_id, "company_id": company_id,
+                "created_at": now, "expires_at": expires_at}
+
+    def get_session_by_token(self, token_hash: str) -> dict[str, Any] | None:
+        now = self.now()
+        with closing(self.connect()) as conn:
+            row = conn.execute(
+                """select * from customer_sessions
+                   where token_hash = ? and expires_at > ?""",
+                (token_hash, now),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def touch_session(self, token_hash: str) -> None:
+        with closing(self.connect()) as conn:
+            conn.execute(
+                "update customer_sessions set last_used_at = ? where token_hash = ?",
+                (self.now(), token_hash),
+            )
+            conn.commit()
+
+    def delete_session(self, token_hash: str) -> None:
+        with closing(self.connect()) as conn:
+            conn.execute("delete from customer_sessions where token_hash = ?", (token_hash,))
+            conn.commit()
+
+    def cleanup_expired_sessions(self) -> int:
+        now = self.now()
+        with closing(self.connect()) as conn:
+            result = conn.execute(
+                "delete from customer_sessions where expires_at <= ?", (now,)
+            )
+            conn.commit()
+            return result.rowcount
+
+    # ─── Price Overrides ──────────────────────────────────────────────
+
+    def list_price_overrides(self, customer_id: str) -> list[dict[str, Any]]:
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                """select id, customer_id, item_key, override_price, notes, created_at, updated_at
+                   from customer_prices where customer_id = ? order by id""",
+                (customer_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_price_override_map(self, customer_id: str) -> dict[str, float]:
+        """返回 {item_key: override_price} 用于报价时快速查找。"""
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                "select item_key, override_price from customer_prices where customer_id = ?",
+                (customer_id,),
+            ).fetchall()
+        return {row["item_key"]: float(row["override_price"]) for row in rows}
+
+    def upsert_price_overrides(
+        self, customer_id: str, company_id: str, overrides: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        now = self.now()
+        with closing(self.connect()) as conn:
+            for item in overrides:
+                item_key = str(item.get("item_key") or "").strip()
+                price = float(item.get("override_price") or 0)
+                if not item_key:
+                    continue
+                conn.execute(
+                    """insert into customer_prices(customer_id, company_id, item_key, override_price, notes, created_at, updated_at)
+                       values(?, ?, ?, ?, ?, ?, ?)
+                       on conflict(customer_id, item_key) do update set
+                           override_price = excluded.override_price,
+                           notes = excluded.notes,
+                           updated_at = excluded.updated_at""",
+                    (customer_id, company_id, item_key, price, item.get("notes", ""), now, now),
+                )
+            self.audit(conn, company_id, None, "customer.prices.upsert", "customer_prices", customer_id,
+                       {"count": len(overrides)})
+            conn.commit()
+        return {"customer_id": customer_id, "upserted": len(overrides)}
+
+    def delete_price_override(self, customer_id: str, item_key: str) -> dict[str, Any]:
+        with closing(self.connect()) as conn:
+            result = conn.execute(
+                "delete from customer_prices where customer_id = ? and item_key = ?",
+                (customer_id, item_key),
+            )
+            if result.rowcount == 0:
+                raise LookupError(f"price override for item_key '{item_key}' not found")
+            conn.commit()
+        return {"customer_id": customer_id, "item_key": item_key, "status": "deleted"}
 
     # ─── Merger / Bundle ───────────────────────────────────────────────
 

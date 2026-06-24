@@ -10,6 +10,14 @@ DEFAULT_FORMULA = "face_price * discount_percent / 100"
 DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": 3,
     "revision": "",
+    "data_source": {
+        "base_url": "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q",
+        "version_file": "version.json",
+        "config_file": "config.json",
+        "price_bundle_file": "price.bundle.json",
+        "stock_bundle_file": "stock.bundle.json",
+        "cache_name": "quotation-cache-v3",
+    },
     "pricing": {
         "currency": "CNY",
         "decimal_places": 1,
@@ -167,6 +175,7 @@ def normalize_config(company_id: str, raw_config: dict[str, Any] | None) -> dict
                 "result_layout": copy.deepcopy(raw.get("result_layout") or DEFAULT_CONFIG["ui"]["result_layout"]),
             },
             "integrations": copy.deepcopy(DEFAULT_CONFIG["integrations"]),
+            "data_source": deep_merge(DEFAULT_CONFIG["data_source"], raw.get("data_source") or {}),
         }
     else:
         migrated = deep_merge(DEFAULT_CONFIG, raw)

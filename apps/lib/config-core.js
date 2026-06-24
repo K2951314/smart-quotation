@@ -14,7 +14,7 @@
       config_file: "config.json",
       price_bundle_file: "price.bundle.json",
       stock_bundle_file: "stock.bundle.json",
-      cache_name: "quotation-cache-v2",
+      cache_name: "quotation-cache-v3",
     },
     pricing: {
       decimal_places: 1,

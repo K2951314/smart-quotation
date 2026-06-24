@@ -13,10 +13,36 @@ let g_DiscountPressState = null;
 let g_RemoteDefaultDiscountConfig = null;
 let g_HasLocalDefaultDiscountConfig = false;
 let g_LayoutMetricsFrame = null;
+const APP_BUILD_TAG = "v4-2026-06-18-13:48";
+console.log("app.js", APP_BUILD_TAG, "loaded");
 let g_AppConfig = null;
 let g_RuntimeConfigCache = null;
 let g_RuntimeConfigDiscountFingerprint = null;
 let g_SearchIndex = null;
+
+// ═══ 客户门户模式（公司账号）═══════════════════════════════════════════════
+//   公司账号视图: 隐藏面价/折扣内部列，显示"成本价" + 未税/含税 + 利润
+//   管理员视图: 与原始 app.js 一致（显示面价 + 折扣可调）
+//
+//   登录：localStorage.sq_customer_token 验证后填入 g_CustomerProfile
+//   未登录：显示 #authGate 覆盖层，不加载价格包
+const SQ_TOKEN_KEY = "sq_customer_token";
+let g_CustomerProfile = null;
+let g_IsCustomerCompany = false;
+let g_TaxRate = 0;
+let g_ProfitMode = "none";
+let g_ProfitValue = 0;
+let g_ShowInclTax = true;  // 公司账号视图：默认显示含税（"成本+税" 是用户最关心的）
+
+// 工具：基于"未税金额"应用利润
+function applyCustomerProfit(priceExclTax) {
+  const base = Number(priceExclTax) || 0;
+  const mode = g_ProfitMode;
+  const val = g_ProfitValue;
+  if (mode === "percent") return base * (1 + val / 100);
+  if (mode === "amount") return base + val;
+  return base;
+}
 
 const HOLD_START_DELAY_MS = 280;
 const HOLD_REPEAT_INTERVAL_MS = 70;
@@ -442,6 +468,27 @@ window.onload = async function () {
   g_DefaultDiscountConfig = loadLocalDefaultDiscountConfig() || getSystemDefaultDiscountConfig();
   applyAppConfig(window.APP_CONFIG || {});
   bindUiEvents();
+
+  // ═══ 登录门禁：未登录则停在这里 ═══
+  const token = localStorage.getItem(SQ_TOKEN_KEY);
+  if (!token) {
+    sqShowAuthGate();
+    bindCustomerControls();
+    return;
+  }
+
+  // 已登录：验证 token + 加载 profile
+  try {
+    const profile = await sqApi("/api/customer/me");
+    sqShowPortal(profile);
+    bindCustomerControls();
+  } catch (err) {
+    console.warn("token 校验失败", err);
+    sqShowAuthGate();
+    bindCustomerControls();
+    return;
+  }
+
   syncDefaultDiscountButtonSummary();
   syncDefaultDiscountForm(g_DefaultDiscountConfig);
   syncDiscountStepInput(document.getElementById("discountStep").value);
@@ -484,10 +531,29 @@ function setSearchLoading(loading) {
 
 function bytesToUtf8(bytes) { return new TextDecoder().decode(bytes); }
 
+// 分块 base64 解码：避免对超大字符串调用 atob 导致浏览器内存/调用栈失败
 function base64ToBytes(base64) {
-  const raw = atob(base64);
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+  if (typeof base64 !== "string" || base64.length === 0) return new Uint8Array(0);
+  // 去除可能的 data: 前缀
+  const commaIdx = base64.indexOf(",");
+  if (base64.startsWith("data:") && commaIdx >= 0) base64 = base64.slice(commaIdx + 1);
+  // 去除空白
+  base64 = base64.replace(/\s+/g, "");
+  // 计算输出长度
+  const padding = (base64.endsWith("==") ? 2 : (base64.endsWith("=") ? 1 : 0));
+  const outLen = Math.floor(base64.length * 3 / 4) - padding;
+  const out = new Uint8Array(outLen);
+  // 分块解码（每块 64KB），减少 atob 调用栈压力
+  const CHUNK = 0x10000; // 65536 chars
+  let outPos = 0;
+  for (let i = 0; i < base64.length; i += CHUNK) {
+    const chunk = base64.slice(i, i + CHUNK);
+    const raw = atob(chunk);
+    const limit = Math.min(raw.length, outLen - outPos);
+    for (let j = 0; j < limit; j++) out[outPos + j] = raw.charCodeAt(j);
+    outPos += limit;
+    if (outPos >= outLen) break;
+  }
   return out;
 }
 
@@ -509,7 +575,7 @@ async function decryptData(base64Data, password) {
 }
 
 // ================== 新版 Supabase 缓存加载模块开始 ==================
-const SUPABASE_BASE_URL = "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/ex";
+const SUPABASE_BASE_URL = "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q";
 
 function normalizeBaseUrl(value) {
   return String(value || SUPABASE_BASE_URL).replace(/\/+$/, "");
@@ -523,7 +589,7 @@ function getDataSourceConfig() {
     config_file: cfg.data_source?.config_file || "config.json",
     price_bundle_file: cfg.data_source?.price_bundle_file || "price.bundle.json",
     stock_bundle_file: cfg.data_source?.stock_bundle_file || "stock.bundle.json",
-    cache_name: cfg.data_source?.cache_name || "quotation-cache-v2"
+    cache_name: cfg.data_source?.cache_name || "quotation-cache-v4"
   };
 }
 
@@ -571,6 +637,247 @@ async function loadLegacyVersion(source) {
   }
 }
 
+// ═══ 客户门户：登录门禁 ════════════════════════════════════════════════════
+
+const SQ_API_BASE = (function () {
+  if (location.protocol === "file:") return "http://127.0.0.1:8001";
+  if (location.hostname === "127.0.0.1" || location.hostname === "localhost") return "";
+  // 生产：读取 localStorage 配置（可在控制台设置：localStorage.sq_api_base = "https://..."）
+  return localStorage.getItem("sq_api_base") || "";
+})();
+
+async function sqApi(path, options) {
+  const token = localStorage.getItem(SQ_TOKEN_KEY) || "";
+  const resp = await fetch(SQ_API_BASE + path, {
+    ...options,
+    headers: {
+      "X-Customer-Token": token,
+      "Content-Type": "application/json",
+      ...((options && options.headers) || {}),
+    },
+  });
+  const text = await resp.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
+  if (!resp.ok) {
+    if (resp.status === 401) {
+      localStorage.removeItem(SQ_TOKEN_KEY);
+      sqShowAuthGate();
+    }
+    throw new Error(data.detail || `HTTP ${resp.status}`);
+  }
+  return data;
+}
+
+function sqShowAuthGate() {
+  const gate = document.getElementById("authGate");
+  if (gate) gate.classList.remove("hidden");
+  const bar = document.getElementById("customerInfoBar");
+  if (bar) bar.classList.add("is-hidden");
+  const ctrls = document.getElementById("customerControls");
+  if (ctrls) ctrls.style.display = "none";
+  document.body.classList.remove("is-customer-company");
+
+  // 异步拉取公司列表填充下拉框
+  sqLoadCompanyList();
+}
+
+let _sqCompaniesLoaded = false;
+async function sqLoadCompanyList() {
+  if (_sqCompaniesLoaded) return;
+  const sel = document.getElementById("authCompany");
+  if (!sel) return;
+  try {
+    const resp = await fetch(SQ_API_BASE + "/api/companies", { headers: { "Accept": "application/json" } });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+    const list = Array.isArray(data) ? data : [];
+    sel.innerHTML = "";
+    if (list.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "暂无可用公司";
+      sel.appendChild(opt);
+      return;
+    }
+    list.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c.code || c.id || "";
+      opt.textContent = `${c.code || c.id}${c.name ? " · " + c.name : ""}`;
+      sel.appendChild(opt);
+    });
+    // 只有一家公司时默认选中
+    if (list.length === 1) {
+      sel.value = list[0].code || list[0].id || "";
+    }
+    _sqCompaniesLoaded = true;
+  } catch (err) {
+    console.warn("加载公司列表失败", err);
+    // 降级为可手动输入
+    if (sel.tagName === "SELECT") {
+      const input = document.createElement("input");
+      input.id = "authCompany";
+      input.type = "text";
+      input.autocomplete = "organization";
+      input.required = true;
+      input.placeholder = "如 TJLH";
+      sel.parentNode.replaceChild(input, sel);
+    }
+  }
+}
+
+function sqShowPortal(profile) {
+  g_CustomerProfile = profile;
+  g_IsCustomerCompany = profile.account_type === "company";
+  g_TaxRate = Number(profile.tax_rate || 0);
+  g_ProfitMode = profile.profit_mode || "none";
+  g_ProfitValue = Number(profile.profit_value || 0);
+  g_ShowInclTax = true;
+
+  const gate = document.getElementById("authGate");
+  if (gate) gate.classList.add("hidden");
+  const bar = document.getElementById("customerInfoBar");
+  if (bar) {
+    bar.classList.remove("is-hidden");
+    document.getElementById("customerName").textContent = profile.display_name || profile.username || "—";
+    const badge = document.getElementById("customerRoleBadge");
+    if (g_IsCustomerCompany) {
+      badge.textContent = "公司账号";
+      badge.className = "role-badge company";
+    } else {
+      badge.textContent = "管理员";
+      badge.className = "role-badge admin";
+    }
+  }
+  if (g_IsCustomerCompany) {
+    document.body.classList.add("is-customer-company");
+    document.getElementById("profitMode").value = g_ProfitMode;
+    document.getElementById("profitValue").value = g_ProfitValue;
+    sqUpdateTaxToggleUi();
+  } else {
+    document.body.classList.remove("is-customer-company");
+  }
+}
+
+function sqUpdateTaxToggleUi() {
+  const toggle = document.getElementById("taxToggle");
+  const label = document.getElementById("taxToggleLabel");
+  if (!toggle || !label) return;
+  toggle.classList.toggle("active", g_ShowInclTax);
+  label.textContent = g_ShowInclTax ? "含税" : "未税";
+}
+
+async function sqHandleLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById("authBtn");
+  const errEl = document.getElementById("authError");
+  errEl.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "登录中...";
+  try {
+    const resp = await fetch(SQ_API_BASE + "/api/customer/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        company_code: document.getElementById("authCompany").value.trim(),
+        username: document.getElementById("authUser").value.trim(),
+        password: document.getElementById("authPass").value,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "登录失败");
+    localStorage.setItem(SQ_TOKEN_KEY, data.token);
+    await sqBootstrap();
+  } catch (err) {
+    errEl.textContent = err.message;
+    btn.disabled = false;
+    btn.textContent = "登录";
+  }
+}
+
+async function sqLogout() {
+  try { await sqApi("/api/customer/logout", { method: "POST" }); } catch {}
+  localStorage.removeItem(SQ_TOKEN_KEY);
+  g_CustomerProfile = null;
+  g_IsCustomerCompany = false;
+  sqShowAuthGate();
+  // 清空结果
+  const body = document.getElementById("resultBody");
+  if (body) body.innerHTML = "";
+  g_Results = [];
+  updateResultCount && updateResultCount();
+}
+
+async function sqSaveProfit() {
+  const mode = document.getElementById("profitMode").value;
+  const value = parseFloat(document.getElementById("profitValue").value) || 0;
+  try {
+    const updated = await sqApi("/api/customer/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ profit_mode: mode, profit_value: value }),
+    });
+    g_ProfitMode = updated.profit_mode;
+    g_ProfitValue = Number(updated.profit_value || 0);
+    // 刷新已显示结果的价格
+    if (typeof refreshRenderedPrices === "function") {
+      refreshRenderedPrices();
+    } else if (g_Results && g_Results.length) {
+      // 重新执行搜索
+      const btn = document.getElementById("btnSearch");
+      if (btn) btn.click();
+    }
+  } catch (err) {
+    alert("保存利润设置失败：" + err.message);
+  }
+}
+
+async function sqBootstrap() {
+  // 验证 token + 加载 profile + 加载数据
+  try {
+    const profile = await sqApi("/api/customer/me");
+    sqShowPortal(profile);
+    bindCustomerControls();
+    // 登录成功后启动 app 主流程（与 window.onload 完全一致的路径）
+    renderLoadingState("正在极速同步远程数据");
+    updateResultCount();
+    const ready = await ensureDataLoaded();
+    if (ready) {
+      renderEmptyState("输入规格后开始查询，可在结果卡中直接调价与勾选复制。");
+    } else {
+      renderErrorState("远程数据未就绪，请重试。");
+    }
+  } catch (err) {
+    console.warn("登录校验失败", err);
+    sqShowAuthGate();
+  }
+}
+
+function bindCustomerControls() {
+  // 防止重复绑定
+  if (window._sqCustomerBound) return;
+  window._sqCustomerBound = true;
+
+  const form = document.getElementById("authForm");
+  if (form) form.addEventListener("submit", sqHandleLogin);
+
+  const logoutBtn = document.getElementById("customerLogoutBtn");
+  if (logoutBtn) logoutBtn.addEventListener("click", sqLogout);
+
+  const taxToggle = document.getElementById("taxToggle");
+  if (taxToggle) {
+    taxToggle.addEventListener("click", () => {
+      g_ShowInclTax = !g_ShowInclTax;
+      sqUpdateTaxToggleUi();
+      if (typeof refreshRenderedPrices === "function") refreshRenderedPrices();
+    });
+  }
+
+  const profitMode = document.getElementById("profitMode");
+  if (profitMode) profitMode.addEventListener("change", sqSaveProfit);
+  const profitValue = document.getElementById("profitValue");
+  if (profitValue) profitValue.addEventListener("change", sqSaveProfit);
+}
+
 async function loadDataWithCache() {
   console.log("开始检查版本更新...");
   let source = getDataSourceConfig();
@@ -594,7 +901,7 @@ async function loadDataWithCache() {
 
 async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
   const source = sourceConfig || getDataSourceConfig();
-  const cacheName = source.cache_name || "quotation-cache-v2";
+  const cacheName = source.cache_name || "quotation-cache-v4";
   const fileUrl = buildRemoteFileUrl(source, filename, `v=${encodeURIComponent(version)}`);
 
   const cache = await caches.open(cacheName);
@@ -657,17 +964,31 @@ async function parsePriceBundle(priceObj) {
       throw new Error("价格包解密失败，请确认密码");
     }
   } else {
+    const t0 = performance.now();
+    const rawLen = (priceObj.payload || "").length;
+    console.log(`[parsePriceBundle] 解码 base64 长度 ${rawLen} (${(rawLen / 1024 / 1024).toFixed(2)} MB)...`);
     jsonText = decodePlainPayload(priceObj.payload || "");
+    console.log(`[parsePriceBundle] base64 解码耗时 ${(performance.now() - t0).toFixed(0)}ms, jsonText 长度 ${jsonText.length}`);
   }
-  const parsed = JSON.parse(jsonText || "{}");
+  if (!jsonText || jsonText.length < 10) {
+    throw new Error(`价格包解码结果异常 (长度=${jsonText ? jsonText.length : 0})`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e) {
+    console.error("[parsePriceBundle] JSON.parse 失败，前 200 字符:", jsonText.slice(0, 200));
+    throw new Error("价格包 JSON 解析失败");
+  }
   return { payload: parsed, meta: priceObj.meta || null };
 }
 
 function parseStockBundle(stockObj) {
   if (!stockObj) throw new Error("未找到远程库存包");
   if (stockObj.secured) throw new Error("库存包必须保持明文");
-  const parsed = JSON.parse(decodePlainPayload(stockObj.payload || "") || "{}");
-  return { payload: parsed, meta: stockObj.meta || null };
+  const jsonText = decodePlainPayload(stockObj.payload || "");
+  if (!jsonText) throw new Error("库存包解码结果为空");
+  return { payload: JSON.parse(jsonText), meta: stockObj.meta || null };
 }
 
 // 彻底重构的 ensureDataLoaded（将旧版的 fetchWithMirrors 摘除，接入了最新的缓存机制）
@@ -700,9 +1021,15 @@ async function ensureDataLoaded() {
       STOCK_DATA = parsedStock.payload || { byCode: {} };
       STOCK_META = parsedStock.meta || null;
 
+      console.log("[ensureDataLoaded] PRICE_DATA keys:", Object.keys(PRICE_DATA));
+      console.log("[ensureDataLoaded] PRICE_DATA rows count:", PRICE_DATA.rows ? PRICE_DATA.rows.length : (PRICE_DATA.bySpec ? Object.keys(PRICE_DATA.bySpec).length : 0));
+      console.log("[ensureDataLoaded] STOCK_DATA keys:", Object.keys(STOCK_DATA));
+
       updateVersionText();
       rebuildMergedDB();
+      console.log("[ensureDataLoaded] DB size after rebuildMergedDB:", Object.keys(DB).length);
       rebuildSearchIndex();
+      console.log("[ensureDataLoaded] g_SearchIndex size:", g_SearchIndex ? Object.keys(g_SearchIndex).length : null);
       g_DataReady = true;
       setStatus("数据库就绪", "ok");
       return true;
@@ -763,8 +1090,8 @@ function createLegacyCompatibleItem(row) {
 }
 
 function rebuildSearchIndex() {
+  if (!window.ConfigCore) { g_SearchIndex = null; return; }
   g_SearchIndex = {};
-  if (!window.ConfigCore) return;
   const cfg = getRuntimeAppConfig();
   const searchableKeys = cfg.fields.filter(f => f.searchable).map(f => f.key);
   const allKeys = Object.keys(DB);
@@ -1106,17 +1433,41 @@ function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runti
     return value ? '<span class="info-note info-note-inline">' + escapeHtml(value) + "</span>" : "";
   }).join("");
   const metaLineMarkup = (chipMarkup || detailMarkup) ? '<div class="meta-line">' + chipMarkup + detailMarkup + "</div>" : "";
-  const metricMarkup = metricFields.map((field) => {
-    const value = field === "quote_price" ? priceInfo.display : getConfiguredValue(rowData, field);
-    const display = field === "face_price" ? formatCompactNumber(value || 0) : value;
-    const priceClass = field === "quote_price" ? " price" : "";
-    const accentClass = field === "quote_price" ? " metric-inline-accent" : "";
-    return '<div class="metric-inline' + accentClass + '"><span class="metric-label">' + escapeHtml(getFieldLabel(field)) + '</span><strong class="' + priceClass.trim() + '">' + escapeHtml(display) + '</strong></div>';
-  }).join("");
+  const metricMarkup = (function () {
+    if (g_IsCustomerCompany) {
+      // 公司账号视图：成本价 = 未税(面价×折扣%)，含税 = 未税×(1+税率)
+      const basePrice = priceInfo.display;  // 未税成本
+      const finalPrice = applyCustomerProfit(basePrice);  // 应用利润后的未税
+      const taxAmount = finalPrice * g_TaxRate;
+      const priceInclTax = finalPrice + taxAmount;
+      const mainPrice = g_ShowInclTax ? priceInclTax : finalPrice;
+      const mainLabel = g_ShowInclTax ? "含税" : "未税";
+      return [
+        '<div class="metric-inline"><span class="metric-label">成本价</span><strong>¥', formatCompactNumber(basePrice), '</strong></div>',
+        '<div class="metric-inline metric-inline-accent"><span class="metric-label">', mainLabel, '</span><strong class="price">¥', formatCompactNumber(mainPrice), '</strong></div>',
+        '<div class="metric-inline"><span class="metric-label">税率</span><strong>', (g_TaxRate * 100).toFixed(1).replace(/\.0$/, ""), '%</strong></div>'
+      ].join("");
+    }
+    return metricFields.map((field) => {
+      const value = field === "quote_price" ? priceInfo.display : getConfiguredValue(rowData, field);
+      const display = field === "face_price" ? formatCompactNumber(value || 0) : value;
+      const priceClass = field === "quote_price" ? " price" : "";
+      const accentClass = field === "quote_price" ? " metric-inline-accent" : "";
+      return '<div class="metric-inline' + accentClass + '"><span class="metric-label">' + escapeHtml(getFieldLabel(field)) + '</span><strong class="' + priceClass.trim() + '">' + escapeHtml(display) + '</strong></div>';
+    }).join("");
+  })();
 
   const resultCard = document.createElement("article");
   resultCard.className = "result-card" + (isExact ? " match-exact" : "");
   resultCard.setAttribute("data-row-id", String(rowData.id));
+  // 公司账号视图：隐藏折扣调价按钮（成本价是固定的，不允许客户手动调折扣）
+  const discountPanelMarkup = g_IsCustomerCompany ? "" : [
+    '<div class="discount-panel"><div class="discount-stepper" data-id="', rowData.id, '">',
+    getDiscountButtonMarkup(rowData.id, -1),
+    '<label class="discount-input-shell"><input type="number" class="discount-manual" data-id="', rowData.id, '" min="0" max="100" step="0.1" inputmode="decimal" value="', escapeHtml(formatCompactNumber(rowData.discountPercent)), '"><span class="discount-unit">%</span></label>',
+    getDiscountButtonMarkup(rowData.id, 1),
+    "</div></div>"
+  ].join("");
   resultCard.innerHTML =[
     '<div class="result-row">',
     '<label class="select-chip discount-select-chip"><input type="checkbox" data-id="', rowData.id, '" ', rowData.checked ? "checked" : "", '><span>', escapeHtml(runtimeConfig.labels?.selected_label || "勾选"), '</span></label>',
@@ -1126,11 +1477,8 @@ function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runti
     '<div class="result-side"><div class="result-metrics">',
     metricMarkup,
     "</div>",
-    '<div class="discount-panel"><div class="discount-stepper" data-id="', rowData.id, '">',
-    getDiscountButtonMarkup(rowData.id, -1),
-    '<label class="discount-input-shell"><input type="number" class="discount-manual" data-id="', rowData.id, '" min="0" max="100" step="0.1" inputmode="decimal" value="', escapeHtml(formatCompactNumber(rowData.discountPercent)), '"><span class="discount-unit">%</span></label>',
-    getDiscountButtonMarkup(rowData.id, 1),
-    "</div></div></div></div>"
+    discountPanelMarkup,
+    "</div></div>"
   ].join("");
 
   rowData.cardEl = resultCard;
@@ -1173,6 +1521,7 @@ function renderSearchResults(lines, onlyInStock) {
 async function doSearch() {
   const ready = await ensureDataLoaded();
   if (!ready) { renderErrorState("数据加载失败，请稍后重试。"); return; }
+  console.log("[doSearch] DB size:", Object.keys(DB).length, "query:", getQueryLines());
   renderSearchResults(getQueryLines(), false);
 }
 
