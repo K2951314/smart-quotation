@@ -15,6 +15,7 @@ let g_HasLocalDefaultDiscountConfig = false;
 let g_LayoutMetricsFrame = null;
 const APP_BUILD_TAG = "v4-2026-06-18-13:48";
 console.log("app.js", APP_BUILD_TAG, "loaded");
+var HARDCODED_PROD_API = "https://mitsubishi-stock.up.railway.app";
 let g_AppConfig = null;
 let g_RuntimeConfigCache = null;
 let g_RuntimeConfigDiscountFingerprint = null;
