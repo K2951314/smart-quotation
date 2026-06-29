@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const ConfigCore = require("../apps/lib/config-core");
-const DataUtils = require("../merger/lib/data-utils");
+const DataUtils = require("../admin/lib/data-utils");
 
 test("buildPriceDataset emits v2 rows from configured Excel aliases", () => {
   const config = ConfigCore.normalizeConfig({

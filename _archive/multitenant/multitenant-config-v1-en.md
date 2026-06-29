@@ -86,11 +86,14 @@ Open:
 
 ### ERPNext (reserved)
 
-- `POST /api/companies/{id}/integrations/erpnext/test`
-- `POST /api/companies/{id}/integrations/erpnext/sync/items`
-- `POST /api/companies/{id}/integrations/erpnext/sync/prices`
-- `POST /api/companies/{id}/integrations/erpnext/sync/stock`
-- `POST /api/companies/{id}/quotations/{quote_id}/push-to-erpnext`
+### Customer Portal
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/customer/login` | Customer login |
+| `GET` | `/api/customer/me` | Get customer profile |
+| `GET` | `/api/customer/config` | Get config (desensitized for company accounts) |
+| `POST` | `/api/stock-query` | Mitsubishi stock query (no auth required) |
 
 ## Verification
 
@@ -118,4 +121,5 @@ The existing Node tests still belong to the static frontend. In this environment
 
 - `httpx` is required for `fastapi.testclient` (used in `test_backend_api_and_extensions.py`). It is not available via pip in the current environment due to SSL restrictions; those tests can be run when network access is available.
 - All ERPNext sync and push adapters remain reserved stubs — they do not block standalone operation.
-- User authentication and fine-grained RBAC are not implemented in v1; the GUI operates in single-user mode against the configured `company_id`.
+- User authentication and customer management are implemented (see `docs/multitenant-config-v1-zh.md` for details). The GUI admin panel uses API key Bearer auth; the customer portal uses session tokens.
+- **2026-06-28**: Discount popup refactored from hardcoded 4 brands to dynamic rendering based on `discount_rules`. Configuration publish now auto-deploys to Supabase Storage. Mitsubishi stock query integrated: `POST /api/stock-query` (no auth, QueryEngine GWT-RPC). Customer portal with auth (admin/company roles, per-customer pricing, tax rate, profit margin). See `docs/multitenant-config-v1-zh.md` for full Chinese technical documentation.

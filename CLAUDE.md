@@ -5,9 +5,8 @@
 这是一个多租户配置驱动的智能询价系统，包含：
 
 - `apps/`：静态前端报价台 + 客户门户，基于远端配置和数据包运行。
-- `admin/`：浏览器端 GUI 配置中心，面向非技术人员。
+- `admin/`：浏览器端 GUI 配置中心，面向非技术人员（含品牌识别、Bundle 生成与导出功能）。
 - `backend/`：FastAPI + SQLite 后端，提供多租户公司、配置、数据、审计、客户管理和导入/回滚接口。
-- `merger/`：品牌识别、价格/库存 Bundle 生成与导出工具。
 
 ## 主要规则
 
@@ -18,23 +17,27 @@
 - 配置文件 `config.example.json` 仅用于示例，**不应包含密钥、密码、Token 或任何机密值**。
 - 如果需要写入密码或密钥，应在后端安全存储，不要硬编码到前端源码。
 
-## 客户门户 (portal.js)
+## 客户门户 (apps/index.html)
 
-- 入口：`apps/index.html`（统一登录门户）
-- 依赖 FastAPI 后端（不依赖 Supabase 直接访问）
-- 登录：`POST /api/customer/login` → token
+- 入口：`apps/index.html`（统一登录门户，authGate 覆盖层）
+- 依赖 FastAPI 后端（登录/客户管理）+ Supabase Storage（config.json + price/stock bundles）
+- 登录：`POST /api/customer/login` → token；离线调试模式可直接注入管理员 profile（无需后端）
 - 门户初始化：并行调用 `/api/customer/me` + `/api/customer/companies`，`/api/customer/config` 单独容错
 - 角色：admin 看完整数据（面价/折扣/报价），company 看脱敏数据（无面价/折扣）
-- 定价：品牌折扣价(base) × 利润(profit_mode/profit_value) → final_quote
+- 定价：品牌折扣规则定价（config rules），base = 面价 × 品牌折扣%，再叠加利润/税务
 - 税务：按客户设 tax_rate，前端切换含税/未税
-- `apps/login.html` → `customer.html` 保留为备用入口（旧版客户登录页，不通过 portal.js）
+- 利润率：客户自设全局利润（百分比/固定金额/无），系统自动算最终报价
+- 面价隐藏：公司账号下服务端剔除 face_price/discount_rate，前端不渲染 discount-panel
+- 折扣弹窗：动态渲染，根据 `discount_rules` 配置自动生成任意数量品牌输入框（2026-06-28 重构）
+- 三菱库存：`POST /api/stock-query`（无认证），QueryEngine 从 `D:\zhangkun\三菱库存\mobile_server.py` 提取，GWT-RPC 直连三菱官网
+- `apps/login.html` → `apps/customer.html` 已废弃，统一使用 `apps/index.html` + authGate
 
 ## 部署架构
 
 - **本地开发**：`py -m backend.smart_quotation` → FastAPI 同源代理 `apps/`
 - **Netlify 生产**：`apps/` 部署 Netlify，FastAPI 后端独立部署到 Railway/Render
   - portal.js 自动检测生产环境使用 `PROD_API_BASE`（可通过 URL 参数 `?api=URL` 或 `HARDCODED_PROD_API` 常量设定）
-  - 部署前需更新 `netlify.toml` CSP 的 `connect-src` 添加后端域名
+  - CSP `connect-src` 已设为 `https:` 通配以支持动态后端地址（`netlify.toml`）
 
 ## 运行与验证
 

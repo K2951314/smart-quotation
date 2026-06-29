@@ -21,6 +21,8 @@ build/
 # Python cache
 __pycache__/
 *.pyc
+.pytest_cache/
+.venv/
 *.db
 data/
 
@@ -32,6 +34,7 @@ secrets.json
 token.txt
 *.key
 *.pem
+config.ini
 
 # Raw source files (large operational files)
 *.ods

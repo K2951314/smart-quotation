@@ -1,5 +1,4 @@
 import base64
-import io
 import json
 import os
 import sqlite3
@@ -14,16 +13,15 @@ from .config import normalize_config
 
 class ConfigCache:
     def __init__(self) -> None:
-        self._cache: dict[tuple[str, str], dict[str, Any]] = {}
+        self._cache: dict[str, dict[str, Any]] = {}
 
-    def get(self, company_id: str, revision: str, loader):
-        key = (company_id, revision)
-        if key not in self._cache:
-            self._cache[key] = loader(company_id, revision)
-        return self._cache[key]
+    def get(self, revision: str, loader):
+        if revision not in self._cache:
+            self._cache[revision] = loader(revision)
+        return self._cache[revision]
 
-    def invalidate_company(self, company_id: str) -> None:
-        self._cache = {key: value for key, value in self._cache.items() if key[0] != company_id}
+    def invalidate(self) -> None:
+        self._cache.clear()
 
 
 class QuotationStore:
@@ -40,34 +38,23 @@ class QuotationStore:
         with closing(self.connect()) as conn:
             conn.executescript(
                 """
-                create table if not exists companies (
-                    id text primary key,
-                    name text not null,
-                    code text not null unique,
-                    status text not null default 'active',
-                    created_at text not null
-                );
                 create table if not exists quotation_configs (
                     id integer primary key autoincrement,
-                    company_id text not null,
-                    revision text not null,
+                    revision text not null unique,
                     status text not null,
                     config_json text not null,
                     created_by text,
                     published_at text,
-                    created_at text not null,
-                    unique(company_id, revision)
+                    created_at text not null
                 );
                 create table if not exists quotation_items (
                     id integer primary key autoincrement,
-                    company_id text not null,
                     data_revision text not null,
                     item_key text not null,
                     fields_json text not null
                 );
                 create table if not exists audit_events (
                     id integer primary key autoincrement,
-                    company_id text not null,
                     actor_id text,
                     action text not null,
                     target_type text not null,
@@ -75,89 +62,31 @@ class QuotationStore:
                     payload_json text not null,
                     created_at text not null
                 );
-                create table if not exists customers (
-                    id text primary key,
-                    company_id text not null,
-                    username text not null,
-                    password_hash text not null,
-                    password_salt text not null,
-                    display_name text not null,
-                    status text not null default 'active',
-                    account_type text not null default 'company',
-                    discount_rate real not null default 1.0,
-                    tax_rate real not null default 0.13,
-                    profit_mode text not null default 'none',
-                    profit_value real not null default 0,
-                    notes text,
-                    created_at text not null,
-                    updated_at text not null,
-                    unique(company_id, username)
-                );
-                create index if not exists idx_customers_company on customers(company_id);
-                create table if not exists customer_prices (
-                    id integer primary key autoincrement,
-                    customer_id text not null,
-                    company_id text not null,
-                    item_key text not null,
-                    override_price real not null,
-                    notes text,
-                    created_at text not null,
-                    updated_at text not null,
-                    unique(customer_id, item_key)
-                );
-                create index if not exists idx_customer_prices_customer on customer_prices(customer_id);
-                create table if not exists customer_sessions (
-                    token_hash text primary key,
-                    customer_id text not null,
-                    company_id text not null,
-                    created_at text not null,
-                    expires_at text not null,
-                    last_used_at text
-                );
-                create index if not exists idx_sessions_customer on customer_sessions(customer_id);
                 """
             )
-            # Migration: 为已有 customers 表添加 account_type 列（SQLite 不支持 IF NOT EXISTS）
-            try:
-                conn.execute("ALTER TABLE customers ADD COLUMN account_type TEXT NOT NULL DEFAULT 'company'")
-            except sqlite3.OperationalError:
-                pass  # 列已存在
-            conn.commit()
 
-    def create_company(self, name: str, code: str) -> str:
-        company_id = code
-        with closing(self.connect()) as conn:
-            conn.execute(
-                "insert into companies(id, name, code, status, created_at) values(?, ?, ?, 'active', ?)",
-                (company_id, name, code, self.now()),
-            )
-            conn.commit()
-        return company_id
+    def normalize_config(self, raw_config: dict[str, Any] | None) -> dict[str, Any]:
+        return normalize_config(raw_config)
 
-    def normalize_config(self, company_id: str, raw_config: dict[str, Any] | None) -> dict[str, Any]:
-        return normalize_config(company_id, raw_config)
-
-    def save_config(self, company_id: str, config: dict[str, Any], status: str = "draft", actor_id: str | None = None) -> dict[str, Any]:
-        normalized = normalize_config(company_id, config)
+    def save_config(self, config: dict[str, Any], status: str = "draft", actor_id: str | None = None) -> dict[str, Any]:
+        normalized = normalize_config(config)
         published_at = self.now() if status == "published" else None
         with closing(self.connect()) as conn:
             if status == "published":
                 conn.execute(
-                    "update quotation_configs set status = 'archived' where company_id = ? and status = 'published'",
-                    (company_id,),
+                    "update quotation_configs set status = 'archived' where status = 'published'",
                 )
             conn.execute(
                 """
-                insert into quotation_configs(company_id, revision, status, config_json, created_by, published_at, created_at)
-                values(?, ?, ?, ?, ?, ?, ?)
-                on conflict(company_id, revision) do update set
+                insert into quotation_configs(revision, status, config_json, created_by, published_at, created_at)
+                values(?, ?, ?, ?, ?, ?)
+                on conflict(revision) do update set
                     status = excluded.status,
                     config_json = excluded.config_json,
                     created_by = excluded.created_by,
                     published_at = excluded.published_at
                 """,
                 (
-                    company_id,
                     normalized["revision"],
                     status,
                     json.dumps(normalized, ensure_ascii=False),
@@ -166,35 +95,34 @@ class QuotationStore:
                     self.now(),
                 ),
             )
-            self.audit(conn, company_id, actor_id, f"config.{status}", "quotation_config", normalized["revision"], normalized)
+            self.audit(conn, actor_id, f"config.{status}", "quotation_config", normalized["revision"], normalized)
             conn.commit()
         if status == "published":
-            self.cache.invalidate_company(company_id)
+            self.cache.invalidate()
         return normalized
 
-    def get_active_config(self, company_id: str) -> dict[str, Any]:
+    def get_active_config(self) -> dict[str, Any]:
         with closing(self.connect()) as conn:
             row = conn.execute(
-                "select revision from quotation_configs where company_id = ? and status = 'published' order by published_at desc, id desc limit 1",
-                (company_id,),
+                "select revision from quotation_configs where status = 'published' order by published_at desc, id desc limit 1",
             ).fetchone()
             if not row:
-                raise LookupError(f"no published config for company {company_id}")
+                raise LookupError("no published config")
             revision = row["revision"]
-        return self.cache.get(company_id, revision, self.get_config)
+        return self.cache.get(revision, self.get_config)
 
-    def get_config(self, company_id: str, revision: str) -> dict[str, Any]:
+    def get_config(self, revision: str) -> dict[str, Any]:
         with closing(self.connect()) as conn:
             row = conn.execute(
-                "select config_json from quotation_configs where company_id = ? and revision = ?",
-                (company_id, revision),
+                "select config_json from quotation_configs where revision = ?",
+                (revision,),
             ).fetchone()
         if not row:
-            raise LookupError(f"config {revision} not found for company {company_id}")
+            raise LookupError(f"config {revision} not found")
         return json.loads(row["config_json"])
 
-    def export_config(self, company_id: str, revision: str, fmt: str = "json") -> str:
-        config = self.get_config(company_id, revision)
+    def export_config(self, revision: str, fmt: str = "json") -> str:
+        config = self.get_config(revision)
         if fmt == "yaml":
             return yaml.safe_dump(config, allow_unicode=True, sort_keys=False)
         if fmt == "json":
@@ -203,7 +131,6 @@ class QuotationStore:
 
     def import_config(
         self,
-        company_id: str,
         content: str,
         fmt: str = "json",
         status: str = "draft",
@@ -215,16 +142,15 @@ class QuotationStore:
             raw = json.loads(content)
         else:
             raise ValueError("fmt must be json or yaml")
-        return self.save_config(company_id, raw, status=status, actor_id=actor_id)
+        return self.save_config(raw, status=status, actor_id=actor_id)
 
-    def replace_items(self, company_id: str, data_revision: str, rows: list[dict[str, Any]]) -> None:
+    def replace_items(self, data_revision: str, rows: list[dict[str, Any]]) -> None:
         with closing(self.connect()) as conn:
-            conn.execute("delete from quotation_items where company_id = ? and data_revision = ?", (company_id, data_revision))
+            conn.execute("delete from quotation_items where data_revision = ?", (data_revision,))
             conn.executemany(
-                "insert into quotation_items(company_id, data_revision, item_key, fields_json) values(?, ?, ?, ?)",
+                "insert into quotation_items(data_revision, item_key, fields_json) values(?, ?, ?)",
                 [
                     (
-                        company_id,
                         data_revision,
                         row["item_key"],
                         json.dumps(row.get("fields") or {}, ensure_ascii=False),
@@ -232,28 +158,27 @@ class QuotationStore:
                     for row in rows
                 ],
             )
-            self.audit(conn, company_id, None, "items.replace", "quotation_items", data_revision, {"count": len(rows)})
+            self.audit(conn, None, "items.replace", "quotation_items", data_revision, {"count": len(rows)})
             conn.commit()
 
-    def delete_items_revision(self, company_id: str, data_revision: str) -> dict[str, Any]:
+    def delete_items_revision(self, data_revision: str) -> dict[str, Any]:
         with closing(self.connect()) as conn:
             result = conn.execute(
-                "delete from quotation_items where company_id = ? and data_revision = ?",
-                (company_id, data_revision),
+                "delete from quotation_items where data_revision = ?",
+                (data_revision,),
             )
             count = result.rowcount
-            self.audit(conn, company_id, None, "items.rollback", "quotation_items", data_revision, {"deleted": count})
+            self.audit(conn, None, "items.rollback", "quotation_items", data_revision, {"deleted": count})
             conn.commit()
         return {"data_revision": data_revision, "deleted": count}
 
-    def search_items(self, company_id: str, query: str, searchable_fields: list[str]) -> list[dict[str, Any]]:
+    def search_items(self, query: str, searchable_fields: list[str]) -> list[dict[str, Any]]:
         tokens = [token.upper() for token in str(query or "").split() if token.strip()]
         if not tokens:
             return []
         with closing(self.connect()) as conn:
             rows = conn.execute(
-                "select item_key, fields_json from quotation_items where company_id = ? order by id",
-                (company_id,),
+                "select item_key, fields_json from quotation_items order by id",
             ).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
@@ -266,7 +191,6 @@ class QuotationStore:
     def audit(
         self,
         conn: sqlite3.Connection,
-        company_id: str,
         actor_id: str | None,
         action: str,
         target_type: str,
@@ -275,17 +199,29 @@ class QuotationStore:
     ) -> None:
         conn.execute(
             """
-            insert into audit_events(company_id, actor_id, action, target_type, target_id, payload_json, created_at)
-            values(?, ?, ?, ?, ?, ?, ?)
+            insert into audit_events(actor_id, action, target_type, target_id, payload_json, created_at)
+            values(?, ?, ?, ?, ?, ?)
             """,
-            (company_id, actor_id, action, target_type, target_id, json.dumps(payload, ensure_ascii=False), self.now()),
+            (actor_id, action, target_type, target_id, json.dumps(payload, ensure_ascii=False), self.now()),
         )
+
+    def delete_config(self, revision: str) -> dict[str, Any]:
+        """删除指定版本号的配置记录"""
+        with closing(self.connect()) as conn:
+            result = conn.execute(
+                "delete from quotation_configs where revision = ?",
+                (revision,),
+            )
+            if result.rowcount == 0:
+                raise LookupError(f"config {revision} not found")
+            self.audit(conn, None, "config.delete", "quotation_configs", revision, {})
+            conn.commit()
+        return {"revision": revision, "status": "deleted"}
 
     def parse_excel_to_rows(
         self,
         file_bytes: bytes,
         filename: str,
-        company_id: str,
         *,
         sheet_index: int = 0,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -299,7 +235,7 @@ class QuotationStore:
 
         # 获取字段别名映射表
         try:
-            config = self.get_active_config(company_id)
+            config = self.get_active_config()
         except LookupError:
             config = {}
         alias_map: dict[str, str] = {}  # alias → field_key
@@ -366,168 +302,35 @@ class QuotationStore:
             "total_rows": len(rows),
         }
 
-    def delete_company(self, company_id: str) -> None:
-        """软删除：将公司状态置为 inactive"""
-        with closing(self.connect()) as conn:
-            result = conn.execute(
-                "update companies set status = 'inactive' where id = ?",
-                (company_id,),
-            )
-            if result.rowcount == 0:
-                raise LookupError(f"company {company_id} not found")
-            self.audit(conn, company_id, None, "company.delete", "company", company_id, {})
-            conn.commit()
-
-    def hard_delete_company(self, company_id: str) -> dict[str, Any]:
-        """彻底删除公司及其所有关联数据（配置、料号、审计、客户、会话、价格覆盖）"""
-        with closing(self.connect()) as conn:
-            # 先删除关联数据（无外键约束，手动级联）
-            conn.execute("delete from customer_sessions where company_id = ?", (company_id,))
-            conn.execute("delete from customer_prices where company_id = ?", (company_id,))
-            conn.execute("delete from customers where company_id = ?", (company_id,))
-            conn.execute("delete from quotation_items where company_id = ?", (company_id,))
-            conn.execute("delete from quotation_configs where company_id = ?", (company_id,))
-            conn.execute("delete from audit_events where company_id = ?", (company_id,))
-            # 再删除公司本身
-            result = conn.execute("delete from companies where id = ?", (company_id,))
-            if result.rowcount == 0:
-                raise LookupError(f"company {company_id} not found")
-            conn.commit()
-        return {"company_id": company_id, "status": "deleted"}
-
-    def delete_config(self, company_id: str, revision: str) -> dict[str, Any]:
-        """删除指定版本号的配置记录"""
-        with closing(self.connect()) as conn:
-            result = conn.execute(
-                "delete from quotation_configs where company_id = ? and revision = ?",
-                (company_id, revision),
-            )
-            if result.rowcount == 0:
-                raise LookupError(f"config {company_id}/{revision} not found")
-            self.audit(conn, company_id, None, "config.delete", "quotation_configs", revision, {})
-            conn.commit()
-        return {"company_id": company_id, "revision": revision, "status": "deleted"}
-
-    def update_company(self, company_id: str, name: str | None = None, status: str | None = None) -> dict[str, Any]:
-        """更新公司名称 / 状态"""
-        updates: list[str] = []
-        params: list[Any] = []
-        if name is not None:
-            updates.append("name = ?")
-            params.append(name)
-        if status is not None:
-            updates.append("status = ?")
-            params.append(status)
-        if not updates:
-            raise ValueError("nothing to update")
-        params.append(company_id)
-        with closing(self.connect()) as conn:
-            result = conn.execute(
-                f"update companies set {', '.join(updates)} where id = ?",  # noqa: S608
-                params,
-            )
-            if result.rowcount == 0:
-                raise LookupError(f"company {company_id} not found")
-            row = conn.execute(
-                "select id, name, code, status, created_at from companies where id = ?",
-                (company_id,),
-            ).fetchone()
-            self.audit(conn, company_id, None, "company.update", "company", company_id, {"name": name, "status": status})
-            conn.commit()
-        return dict(row)
-
-    def rename_company(self, old_id: str, new_name: str | None = None, new_id: str | None = None) -> dict[str, Any]:
-        """重命名/迁移公司 ID（级联更新所有关联表）"""
-        if not new_name and not new_id:
-            raise ValueError("new_name or new_id required")
-        if new_id and new_id == old_id:
-            raise ValueError(f"new_id must differ from current id: {old_id}")
-        with closing(self.connect()) as conn:
-            # Check new_id doesn't collide if changing id
-            if new_id:
-                existing = conn.execute("select id from companies where id = ?", (new_id,)).fetchone()
-                if existing:
-                    raise ValueError(f"company_id {new_id} already exists")
-            # Build updates for companies table
-            updates: list[str] = []
-            params: list[Any] = []
-            if new_name:
-                updates.append("name = ?")
-                params.append(new_name)
-            if new_id:
-                updates.append("id = ?")
-                params.append(new_id)
-                # Also update code if new_id is provided
-                if "code" not in "".join(updates):
-                    updates.append("code = ?")
-                    params.append(new_id)
-            if not updates:
-                raise ValueError("nothing to update")
-            # Cascade: update all related tables if id changes
-            if new_id:
-                conn.execute("update quotation_configs set company_id = ? where company_id = ?", (new_id, old_id))
-                conn.execute("update quotation_items set company_id = ? where company_id = ?", (new_id, old_id))
-                conn.execute("update audit_events set company_id = ? where company_id = ?", (new_id, old_id))
-                conn.execute("update customers set company_id = ? where company_id = ?", (new_id, old_id))
-                conn.execute("update customer_prices set company_id = ? where company_id = ?", (new_id, old_id))
-                conn.execute("update customer_sessions set company_id = ? where company_id = ?", (new_id, old_id))
-            params.append(old_id)
-            result = conn.execute(
-                f"update companies set {', '.join(updates)} where id = ?",  # noqa: S608
-                params,
-            )
-            if result.rowcount == 0:
-                raise LookupError(f"company {old_id} not found")
-            target_id = new_id or old_id
-            row = conn.execute(
-                "select id, name, code, status, created_at from companies where id = ?",
-                (target_id,),
-            ).fetchone()
-            self.audit(conn, target_id, None, "company.rename", "company", target_id,
-                       {"old_id": old_id, "new_name": new_name, "new_id": new_id})
-            conn.commit()
-        return dict(row)
-
-    def list_companies(self) -> list[dict[str, Any]]:
-        with closing(self.connect()) as conn:
-            rows = conn.execute(
-                "select id, name, code, status, created_at from companies order by created_at desc"
-            ).fetchall()
-        return [dict(row) for row in rows]
-
-    def list_configs(self, company_id: str) -> list[dict[str, Any]]:
+    def list_configs(self) -> list[dict[str, Any]]:
         with closing(self.connect()) as conn:
             rows = conn.execute(
                 """
                 select id, revision, status, created_by, published_at, created_at
                 from quotation_configs
-                where company_id = ?
                 order by id desc
                 """,
-                (company_id,),
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def rollback_config(self, company_id: str, revision: str, actor_id: str | None = None) -> dict[str, Any]:
-        config = self.get_config(company_id, revision)
-        # save as new published, re-using the same revision label (normalize will keep revision)
-        return self.save_config(company_id, config, status="published", actor_id=actor_id)
+    def rollback_config(self, revision: str, actor_id: str | None = None) -> dict[str, Any]:
+        config = self.get_config(revision)
+        return self.save_config(config, status="published", actor_id=actor_id)
 
-    def list_audit(self, company_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    def list_audit(self, limit: int = 50) -> list[dict[str, Any]]:
         with closing(self.connect()) as conn:
             rows = conn.execute(
                 """
                 select id, actor_id, action, target_type, target_id, created_at
                 from audit_events
-                where company_id = ?
                 order by id desc
                 limit ?
                 """,
-                (company_id, limit),
+                (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_items_stats(self, company_id: str) -> dict[str, Any]:
+    def get_items_stats(self) -> dict[str, Any]:
         with closing(self.connect()) as conn:
             row = conn.execute(
                 """
@@ -535,12 +338,10 @@ class QuotationStore:
                        count(*) as count,
                        max(id) as last_id
                 from quotation_items
-                where company_id = ?
                 group by data_revision
                 order by last_id desc
                 limit 1
                 """,
-                (company_id,),
             ).fetchone()
         if not row:
             return {"data_revision": None, "count": 0}
@@ -549,234 +350,11 @@ class QuotationStore:
     def now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    # ─── Customer Management ──────────────────────────────────────────
-
-    def create_customer(
-        self,
-        company_id: str,
-        username: str,
-        password_hash: str,
-        password_salt: str,
-        display_name: str,
-        discount_rate: float = 1.0,
-        tax_rate: float = 0.13,
-        notes: str = "",
-        account_type: str = "company",
-    ) -> dict[str, Any]:
-        import secrets as _secrets
-
-        customer_id = _secrets.token_hex(8)
-        now = self.now()
-        with closing(self.connect()) as conn:
-            try:
-                conn.execute(
-                    """
-                    insert into customers(id, company_id, username, password_hash, password_salt,
-                        display_name, status, account_type, discount_rate, tax_rate, profit_mode, profit_value,
-                        notes, created_at, updated_at)
-                    values(?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 'none', 0, ?, ?, ?)
-                    """,
-                    (customer_id, company_id, username, password_hash, password_salt,
-                     display_name, account_type, discount_rate, tax_rate, notes, now, now),
-                )
-            except sqlite3.IntegrityError as exc:
-                raise ValueError(f"用户名 '{username}' 在该公司已存在") from exc
-            self.audit(conn, company_id, None, "customer.create", "customer", customer_id,
-                       {"username": username, "display_name": display_name, "account_type": account_type})
-            conn.commit()
-        return self.get_customer(customer_id)
-
-    def get_customer(self, customer_id: str) -> dict[str, Any] | None:
-        with closing(self.connect()) as conn:
-            row = conn.execute(
-                "select * from customers where id = ?", (customer_id,)
-            ).fetchone()
-        return dict(row) if row else None
-
-    def get_customer_by_username(self, company_id: str, username: str) -> dict[str, Any] | None:
-        with closing(self.connect()) as conn:
-            row = conn.execute(
-                "select * from customers where company_id = ? and username = ?",
-                (company_id, username),
-            ).fetchone()
-        return dict(row) if row else None
-
-    def list_customers(self, company_id: str) -> list[dict[str, Any]]:
-        with closing(self.connect()) as conn:
-            rows = conn.execute(
-                """select id, company_id, username, display_name, status, account_type,
-                          discount_rate, tax_rate, profit_mode, profit_value, notes,
-                          created_at, updated_at
-                   from customers where company_id = ? order by created_at desc""",
-                (company_id,),
-            ).fetchall()
-        return [dict(row) for row in rows]
-
-    def update_customer(self, customer_id: str, **fields) -> dict[str, Any]:
-        allowed = {"display_name", "status", "account_type", "discount_rate", "tax_rate",
-                   "profit_mode", "profit_value", "notes"}
-        updates: list[str] = []
-        params: list[Any] = []
-        for key, val in fields.items():
-            if key in allowed and val is not None:
-                updates.append(f"{key} = ?")
-                params.append(val)
-        if not updates:
-            raise ValueError("no valid fields to update")
-        updates.append("updated_at = ?")
-        params.append(self.now())
-        params.append(customer_id)
-        with closing(self.connect()) as conn:
-            result = conn.execute(
-                f"update customers set {', '.join(updates)} where id = ?",  # noqa: S608
-                params,
-            )
-            if result.rowcount == 0:
-                raise LookupError(f"customer {customer_id} not found")
-            # 先取 company_id 用于审计（commit 前从同一连接读）
-            row = conn.execute(
-                "select company_id from customers where id = ?", (customer_id,)
-            ).fetchone()
-            company_id_for_audit = row["company_id"] if row else ""
-            self.audit(conn, company_id_for_audit, None, "customer.update", "customer", customer_id, fields)
-            conn.commit()
-        return self.get_customer(customer_id)
-
-    def delete_customer(self, customer_id: str) -> dict[str, Any]:
-        customer = self.get_customer(customer_id)
-        if not customer:
-            raise LookupError(f"customer {customer_id} not found")
-        with closing(self.connect()) as conn:
-            conn.execute("delete from customer_sessions where customer_id = ?", (customer_id,))
-            conn.execute("delete from customer_prices where customer_id = ?", (customer_id,))
-            conn.execute("delete from customers where id = ?", (customer_id,))
-            self.audit(conn, customer["company_id"], None, "customer.delete", "customer", customer_id,
-                       {"username": customer["username"]})
-            conn.commit()
-        return {"customer_id": customer_id, "status": "deleted"}
-
-    def reset_customer_password(self, customer_id: str, password_hash: str, password_salt: str) -> dict[str, Any]:
-        customer = self.get_customer(customer_id)
-        if not customer:
-            raise LookupError(f"customer {customer_id} not found")
-        with closing(self.connect()) as conn:
-            conn.execute(
-                "update customers set password_hash = ?, password_salt = ?, updated_at = ? where id = ?",
-                (password_hash, password_salt, self.now(), customer_id),
-            )
-            # 作废该客户所有会话
-            conn.execute("delete from customer_sessions where customer_id = ?", (customer_id,))
-            self.audit(conn, customer["company_id"], None, "customer.reset_password", "customer", customer_id, {})
-            conn.commit()
-        return {"customer_id": customer_id, "status": "password_reset"}
-
-    # ─── Session Management ───────────────────────────────────────────
-
-    def create_session(self, customer_id: str, company_id: str, token_hash: str, expires_at: str) -> dict[str, Any]:
-        now = self.now()
-        with closing(self.connect()) as conn:
-            conn.execute(
-                """insert into customer_sessions(token_hash, customer_id, company_id, created_at, expires_at, last_used_at)
-                   values(?, ?, ?, ?, ?, ?)""",
-                (token_hash, customer_id, company_id, now, expires_at, now),
-            )
-            conn.commit()
-        return {"token_hash": token_hash, "customer_id": customer_id, "company_id": company_id,
-                "created_at": now, "expires_at": expires_at}
-
-    def get_session_by_token(self, token_hash: str) -> dict[str, Any] | None:
-        now = self.now()
-        with closing(self.connect()) as conn:
-            row = conn.execute(
-                """select * from customer_sessions
-                   where token_hash = ? and expires_at > ?""",
-                (token_hash, now),
-            ).fetchone()
-        return dict(row) if row else None
-
-    def touch_session(self, token_hash: str) -> None:
-        with closing(self.connect()) as conn:
-            conn.execute(
-                "update customer_sessions set last_used_at = ? where token_hash = ?",
-                (self.now(), token_hash),
-            )
-            conn.commit()
-
-    def delete_session(self, token_hash: str) -> None:
-        with closing(self.connect()) as conn:
-            conn.execute("delete from customer_sessions where token_hash = ?", (token_hash,))
-            conn.commit()
-
-    def cleanup_expired_sessions(self) -> int:
-        now = self.now()
-        with closing(self.connect()) as conn:
-            result = conn.execute(
-                "delete from customer_sessions where expires_at <= ?", (now,)
-            )
-            conn.commit()
-            return result.rowcount
-
-    # ─── Price Overrides ──────────────────────────────────────────────
-
-    def list_price_overrides(self, customer_id: str) -> list[dict[str, Any]]:
-        with closing(self.connect()) as conn:
-            rows = conn.execute(
-                """select id, customer_id, item_key, override_price, notes, created_at, updated_at
-                   from customer_prices where customer_id = ? order by id""",
-                (customer_id,),
-            ).fetchall()
-        return [dict(row) for row in rows]
-
-    def get_price_override_map(self, customer_id: str) -> dict[str, float]:
-        """返回 {item_key: override_price} 用于报价时快速查找。"""
-        with closing(self.connect()) as conn:
-            rows = conn.execute(
-                "select item_key, override_price from customer_prices where customer_id = ?",
-                (customer_id,),
-            ).fetchall()
-        return {row["item_key"]: float(row["override_price"]) for row in rows}
-
-    def upsert_price_overrides(
-        self, customer_id: str, company_id: str, overrides: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        now = self.now()
-        with closing(self.connect()) as conn:
-            for item in overrides:
-                item_key = str(item.get("item_key") or "").strip()
-                price = float(item.get("override_price") or 0)
-                if not item_key:
-                    continue
-                conn.execute(
-                    """insert into customer_prices(customer_id, company_id, item_key, override_price, notes, created_at, updated_at)
-                       values(?, ?, ?, ?, ?, ?, ?)
-                       on conflict(customer_id, item_key) do update set
-                           override_price = excluded.override_price,
-                           notes = excluded.notes,
-                           updated_at = excluded.updated_at""",
-                    (customer_id, company_id, item_key, price, item.get("notes", ""), now, now),
-                )
-            self.audit(conn, company_id, None, "customer.prices.upsert", "customer_prices", customer_id,
-                       {"count": len(overrides)})
-            conn.commit()
-        return {"customer_id": customer_id, "upserted": len(overrides)}
-
-    def delete_price_override(self, customer_id: str, item_key: str) -> dict[str, Any]:
-        with closing(self.connect()) as conn:
-            result = conn.execute(
-                "delete from customer_prices where customer_id = ? and item_key = ?",
-                (customer_id, item_key),
-            )
-            if result.rowcount == 0:
-                raise LookupError(f"price override for item_key '{item_key}' not found")
-            conn.commit()
-        return {"customer_id": customer_id, "item_key": item_key, "status": "deleted"}
-
     # ─── Merger / Bundle ───────────────────────────────────────────────
 
     def detect_brands(
         self,
         files: list[tuple[str, bytes]],
-        company_id: str,
     ) -> list[dict[str, Any]]:
         """
         上传多文件，按文件名识别品牌。
@@ -784,7 +362,7 @@ class QuotationStore:
         返回: [{ filename, detected_brand, row_count, preview }]
         """
         try:
-            config = self.get_active_config(company_id)
+            config = self.get_active_config()
         except LookupError:
             config = {}
 
@@ -809,7 +387,7 @@ class QuotationStore:
 
             # 解析文件行数
             try:
-                rows, _ = self.parse_excel_to_rows(file_bytes, filename, company_id)
+                rows, _ = self.parse_excel_to_rows(file_bytes, filename)
                 row_count = len(rows)
                 preview = rows[:3]
             except Exception:
@@ -827,7 +405,6 @@ class QuotationStore:
 
     def build_price_bundle(
         self,
-        company_id: str,
         password: str = "",
     ) -> dict[str, Any]:
         """
@@ -835,7 +412,7 @@ class QuotationStore:
         password 为空时不加密，否则使用 AES-GCM + PBKDF2 加密。
         """
         try:
-            config = self.get_active_config(company_id)
+            config = self.get_active_config()
         except LookupError:
             config = {}
 
@@ -846,8 +423,7 @@ class QuotationStore:
         # 从数据库读取所有 items
         with closing(self.connect()) as conn:
             rows = conn.execute(
-                "SELECT item_key, fields_json FROM quotation_items WHERE company_id = ? ORDER BY id",
-                (company_id,),
+                "SELECT item_key, fields_json FROM quotation_items ORDER BY id",
             ).fetchall()
 
         dataset_rows = []
@@ -883,12 +459,12 @@ class QuotationStore:
             },
         }
 
-    def build_stock_bundle(self, company_id: str) -> dict[str, Any]:
+    def build_stock_bundle(self) -> dict[str, Any]:
         """
         从数据库数据生成库存 Bundle（不加密，与前端 bundle-utils.js 兼容格式）。
         """
         try:
-            config = self.get_active_config(company_id)
+            config = self.get_active_config()
         except LookupError:
             config = {}
 
@@ -896,8 +472,7 @@ class QuotationStore:
 
         with closing(self.connect()) as conn:
             rows = conn.execute(
-                "SELECT item_key, fields_json FROM quotation_items WHERE company_id = ? ORDER BY id",
-                (company_id,),
+                "SELECT item_key, fields_json FROM quotation_items ORDER BY id",
             ).fetchall()
 
         # 构建库存 dataset - 只包含有 stock 字段的行

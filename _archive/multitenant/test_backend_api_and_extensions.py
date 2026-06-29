@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -12,11 +13,19 @@ from backend.smart_quotation.store import QuotationStore
 
 class BackendApiAndExtensionsTest(unittest.TestCase):
     def make_store(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        store = QuotationStore(str(Path(tmp.name) / "quotation.db"))
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(self._cleanup_tmp, tmp)
+        store = QuotationStore(str(Path(tmp) / "quotation.db"))
         store.init_schema()
         return store
+
+    @staticmethod
+    def _cleanup_tmp(tmp_dir):
+        import shutil
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except PermissionError:
+            pass  # Windows file lock race
 
     def seed_company(self, store):
         company_id = store.create_company("Company A", "company-a")
@@ -36,9 +45,38 @@ class BackendApiAndExtensionsTest(unittest.TestCase):
     def test_api_quotes_company_scoped_data(self):
         store = self.make_store()
         company_id = self.seed_company(store)
-        client = TestClient(create_app(store))
 
-        response = client.get(f"/api/companies/{company_id}/quote", params={"q": "A-001"})
+        # Create an admin customer and a valid session token
+        from backend.smart_quotation.auth import new_token, hash_token, hash_password, expires_in
+        pw_hash, pw_salt = hash_password("test123")
+        token = new_token()
+        token_hash = hash_token(token)
+
+        now = datetime.now(timezone.utc).isoformat()
+        with store.connect() as conn:
+            conn.execute(
+                """INSERT INTO customers
+                   (id, company_id, username, password_hash, password_salt, display_name,
+                    status, account_type, discount_rate, tax_rate, profit_mode, profit_value,
+                    notes, created_at, updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (1, company_id, "admin_test", pw_hash, pw_salt, "Admin", "active",
+                 "admin", 0.65, 0.13, "none", 0, None, now, now)
+            )
+            conn.execute(
+                """INSERT INTO customer_sessions
+                   (token_hash, customer_id, company_id, created_at, expires_at, last_used_at)
+                   VALUES(?,?,?,?,?,?)""",
+                (token_hash, 1, company_id, now, expires_in(), now)
+            )
+            conn.commit()
+
+        client = TestClient(create_app(store))
+        response = client.get(
+            f"/api/companies/{company_id}/quote",
+            params={"q": "A-001"},
+            headers={"Authorization": "Bearer admin-secret-key"}
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["results"][0]["item_key"], "A-001")

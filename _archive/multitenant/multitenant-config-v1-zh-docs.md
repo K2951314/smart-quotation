@@ -345,6 +345,50 @@ admin/
 
 ---
 
+## 客户门户 API（2026-06-28 新增）
+
+客户门户（`apps/index.html`）依赖以下端点实现认证和多租户访问：
+
+### 认证
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/customer/login` | 客户登录，body：`{"company_code": "...", "username": "...", "password": "..."}` |
+| `POST` | `/api/customer/logout` | 登出，需 Bearer token |
+| `GET` | `/api/customer/me` | 获取当前客户信息和公司列表 |
+
+### 公司账号数据
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/customer/companies` | 列出客户可访问的公司（含税率、利润率等） |
+| `GET` | `/api/customer/config` | 获取当前公司的运行配置（公司账号自动脱敏：剔除 face_price/discount_rate，保留 result_layout/labels/ui/fields/copy） |
+| `PATCH` | `/api/customer/profile` | 更新客户个人设置（利润模式、税率偏好等） |
+| `GET` | `/api/customer/quote?q=...` | 执行报价查询（公司账号返回脱敏数据） |
+
+## 配置数据流转链路（2026-06-28 修复）
+
+完整的 admin → backend → frontend 配置流转：
+
+```
+admin 发布配置 → SQLite quotation_configs
+    ↓ (自动)
+Supabase Storage (config.json + version.json)
+    ↓ (前端双路径加载)
+路径A: loadConfigFromApi() → /api/customer/config (优先)
+路径B: loadRemoteConfig() → Supabase config.json (回退)
+```
+
+- admin 发布/回滚后**自动部署**到 Supabase，无需手动操作
+- 公司账号的 `/api/customer/config` 返回脱敏配置（无面价/折扣），但保留 result_layout 和 labels 等纯 UI 字段
+- Netlify CSP 使用 `connect-src: https:` 通配以支持动态后端地址
+
+## 折扣弹窗动态化（2026-06-28）
+
+- 折扣配置弹窗从硬编码 4 品牌（EX/OSG/三菱/其他）改为**动态渲染**：根据 `discount_rules` / `rules` 配置自动生成输入框
+- `discount-utils.js` 重写为通用品牌支持：`sanitizeDiscountConfig` 支持任意键、`buildDiscountConfigFromRules` 从规则生成配置、`getDiscountCategory` 使用 rules conditions 匹配替代硬编码品牌检测
+- 前端 `mergePlain` 修复空字符串覆盖默认值：`value !== undefined` → `value !== undefined && value !== ""`
+
 ## 已知限制（v1）
 
 | 限制 | 说明 |
@@ -353,6 +397,7 @@ admin/
 | ERPNext 为 stub | 所有 ERPNext 同步端点均为预留接口，尚未实现 |
 | httpx 不可用 | `test_backend_api_and_extensions.py` 需要网络安装 httpx 才能运行 |
 | SQLite only | v1 仅支持 SQLite；PostgreSQL 迁移能力已在架构预留 |
+| 多品牌数据拼接 | merger 工具拼接多品牌 Excel 时，列名映射可能产生不一致，需在 admin 预览中逐一核对 |
 
 ---
 

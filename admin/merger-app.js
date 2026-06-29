@@ -7,7 +7,7 @@
     stockRows: [],
   };
 
-  var SUPABASE_KEY_STORAGE = "quotation-admin-merger-supabase-anon-key";
+  // SUPABASE_KEY_STORAGE — 与 admin/app.js 共用同一个 key
 
   function $(id) { return document.getElementById(id); }
 
@@ -91,24 +91,13 @@
 
   function loadStoredSupabaseAnonKey() {
     try {
-      return window.sessionStorage.getItem(SUPABASE_KEY_STORAGE) || "";
+      return window.sessionStorage.getItem("quotation-admin-sb-anon-key") || "";
     } catch (err) {
       return "";
     }
   }
 
-  function persistSupabaseAnonKey(key) {
-    try {
-      if (key) window.sessionStorage.setItem(SUPABASE_KEY_STORAGE, key);
-    } catch (err) {
-    }
-  }
-
-  function clearStoredSupabaseAnonKey() {
-    try { window.sessionStorage.removeItem(SUPABASE_KEY_STORAGE); } catch (e) { }
-  }
-
-  function getConfigFromEditor() {
+function getConfigFromEditor() {
     try {
       var raw = $("merger-appConfig").value;
       var cfg = JSON.parse(raw);
@@ -211,68 +200,10 @@
     if (previewEl) previewEl.textContent = preview;
   }
 
-  function validateConfigEditor() {
-    try {
-      var cfg = getConfigFromEditor();
-      renderConfigPreview(cfg);
-      setStatus("配置校验通过", "ok");
-      return cfg;
-    } catch (err) {
-      setStatus(err.message, "error");
-      throw err;
-    }
-  }
-
-  function exportConfigJson() {
+function exportConfigJson() {
     var cfg = validateConfigEditor();
     triggerDownload("config.json", JSON.stringify(cfg, null, 2), "application/json;charset=utf-8");
     setStatus("已导出 config.json", "ok");
-  }
-
-  async function loadRemoteConfig() {
-    var cfg;
-    try {
-      cfg = getConfigFromEditor();
-    } catch (err) {
-      cfg = state.appConfig || ConfigCore.normalizeConfig({});
-    }
-    var source = getDataSourceConfig(cfg);
-    if (!source.base_url) throw new Error("配置缺少 data_source.base_url");
-    var url = buildRemoteFileUrl(source, source.config_file, "t=" + Date.now());
-    var resp = await fetch(url, { cache: "no-store" });
-    if (!resp.ok) throw new Error("远端配置读取失败: HTTP " + resp.status);
-    var remote = ConfigCore.normalizeConfig(await resp.json());
-    state.appConfig = remote;
-    $("merger-appConfig").value = JSON.stringify(remote, null, 2);
-    renderConfigPreview(remote);
-    setStatus("已读取 Supabase config.json", "ok");
-  }
-
-  async function saveRemoteConfig() {
-    var cfg = validateConfigEditor();
-    var key = $("merger-supabaseAnonKey").value.trim();
-    if (!key) {
-      setStatus("请先填写 Supabase anon key", "warn");
-      return;
-    }
-    persistSupabaseAnonKey(key);
-    var writeUrl = getSupabaseObjectWriteUrl(cfg);
-    var body = JSON.stringify(cfg, null, 2);
-    var resp = await fetch(writeUrl, {
-      method: "PUT",
-      headers: {
-        "apikey": key,
-        "authorization": "Bearer " + key,
-        "content-type": "application/json;charset=utf-8",
-        "x-upsert": "true",
-      },
-      body: body,
-    });
-    if (!resp.ok) {
-      var text = await resp.text();
-      throw new Error("远端配置保存失败: HTTP " + resp.status + " " + text.slice(0, 180));
-    }
-    setStatus("已保存到 Supabase config.json；更新 version 后主站会刷新数据包缓存", "ok");
   }
 
   async function analyzeStage1() {
@@ -442,30 +373,7 @@
     $("merger-exportAllBtn").onclick = function () {
       exportAllBundles().catch(function (err) { setStatus("全部导出失败: " + err.message, "error"); });
     };
-    // 可选按钮（如果 UI 中存在则绑定）
-    var validateBtn = $("merger-validateConfigBtn");
-    if (validateBtn) validateBtn.onclick = function () {
-      try { validateConfigEditor(); } catch (err) { console.warn("配置校验失败:", err); }
-    };
-    var exportCfgBtn = $("merger-exportConfigBtn");
-    if (exportCfgBtn) exportCfgBtn.onclick = function () {
-      try { exportConfigJson(); } catch (err) { setStatus("导出配置失败: " + err.message, "error"); }
-    };
-    var loadRemoteBtn = $("merger-loadRemoteConfigBtn");
-    if (loadRemoteBtn) loadRemoteBtn.onclick = function () {
-      loadRemoteConfig().catch(function (err) { setStatus("读取远端配置失败: " + err.message, "error"); });
-    };
-    var saveRemoteBtn = $("merger-saveRemoteConfigBtn");
-    if (saveRemoteBtn) saveRemoteBtn.onclick = function () {
-      saveRemoteConfig().catch(function (err) { setStatus("保存远端配置失败: " + err.message, "error"); });
-    };
-    var clearAnonKeyBtn = $("merger-clearAnonKeyBtn");
-    if (clearAnonKeyBtn) clearAnonKeyBtn.onclick = function () {
-      clearStoredSupabaseAnonKey();
-      var anonField = $("merger-supabaseAnonKey");
-      if (anonField) anonField.value = "";
-      setStatus("已清除 Supabase Anon Key", "ok");
-    };
+
   }
 
   async function bootstrap() {

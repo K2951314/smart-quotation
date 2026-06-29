@@ -83,15 +83,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "details": [],
         },
     },
-    "integrations": {
-        "erpnext": {
-            "enabled": False,
-            "base_url": "",
-            "item_code_field": "code",
-            "price_list": "Standard Selling",
-            "warehouse_map": {},
-        }
-    },
+    "integrations": {},
 }
 
 
@@ -124,19 +116,20 @@ def normalize_field(field: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def v2_condition_to_v3(condition: dict[str, Any]) -> dict[str, Any]:
-    field = str(condition.get("field") or "").strip()
-    if "contains" in condition:
-        return {"field": field, "op": "contains", "value": condition.get("contains")}
-    if "equals" in condition:
-        return {"field": field, "op": "equals", "value": condition.get("equals")}
-    if "regex" in condition:
-        return {"field": field, "op": "regex", "value": condition.get("regex")}
-    return {"field": field, "op": "equals", "value": ""}
-
-
 def v2_rule_to_v3(rule: dict[str, Any], index: int) -> dict[str, Any]:
     conditions = rule.get("conditions") or []
+    v3_conditions = []
+    for item in (conditions or []):
+        item = item or {}
+        field = str(item.get("field") or "").strip()
+        if "contains" in item:
+            v3_conditions.append({"field": field, "op": "contains", "value": item.get("contains")})
+        elif "equals" in item:
+            v3_conditions.append({"field": field, "op": "equals", "value": item.get("equals")})
+        elif "regex" in item:
+            v3_conditions.append({"field": field, "op": "regex", "value": item.get("regex")})
+        else:
+            v3_conditions.append({"field": field, "op": "equals", "value": ""})
     out = {
         "id": str(rule.get("id") or rule.get("label") or f"rule_{index}"),
         "label": str(rule.get("label") or rule.get("id") or f"规则 {index + 1}"),
@@ -144,12 +137,12 @@ def v2_rule_to_v3(rule: dict[str, Any], index: int) -> dict[str, Any]:
         "default": bool(rule.get("default")),
         "actions": [{"type": "set_discount", "percent": float(rule.get("percent", 55))}],
     }
-    if conditions:
-        out["when"] = {"all": [v2_condition_to_v3(item or {}) for item in conditions]}
+    if v3_conditions:
+        out["when"] = {"all": v3_conditions}
     return out
 
 
-def normalize_config(company_id: str, raw_config: dict[str, Any] | None) -> dict[str, Any]:
+def normalize_config(raw_config: dict[str, Any] | None) -> dict[str, Any]:
     raw = copy.deepcopy(raw_config or {})
     schema_version = int(raw.get("schema_version") or 2)
 
@@ -159,7 +152,6 @@ def normalize_config(company_id: str, raw_config: dict[str, Any] | None) -> dict
         decimal_places = raw.get("pricing", {}).get("decimal_places", raw.get("decimal_places", 1))
         migrated = {
             "schema_version": 3,
-            "company_id": company_id,
             "revision": revision,
             "pricing": {
                 "currency": "CNY",
@@ -180,7 +172,6 @@ def normalize_config(company_id: str, raw_config: dict[str, Any] | None) -> dict
     else:
         migrated = deep_merge(DEFAULT_CONFIG, raw)
         migrated["schema_version"] = 3
-        migrated["company_id"] = company_id
         migrated["revision"] = str(raw.get("revision") or raw.get("version") or now_revision())
         migrated["fields"] = [normalize_field(item or {}) for item in migrated.get("fields") or []]
 

@@ -2,8 +2,8 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const ConfigCore = require("../apps/lib/config-core");
-const ExportUtils = require("../merger/lib/export-utils");
-const BundleUtils = require("../merger/lib/bundle-utils");
+const ExportUtils = require("../admin/lib/export-utils");
+const BundleUtils = require("../admin/lib/bundle-utils");
 
 test("createPriceBundleScript passes custom config through to v2 payload", async () => {
   const config = ConfigCore.normalizeConfig({

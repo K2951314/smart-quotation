@@ -52,15 +52,17 @@ class RbacPermissionsTest(unittest.TestCase):
         company_id = self.seed_accounts(store)
         client = TestClient(create_app(store))
 
+        # No API key → 401
         no_token = client.get("/api/companies")
         self.assertEqual(no_token.status_code, 401)
 
-        company_headers = self.login(client, "company", "company-pass")
-        forbidden = client.get("/api/companies", headers=company_headers)
-        self.assertEqual(forbidden.status_code, 403)
-
+        # Customer token (even admin) → 401, because admin API routes use API key auth, not customer token
         admin_headers = self.login(client, "admin", "admin-pass")
-        allowed = client.get("/api/companies", headers=admin_headers)
+        customer_token_fail = client.get("/api/companies", headers=admin_headers)
+        self.assertEqual(customer_token_fail.status_code, 401)
+
+        # Correct API key → 200
+        allowed = client.get("/api/companies", headers={"Authorization": "Bearer admin-secret-key"})
         self.assertEqual(allowed.status_code, 200)
         self.assertIn(company_id, {company["id"] for company in allowed.json()})
 

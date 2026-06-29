@@ -1,6 +1,5 @@
 {
   "schema_version": 3,
-  "company_id": "TJLH",
   "revision": "2026年6月8日",
   "pricing": {
     "currency": "CNY",
@@ -320,13 +319,5 @@
       ]
     }
   },
-  "integrations": {
-    "erpnext": {
-      "enabled": false,
-      "base_url": "",
-      "item_code_field": "code",
-      "price_list": "Standard Selling",
-      "warehouse_map": {}
-    }
-  }
+  "integrations": {}
 }

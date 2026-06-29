@@ -5,5 +5,6 @@ PyYAML>=6.0
 openpyxl>=3.1       # Excel 文件上传解析（数据导入功能必须）
 python-multipart>=0.0.9  # FastAPI 文件上传依赖
 cryptography>=43.0   # AES-GCM 价格包加密（Bundle 生成功能必须）
+requests>=2.31      # 三菱库存 GWT-RPC 查询引擎（HTTP 请求）
 # httpx is required for fastapi.testclient (tests/test_backend_api_and_extensions.py)
 # Install separately when network is available: pip install httpx

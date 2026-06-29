@@ -2,7 +2,8 @@
 publish = "apps"
 command = ""
 
-# 安全响应头。部署客户门户前需在 connect-src 中添加后端地址:
+# 安全响应头。connect-src 使用 https: 允许连接任何 HTTPS 后端（因后端地址可动态配置）。
+# 如需更严格的 CSP，请将 https: 替换为具体的后端地址。
 #   Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://*.supabase.co https://YOUR_BACKEND.onrender.com; img-src 'self' data:; font-src 'self'"
 [[headers]]
   for = "/*"
@@ -10,4 +11,4 @@ command = ""
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://*.supabase.co; img-src 'self' data:; font-src 'self'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https:; img-src 'self' data:; font-src 'self'"

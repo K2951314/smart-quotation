@@ -12,7 +12,8 @@
   var MIN_DISCOUNT_PERCENT = 0;
   var MAX_DISCOUNT_PERCENT = 100;
   var DEFAULT_STEP_PERCENT = 0.1;
-  var DEFAULT_DISCOUNT_CONFIG = Object.freeze({
+  // 兜底默认折扣（4 个固定品牌），在没有加载到 admin 配置时使用
+  var FALLBACK_DISCOUNT_CONFIG = Object.freeze({
     ex: EX_ACTIVITY_DISCOUNT_PERCENT,
     osg: OSG_DISCOUNT_PERCENT,
     mitsubishi: MITSUBISHI_DISCOUNT_PERCENT,
@@ -53,17 +54,128 @@
     return compactText(haystack).toUpperCase().indexOf(compactText(needle).toUpperCase()) >= 0;
   }
 
-  function sanitizeDiscountConfig(config) {
-    var source = config || {};
-    return {
-      ex: normalizePercent(source.ex, DEFAULT_DISCOUNT_CONFIG.ex),
-      osg: normalizePercent(source.osg, DEFAULT_DISCOUNT_CONFIG.osg),
-      mitsubishi: normalizePercent(source.mitsubishi, DEFAULT_DISCOUNT_CONFIG.mitsubishi),
-      other: normalizePercent(source.other, DEFAULT_DISCOUNT_CONFIG.other),
-    };
+  /**
+   * 从 discount_rules 数组构建扁平折扣配置对象 { ruleId: percent, ... }
+   * 这是动态品牌键的核心函数，替代硬编码的 {ex, osg, mitsubishi, other}
+   */
+  function buildDiscountConfigFromRules(rules, fallbackConfig) {
+    var out = {};
+    var fb = fallbackConfig || FALLBACK_DISCOUNT_CONFIG;
+
+    // 从 rules 中提取每个规则的 percent
+    (Array.isArray(rules) ? rules : []).forEach(function (rule) {
+      var id = String(rule.id || "").toLowerCase();
+      if (id && Number.isFinite(Number(rule.percent))) {
+        out[id] = Number(rule.percent);
+      }
+    });
+
+    // 兜底：如果没有 rules，使用 fallback config
+    if (Object.keys(out).length === 0) {
+      Object.keys(fb).forEach(function (key) {
+        out[key] = fb[key];
+      });
+    }
+
+    return out;
   }
 
-  function getDiscountCategory(item) {
+  /**
+   * 动态版 sanitizeDiscountConfig：规范化任意键的折扣对象
+   * 对 config 中的每个键规范化其 percent 值，缺失的键从 fallbackConfig 补充
+   */
+  function sanitizeDiscountConfig(config, fallbackConfig) {
+    var source = config || {};
+    var fb = fallbackConfig || FALLBACK_DISCOUNT_CONFIG;
+
+    // 收集所有已知的键
+    var allKeys = {};
+    Object.keys(fb).forEach(function (k) { allKeys[k] = true; });
+    Object.keys(source).forEach(function (k) { allKeys[k] = true; });
+
+    var out = {};
+    Object.keys(allKeys).forEach(function (key) {
+      var fallback = (fb[key] !== undefined) ? fb[key] : FALLBACK_DISCOUNT_PERCENT;
+      out[key] = normalizePercent(source[key], fallback);
+    });
+
+    return out;
+  }
+
+  /**
+   * 从 discount_rules 中匹配物品的折扣类别（动态版）
+   * 替代硬编码的 getDiscountCategory()，使用 rules conditions 来判断
+   */
+  function getDiscountCategoryFromRules(item, rules) {
+    if (!rules || !Array.isArray(rules) || !rules.length) {
+      // 回退到硬编码逻辑
+      return _getHardcodedCategory(item);
+    }
+
+    var source = item || {};
+    // 构造一个用于条件匹配的 row 对象
+    var special = toStringSafe(source.special);
+    var spec = toStringSafe(source.spec);
+    var brand = toStringSafe(source.brand || source.b);
+    var name = toStringSafe(source.name || source.n);
+    var code = toStringSafe(source.code || source.c);
+
+    var row = {
+      code: code, spec: spec, brand: brand, name: name, special: special,
+      // 支持 conditionMatches 中使用的字段
+      fields: {
+        code: code, spec: spec, brand: brand, name: name, special: special,
+        b: brand, n: name, c: code,
+      }
+    };
+
+    // 遍历 rules（按优先级），第一个匹配的非默认规则即为分类
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i];
+      if (rule.default) continue; // 跳过默认规则
+      var conditions = rule.conditions || [];
+      if (conditions.length === 0) continue;
+
+      var allMatch = conditions.every(function (cond) {
+        return _conditionMatches(row, cond);
+      });
+      if (allMatch) {
+        return String(rule.id || rule.category || "").toLowerCase();
+      }
+    }
+
+    // 未匹配任何特定规则 → fallback
+    // 找到 default 规则
+    for (var j = 0; j < rules.length; j++) {
+      if (rules[j].default) return String(rules[j].id || "other").toLowerCase();
+    }
+    return "other";
+  }
+
+  // 轻量条件匹配（不依赖 config-core.js）
+  function _conditionMatches(row, condition) {
+    var item = condition || {};
+    var rawValue = (row.fields && row.fields[item.field] !== undefined)
+      ? row.fields[item.field]
+      : (row[item.field] !== undefined ? row[item.field] : "");
+    var value = toStringSafe(rawValue);
+
+    if (item.equals !== undefined && value !== String(item.equals)) return false;
+    if (item.contains !== undefined && compactText(value).toUpperCase().indexOf(compactText(String(item.contains)).toUpperCase()) < 0) return false;
+    if (item.regex !== undefined) {
+      try {
+        if (!new RegExp(String(item.regex), "i").test(value)) return false;
+      } catch (e) { return false; }
+    }
+    if (item.gt !== undefined) { if (Number(rawValue) <= Number(item.gt)) return false; }
+    if (item.gte !== undefined) { if (Number(rawValue) < Number(item.gte)) return false; }
+    if (item.lt !== undefined) { if (Number(rawValue) >= Number(item.lt)) return false; }
+    if (item.lte !== undefined) { if (Number(rawValue) > Number(item.lte)) return false; }
+    return true;
+  }
+
+  // 硬编码分类（无 rules 时的回退）
+  function _getHardcodedCategory(item) {
     var source = item || {};
     var special = toStringSafe(source.special);
     var spec = toStringSafe(source.spec);
@@ -74,52 +186,65 @@
     if (includesNormalized(special, "\u0045\u0058\u6d3b\u52a8")) {
       return "ex";
     }
-
     if (/OSG/i.test(brandAndSpec)) {
       return "osg";
     }
-
     if (name === "\u5200\u5177") {
       return "mitsubishi";
     }
-
     return "other";
   }
 
-  function getDiscountLabel(category, percent) {
+  /**
+   * 公开的 getDiscountCategory（向后兼容 + 动态支持）
+   * 当提供 rules 参数时使用动态匹配，否则回退硬编码
+   */
+  function getDiscountCategory(item, rules) {
+    if (rules && Array.isArray(rules) && rules.length) {
+      return getDiscountCategoryFromRules(item, rules);
+    }
+    return _getHardcodedCategory(item);
+  }
+
+  function getDiscountLabel(category, percent, rules) {
+    // 尝试从 rules 中查找类别标签
+    if (rules && Array.isArray(rules)) {
+      for (var i = 0; i < rules.length; i++) {
+        if (String(rules[i].id || "").toLowerCase() === String(category).toLowerCase()) {
+          return (rules[i].label || category) + " " + formatDiscountPercent(percent);
+        }
+      }
+    }
+    // 硬编码回退
     if (category === "ex") return "\u0045\u0058\u6d3b\u52a8 " + formatDiscountPercent(percent);
     if (category === "osg") return "OSG " + formatDiscountPercent(percent);
     if (category === "mitsubishi") return "\u4e09\u83f1 " + formatDiscountPercent(percent);
-    return "\u5176\u4ed6 " + formatDiscountPercent(percent);
+    return String(category || "\u5176\u4ed6") + " " + formatDiscountPercent(percent);
   }
 
-  function getDefaultDiscountPreset(item, config) {
+  function getDefaultDiscountPreset(item, config, rules) {
+    var category = getDiscountCategory(item, rules);
     var normalizedConfig = sanitizeDiscountConfig(config);
-    var category = getDiscountCategory(item);
-    var percent = normalizedConfig.other;
-    var source = "fallback";
 
-    if (category === "ex") {
-      percent = normalizedConfig.ex;
-      source = "ex-activity";
-    } else if (category === "osg") {
-      percent = normalizedConfig.osg;
-      source = "osg";
-    } else if (category === "mitsubishi") {
-      percent = normalizedConfig.mitsubishi;
-      source = "mitsubishi";
+    var percent = normalizedConfig[category];
+    var source = category;
+
+    if (percent === undefined || !Number.isFinite(percent)) {
+      percent = normalizedConfig.other || FALLBACK_DISCOUNT_PERCENT;
+      source = "fallback";
+      category = "other";
     }
 
     return {
       percent: percent,
       source: source,
       category: category,
-      label: getDiscountLabel(category, percent),
+      label: getDiscountLabel(category, percent, rules),
     };
   }
 
-  function getDefaultDiscountPercent(item, config) {
-    return getDefaultDiscountPreset(item, config).percent;
+  function getDefaultDiscountPercent(item, config, rules) {
+    return getDefaultDiscountPreset(item, config, rules).percent;
   }
 
   function shiftDiscountPercent(currentPercent, stepPercent, direction) {
@@ -141,11 +266,14 @@
     EX_ACTIVITY_DISCOUNT_PERCENT: EX_ACTIVITY_DISCOUNT_PERCENT,
     MITSUBISHI_DISCOUNT_PERCENT: MITSUBISHI_DISCOUNT_PERCENT,
     DEFAULT_STEP_PERCENT: DEFAULT_STEP_PERCENT,
-    DEFAULT_DISCOUNT_CONFIG: DEFAULT_DISCOUNT_CONFIG,
+    DEFAULT_DISCOUNT_CONFIG: FALLBACK_DISCOUNT_CONFIG,
+    FALLBACK_DISCOUNT_CONFIG: FALLBACK_DISCOUNT_CONFIG,
     normalizePercent: normalizePercent,
     sanitizeStepPercent: sanitizeStepPercent,
     sanitizeDiscountConfig: sanitizeDiscountConfig,
+    buildDiscountConfigFromRules: buildDiscountConfigFromRules,
     getDiscountCategory: getDiscountCategory,
+    getDiscountCategoryFromRules: getDiscountCategoryFromRules,
     getDefaultDiscountPreset: getDefaultDiscountPreset,
     getDefaultDiscountPercent: getDefaultDiscountPercent,
     shiftDiscountPercent: shiftDiscountPercent,

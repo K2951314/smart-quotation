@@ -41,6 +41,7 @@ py -m backend.smart_quotation
 | 配置版本历史 | 查看所有 revision，一键回滚到任意历史版本 |
 | 审计日志 | 按公司隔离，记录所有配置和数据操作 |
 | 热加载 | 发布新配置无需重启，下次请求立即生效 |
+| 三菱库存实时查询 | 勾选规格 → 自动查上海/日本库存并回写卡片（`POST /api/stock-query`，无认证） |
 | ERPNext 预留 | 接口已预留，v1 为 stub，不阻塞独立运行 |
 
 ### 运行测试
@@ -60,20 +61,6 @@ py -m unittest tests.test_backend_v1 tests.test_admin_gui -v
 打开 `http://127.0.0.1:8001/apps/index.html`（后端需先启动）。
 
 测试账号：公司代码 `TJLH`，用户名 `cs`，密码 `cs`（管理员在 admin 后台管理客户密码）。
-
-### 生产部署（Netlify + 独立后端）
-
-客户门户（`apps/index.html` + `portal.js`）依赖 FastAPI 后端，需分两部分部署：
-
-1. **后端**：部署到 Railway / Render（免费 tier 足够）
-   - 启动命令：`python -m backend.smart_quotation`
-   - 记录部署后的域名，如 `https://smart-quotation.onrender.com`
-
-2. **Netlify 前端**：
-   - 修改 `apps/portal.js` 顶部 `HARDCODED_PROD_API` 为后端域名
-   - 或部署后通过 URL 参数指定：`https://xxx.netlify.app?api=https://smart-quotation.onrender.com`
-   - 更新 `netlify.toml` CSP 的 `connect-src` 添加后端域名
-   - `apps/login.html` / `customer.html` 为旧版备用入口（不通过 portal.js）
 
 ### 静态报价台（纯前端模式）
 
@@ -96,16 +83,15 @@ py -m unittest tests.test_backend_v1 tests.test_admin_gui -v
 │     ├─ discount-utils.js
 │     ├─ query-regex.js
 │     └─ result-sort.js
-├─ merger/                   # Excel 拼接与 bundle 生成工具
-│  ├─ index.html
-│  ├─ app.js
-│  ├─ brand-config.json      # 旧品牌规则兼容入口
-│  └─ lib/
-│     ├─ data-utils.js
-│     ├─ bundle-utils.js
-│     └─ export-utils.js
 ├─ backend/                  # 多租户 GUI 配置平台后端
-├─ admin/                    # GUI 配置中心前端
+├─ admin/                    # GUI 配置中心前端（含品牌识别 + Bundle 生成）
+│  ├─ app.js / customer-app.js / merger-app.js
+│  ├─ lib/
+│  │  ├─ config-core.js
+│  │  ├─ data-utils.js       # Excel 数据解析 + Bundle 生成
+│  │  ├─ bundle-utils.js     # Bundle 编解码
+│  │  └─ export-utils.js     # 导出工具
+│  └─ styles.css
 ├─ config.example.json       # schema v2 完整配置样例
 ├─ tests/                    # Node 原生测试 + Python 后端测试
 └─ netlify.toml
@@ -122,7 +108,6 @@ python -m http.server 8080
 然后访问：
 
 - 主站：`http://localhost:8080/apps/`
-- 生成器：`http://localhost:8080/merger/`
 
 Netlify 当前发布目录是 `apps`，线上根路径直接进入主站。
 
@@ -153,7 +138,7 @@ Netlify 当前发布目录是 `apps`，线上根路径直接进入主站。
 | `fields` | array | 字段定义，决定搜索、复制和结果显示行为 |
 | `copy` | object | 复制输出配置 |
 | `result_layout` | object | 结果卡各区域的字段分组 |
-| `discount_rules` | array | 折扣规则，按条件自动匹配默认折扣 |
+| `discount_rules` | array | 折扣规则，按条件自动匹配默认折扣（v2 格式为 `conditions` 数组，v3 格式为 `when.all` 条件组，系统双向兼容）。折扣弹窗动态渲染，支持任意数量品牌。 |
 | `merger` | object | merger 工具的数据处理配置 |
 | `labels` | object | 主站按钮、标题、占位符等文案 |
 
@@ -539,16 +524,15 @@ Netlify 当前发布目录是 `apps`，线上根路径直接进入主站。
 
 ---
 
-## merger 使用流程
+## 数据拼接与 Bundle 生成流程
 
-1. 打开 `http://localhost:8080/merger/`。
-2. 在"运行配置"中编辑或粘贴 `config.json`，点击"校验并预览配置"。也可以点击"读取 Supabase 配置"直接加载远端 `config.json`。
-3. 阶段 1 上传原始品牌 Excel，按配置中的 `merger.brand_rules` 识别品牌，必要时手动修正并导出品牌分包。
-4. 阶段 2 上传处理后的品牌文件，加载并导出 `price.bundle.json`。
-5. 上传库存 Excel，按 `merger.stock_columns` 解析并导出 `stock.bundle.json`。
-6. 修改配置或 `version` 后，可点击"保存到 Supabase"直接覆盖远端 `config.json`；也可点击"导出 config.json"保留本地备份。
+品牌识别、价格/库存 Bundle 生成功能已集成到 admin GUI 配置中心（`admin/merger-app.js` + `admin/lib/`）。在 admin 页面的「数据拼接区」完成全部操作：
 
-"保存到 Supabase"需要填写 Supabase anon key，并且 Storage 对应桶需要允许该 key 更新 `config.json`。该 key 仅在浏览器会话中临时保留（sessionStorage），不会写入仓库或长期存储。
+1. 打开 `http://127.0.0.1:8001/admin/`，切换到「数据拼接区」。
+2. 阶段 1 上传原始品牌 Excel，按配置中的 `merger.brand_rules` 识别品牌，必要时手动修正并导出品牌分包。
+3. 阶段 2 上传处理后的品牌文件，加载并导出 `price.bundle.json`。
+4. 上传库存 Excel，按 `merger.stock_columns` 解析并导出 `stock.bundle.json`。
+5. 填写 Supabase Anon Key 后可一键部署到 Supabase Storage，或导出本地备份。
 
 价格包可加密；库存包保持明文，便于主站库存过滤。
 
@@ -556,9 +540,9 @@ Netlify 当前发布目录是 `apps`，线上根路径直接进入主站。
 
 ## 发布流程
 
-1. 用 `merger/` 导出新的 `price.bundle.json`、`stock.bundle.json`。
+1. 在 admin GUI 的「数据拼接区」导出新的 `price.bundle.json`、`stock.bundle.json`，或一键部署到 Supabase。
 2. 上传两个数据包到 `data_source.base_url` 指向的远端目录。
-3. 在 `merger/` 或 Supabase 中更新远端 `config.json` 的顶层 `version`，例如：
+3. 在 admin GUI 发布配置后自动更新远端 `config.json` 的顶层 `version`，例如：
 
 ```json
 "version": "2026-06-01.1"
@@ -576,8 +560,8 @@ Netlify 当前发布目录是 `apps`，线上根路径直接进入主站。
 node --test tests\*.test.js
 node --check apps\app.js
 node --check apps\lib\*.js
-node --check merger\app.js
-node --check merger\lib\*.js
+node --check admin\app.js
+node --check admin\lib\*.js
 ```
 
 浏览器验收建议覆盖：
@@ -585,14 +569,14 @@ node --check merger\lib\*.js
 - 缺失远端配置时使用内置默认配置。
 - 旧 `bySpec/byCode` 包和新 schema v2 包都能查询。
 - 字段、复制列、结果卡布局、默认步进和折扣规则随配置变化。
-- `merger/` 可以校验配置、预览字段、导出 `config.json` 和 v2 bundle。
+- admin GUI 数据拼接区可以校验配置、预览字段、导出 `config.json` 和 v2 bundle。
 
 ---
 
 ## 安全说明
 
 - 配置文件是公开运行配置，不能放密码、token 或任何秘密。
-- Supabase anon key 只用于本地 `merger/` 保存远端配置；不要把 service_role key 填进浏览器。
+- Supabase anon key 仅用于 admin GUI 保存远端配置；不要把 service_role key 填进浏览器。
 - 已移除前端硬编码 MMC 密码。
 - 数据包使用 JSON 解析，不再注入远端脚本。
 - Netlify 配置了基础安全响应头和 CSP；如未来主站加载第三方脚本，需要同步调整 CSP。

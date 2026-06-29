@@ -352,6 +352,12 @@ textarea:focus-visible {
   min-width: 0;
 }
 
+.result-toolbar-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .field-group-large .step-presets {
   gap: 6px;
 }
@@ -1945,13 +1951,20 @@ body::after {
 
 .toolbar-copy-inline {
   display: grid;
-  grid-template-columns: repeat(6, 1fr); /* 6个平均 */
+  grid-template-columns: repeat(6, 1fr);
   flex: 1 1 380px;
   justify-content: flex-end;
   gap: 6px;
   padding: 0;
   border-top: none;
   overflow: visible;
+}
+
+.result-controls-band {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 .toolbar-copy-inline .opt-lbl {
@@ -2384,6 +2397,9 @@ body.has-overlay {
 }
 
 .toolbar-secondary .toolbar-copy-inline {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-column: auto;
   min-width: 0;
   width: 100%;
   flex: 0 1 auto;
@@ -2809,5 +2825,69 @@ body.has-overlay {
   .query-input {
     min-height: 11rem;
     max-height: 38vh;
+  }
+}
+
+
+/* ═══════════════════════════════════════════
+   三菱库存实时展示 + 按钮 loading 态
+   ═══════════════════════════════════════════ */
+
+.stock-live-placeholder {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 0.5rem;
+  min-height: 1.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.stock-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.stock-live-data {
+  color: #059669;
+}
+
+.stock-live-data.stock-zero {
+  color: #9ca3af;
+}
+
+.stock-live-data.stock-error {
+  color: #ef4444;
+}
+
+.stock-loading {
+  color: #f59e0b;
+  animation: stock-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes stock-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* 按钮 loading 态 */
+.btn-mmc.btn-loading {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+/* 移动端适配 */
+@media (max-width: 780px) {
+  .stock-live-placeholder {
+    padding: 1px 0;
+    min-height: 18px;
+  }
+  .stock-signal {
+    font-size: 0.7rem;
   }
 }
