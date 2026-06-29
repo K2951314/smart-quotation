@@ -227,20 +227,24 @@ code {
   margin:0 auto;
   padding:20px;
   box-sizing:border-box;
+  min-height: 100vh;
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-4);
   margin-bottom: var(--sp-4);
   padding: var(--sp-4) var(--sp-5);
-  background: linear-gradient(135deg, rgba(255,253,248,0.92), rgba(248,243,236,0.88));
+  background: linear-gradient(135deg, rgba(255,253,248,0.96), rgba(248,243,236,0.94));
   border: 1px solid rgba(255,255,255,0.7);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
 }
 
 .topbar h1 { line-height: 1.1; }
@@ -472,7 +476,6 @@ label input, label select, label textarea {
 /* ─── Tables ───────────────────────────────────────────────────────── */
 .table-wrap {
   width:100%;
-  overflow-x:auto;
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -1204,62 +1207,7 @@ th.unmatched { color: var(--warning); }
   border-color: rgba(179,88,75,0.2);
 }
 
-/* ─── Legacy merger stage ──────────────────────────────────────────── */
-.merger-stage {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  padding: var(--sp-4);
-  box-shadow: var(--shadow-sm);
-}
-
-.merger-stage + .merger-stage { margin-top: var(--sp-4); }
-.merger-stage h3 { margin-bottom: var(--sp-1); color: var(--ink); font-weight: 600; }
-.merger-stage .hint { margin-bottom: var(--sp-2); }
-
-.stage-note {
-  margin: var(--sp-3) 0 0;
-  padding: var(--sp-3);
-  border: 1px dashed var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  font-size: var(--text-sm);
-}
-
-.preview-box {
-  min-height: 140px;
-  max-height: 240px;
-  overflow: auto;
-  margin-top: var(--sp-3);
-  padding: var(--sp-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  white-space: pre-wrap;
-}
-
-.meta { color: var(--muted); font-size: var(--text-sm); margin-top: var(--sp-2); }
-
-/* Brand detection status colors */
-td[data-merge-status] { font-weight: 600; font-size: var(--text-sm); }
-td[data-merge-status="未处理"] { color: var(--muted-light); }
-td[data-merge-status*="已导入"] { color: var(--success); }
-td[data-merge-status*="失败"] { color: var(--danger); }
-
 /* ─── Inspector Panel ───────────────────────────────────────────────── */
-.inspector {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow: auto;
-  border-left: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255,253,248,0.96), rgba(248,243,236,0.94));
-  padding: var(--sp-5) var(--sp-4);
-}
-
 .panel {
   padding-top: 0;
   margin-bottom: var(--sp-5);
@@ -1292,16 +1240,10 @@ pre {
 
 /* ─── Responsive ────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
-  .shell { grid-template-columns: 200px 1fr; }
+  .shell { grid-template-columns: 160px 1fr; }
   .workspace { max-width: none; }
 
-  .inspector {
-    grid-column: 1 / -1;
-    position: static;
-    height: auto;
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
+
 
   .form-grid, .rule-row, .copy-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .supabase-creds { grid-template-columns: 1fr; }

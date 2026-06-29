@@ -20,34 +20,10 @@ let g_RuntimeConfigCache = null;
 let g_RuntimeConfigDiscountFingerprint = null;
 let g_SearchIndex = null;
 
-// ═══ 客户门户模式（公司账号）═══════════════════════════════════════════════
-//   公司账号视图: 隐藏面价/折扣内部列，显示"成本价" + 未税/含税 + 利润
-//   管理员视图: 与原始 app.js 一致（显示面价 + 折扣可调）
-//
-//   登录：localStorage.sq_customer_token 验证后填入 g_CustomerProfile
-//   未登录：显示 #authGate 覆盖层，不加载价格包
-const SQ_TOKEN_KEY = "sq_customer_token";
-let g_CustomerProfile = null;
-let g_IsCustomerCompany = false;
-let g_TaxRate = 0;
-let g_ProfitMode = "none";
-let g_ProfitValue = 0;
-let g_ShowInclTax = true;  // 公司账号视图：默认显示含税（"成本+税" 是用户最关心的）
-
-// 工具：基于"未税金额"应用利润
-function applyCustomerProfit(priceExclTax) {
-  const base = Number(priceExclTax) || 0;
-  const mode = g_ProfitMode;
-  const val = g_ProfitValue;
-  if (mode === "percent") return base * (1 + val / 100);
-  if (mode === "amount") return base + val;
-  return base;
-}
-
 const HOLD_START_DELAY_MS = 280;
 const HOLD_REPEAT_INTERVAL_MS = 70;
-const MMC_URL = "https://mcweb.mitsubishi-materials.com/concerto-mmsc-ec/login.jsp";
 const DEFAULT_DISCOUNT_STORAGE_KEY = "v9-default-discount-config";
+
 
 window.addEventListener("error", (event) => {
   const msg = event?.message || "未知错误";
@@ -60,6 +36,7 @@ window.addEventListener("error", (event) => {
 
 const DiscountEngine = window.DiscountUtils || {
   DEFAULT_DISCOUNT_CONFIG: Object.freeze({ ex: 32, osg: 36, mitsubishi: 55, other: 55 }),
+  FALLBACK_DISCOUNT_CONFIG: Object.freeze({ ex: 32, osg: 36, mitsubishi: 55, other: 55 }),
   DEFAULT_STEP_PERCENT: 0.1,
   normalizePercent(value, fallback) {
     const num = Number(value);
@@ -72,16 +49,31 @@ const DiscountEngine = window.DiscountUtils || {
     if (!Number.isFinite(num) || num <= 0) return 0.1;
     return Math.max(0.1, Math.round(num * 100) / 100);
   },
-  sanitizeDiscountConfig(config) {
-    const source = config || {};
+  sanitizeDiscountConfig(config, fallbackConfig) {
+    // 向后兼容：无 fallbackConfig 时用旧逻辑
+    var source = config || {};
+    var fb = fallbackConfig || this.FALLBACK_DISCOUNT_CONFIG;
+    // 如果 window.DiscountUtils 可用，委托给它（支持动态键）
+    if (window.DiscountUtils && window.DiscountUtils !== this) {
+      return window.DiscountUtils.sanitizeDiscountConfig(source, fb);
+    }
     return {
-      ex: this.normalizePercent(source.ex, this.DEFAULT_DISCOUNT_CONFIG.ex),
-      osg: this.normalizePercent(source.osg, this.DEFAULT_DISCOUNT_CONFIG.osg),
-      mitsubishi: this.normalizePercent(source.mitsubishi, this.DEFAULT_DISCOUNT_CONFIG.mitsubishi),
-      other: this.normalizePercent(source.other, this.DEFAULT_DISCOUNT_CONFIG.other)
+      ex: this.normalizePercent(source.ex, fb.ex || 32),
+      osg: this.normalizePercent(source.osg, fb.osg || 36),
+      mitsubishi: this.normalizePercent(source.mitsubishi, fb.mitsubishi || 55),
+      other: this.normalizePercent(source.other, fb.other || 55)
     };
   },
-  getDiscountCategory(item) {
+  buildDiscountConfigFromRules(rules, fallbackConfig) {
+    if (window.DiscountUtils && window.DiscountUtils !== this) {
+      return window.DiscountUtils.buildDiscountConfigFromRules(rules, fallbackConfig);
+    }
+    return this.FALLBACK_DISCOUNT_CONFIG;
+  },
+  getDiscountCategory(item, rules) {
+    if (window.DiscountUtils && window.DiscountUtils !== this) {
+      return window.DiscountUtils.getDiscountCategory(item, rules);
+    }
     const source = item || {};
     const compact = (value) => String(value || "").replace(/\s+/g, "").toUpperCase();
     const brandAndSpec = [source.brand, source.spec].filter(Boolean).join(" ");
@@ -91,7 +83,10 @@ const DiscountEngine = window.DiscountUtils || {
     if (name === "刀具") return "mitsubishi";
     return "other";
   },
-  getDefaultDiscountPreset(item, config) {
+  getDefaultDiscountPreset(item, config, rules) {
+    if (window.DiscountUtils && window.DiscountUtils !== this) {
+      return window.DiscountUtils.getDefaultDiscountPreset(item, config, rules);
+    }
     const normalized = this.sanitizeDiscountConfig(config);
     const category = this.getDiscountCategory(item);
     if (category === "ex") return { percent: normalized.ex, source: "ex-activity", category, label: "EX活动 " + this.formatDiscountPercent(normalized.ex) };
@@ -183,16 +178,19 @@ function cloneConfig(config) {
 function getRuntimeAppConfig() {
   if (!window.ConfigCore) return getAppConfig();
   const overrides = getDefaultDiscountConfig();
-  const fingerprint = overrides.ex + "|" + overrides.osg + "|" + overrides.mitsubishi + "|" + overrides.other;
+  // 动态 fingerprint：包含所有折扣键
+  const keys = Object.keys(overrides).sort();
+  const fingerprint = keys.map(function(k) { return k + "=" + overrides[k]; }).join("|");
   if (g_RuntimeConfigCache && fingerprint === g_RuntimeConfigDiscountFingerprint) return g_RuntimeConfigCache;
   const cfg = cloneConfig(getAppConfig());
-  const legacyMap = { ex: "ex", osg: "osg", mitsubishi: "mitsubishi", other: "other" };
-  cfg.discount_rules = (cfg.discount_rules || []).map((rule) => {
-    const id = String(rule.id || "").toLowerCase();
-    const key = Object.keys(legacyMap).find((name) => legacyMap[name] === id);
-    return key ? { ...rule, percent: overrides[key] } : rule;
+  // 动态映射：从 discount_rules 的 id → percent 覆盖
+  cfg.discount_rules = (cfg.discount_rules || []).map(function(rule) {
+    var id = String(rule.id || "").toLowerCase();
+    if (overrides[id] !== undefined && Number.isFinite(Number(overrides[id]))) {
+      return Object.assign({}, rule, { percent: Number(overrides[id]) });
+    }
+    return rule;
   });
-  // 删除 cfg.rules 避免 normalizeConfig 二次从 v3 原始 rules 覆盖已应用的折扣覆盖值
   delete cfg.rules;
   g_RuntimeConfigCache = window.ConfigCore.normalizeConfig(cfg);
   g_RuntimeConfigDiscountFingerprint = fingerprint;
@@ -209,14 +207,19 @@ function invalidateRuntimeConfigCache() {
 function deriveLegacyDiscountConfig(config) {
   const cfg = window.ConfigCore ? window.ConfigCore.normalizeConfig(config || {}) : config || {};
   const out = {};
-  (cfg.discount_rules || []).forEach((rule) => {
-    const id = String(rule.id || "").toLowerCase();
-    if (id === "ex") out.ex = rule.percent;
-    if (id === "osg") out.osg = rule.percent;
-    if (id === "mitsubishi") out.mitsubishi = rule.percent;
-    if (id === "other" || rule.default) out.other = rule.percent;
+  // 动态：从 discount_rules 提取 ALL 规则的 percent，keyed by rule id
+  (cfg.discount_rules || []).forEach(function(rule) {
+    var id = String(rule.id || "").toLowerCase();
+    if (id && Number.isFinite(Number(rule.percent))) {
+      out[id] = Number(rule.percent);
+    }
   });
-  return DiscountEngine.sanitizeDiscountConfig(out);
+  // 兜底：确保至少有 4 个基础键
+  if (out.ex === undefined) out.ex = DiscountEngine.FALLBACK_DISCOUNT_CONFIG.ex;
+  if (out.osg === undefined) out.osg = DiscountEngine.FALLBACK_DISCOUNT_CONFIG.osg;
+  if (out.mitsubishi === undefined) out.mitsubishi = DiscountEngine.FALLBACK_DISCOUNT_CONFIG.mitsubishi;
+  if (out.other === undefined) out.other = DiscountEngine.FALLBACK_DISCOUNT_CONFIG.other;
+  return DiscountEngine.sanitizeDiscountConfig(out, out);
 }
 
 function applyAppConfig(rawConfig) {
@@ -234,6 +237,7 @@ function applyAppConfig(rawConfig) {
 }
 
 let g_DefaultDiscountConfig = DiscountEngine.sanitizeDiscountConfig(DiscountEngine.DEFAULT_DISCOUNT_CONFIG);
+let g_RemoteDiscountRules = null;
 
 const ResultSortEngine = window.ResultSort || {
   sortResultsBySelection(results) {
@@ -253,10 +257,14 @@ const ResultSortEngine = window.ResultSort || {
 };
 
 function getSystemDefaultDiscountConfig() {
-  return DiscountEngine.sanitizeDiscountConfig({
-    ...DiscountEngine.DEFAULT_DISCOUNT_CONFIG,
-    ...(g_RemoteDefaultDiscountConfig || {})
-  });
+  // 动态合并：默认值 + 远程配置覆盖
+  var base = DiscountEngine.FALLBACK_DISCOUNT_CONFIG;
+  var remote = g_RemoteDefaultDiscountConfig || {};
+  var merged = {};
+  // 收集所有键
+  Object.keys(base).forEach(function(k) { merged[k] = base[k]; });
+  Object.keys(remote).forEach(function(k) { merged[k] = remote[k]; });
+  return DiscountEngine.sanitizeDiscountConfig(merged, base);
 }
 
 function loadLocalDefaultDiscountConfig() {
@@ -282,21 +290,38 @@ function persistDefaultDiscountConfig(config) {
 }
 
 function getDefaultDiscountConfig() {
-  return DiscountEngine.sanitizeDiscountConfig(g_DefaultDiscountConfig || getSystemDefaultDiscountConfig());
+  var base = DiscountEngine.FALLBACK_DISCOUNT_CONFIG;
+  return DiscountEngine.sanitizeDiscountConfig(g_DefaultDiscountConfig || getSystemDefaultDiscountConfig(), base);
 }
 
 function applyRemoteDefaultDiscountConfig(config) {
-  g_RemoteDefaultDiscountConfig = DiscountEngine.sanitizeDiscountConfig(config);
-  if (g_HasLocalDefaultDiscountConfig) return;
+  // 动态：sanitizeDiscountConfig 保留所有规则键
+  g_RemoteDefaultDiscountConfig = DiscountEngine.sanitizeDiscountConfig(config, config);
+  var remoteRules = (g_AppConfig && g_AppConfig.discount_rules) || [];
+  g_RemoteDiscountRules = remoteRules;
   g_DefaultDiscountConfig = getSystemDefaultDiscountConfig();
   syncDefaultDiscountButtonSummary();
+  // 动态渲染折扣弹窗输入框
+  buildDefaultDiscountForm(g_DefaultDiscountConfig, remoteRules);
   syncDefaultDiscountForm(g_DefaultDiscountConfig);
   refreshRowsWithDefaultDiscounts();
 }
 
 function getDefaultDiscountConfigSummary(config) {
-  const safeConfig = DiscountEngine.sanitizeDiscountConfig(config);
-  return[
+  var safeConfig = DiscountEngine.sanitizeDiscountConfig(config, config);
+  var rules = (g_AppConfig && g_AppConfig.discount_rules) || [];
+  // 动态：从 discount_rules 生成摘要，按规则顺序显示标签
+  if (rules.length) {
+    return rules.map(function(rule) {
+      var id = String(rule.id || "").toLowerCase();
+      var percent = (safeConfig[id] !== undefined && Number.isFinite(Number(safeConfig[id])))
+        ? Number(safeConfig[id])
+        : (Number.isFinite(Number(rule.percent)) ? Number(rule.percent) : 55);
+      return (rule.label || rule.id) + " " + formatCompactNumber(percent) + "%";
+    }).join(" / ");
+  }
+  // 兜底
+  return [
     "EX " + formatCompactNumber(safeConfig.ex) + "%",
     "OSG " + formatCompactNumber(safeConfig.osg) + "%",
     "三菱 " + formatCompactNumber(safeConfig.mitsubishi) + "%",
@@ -304,22 +329,82 @@ function getDefaultDiscountConfigSummary(config) {
   ].join(" / ");
 }
 
+/**
+ * 动态构建折扣弹窗输入框（根据 discount_rules 生成）
+ * 替代 index.html 中硬编码的 4 个品牌输入框
+ */
+function buildDefaultDiscountForm(config, rules) {
+  var grid = document.querySelector("#defaultDiscountModal .discount-config-grid");
+  if (!grid) return;
+  var safeConfig = DiscountEngine.sanitizeDiscountConfig(config, config);
+
+  // 清除旧内容
+  grid.innerHTML = "";
+
+  // 如果没有规则，使用兜底的 4 个品牌
+  var displayRules = (Array.isArray(rules) && rules.length) ? rules : [
+    { id: "ex", label: "EX活动", percent: safeConfig.ex || 32 },
+    { id: "osg", label: "OSG", percent: safeConfig.osg || 36 },
+    { id: "mitsubishi", label: "三菱", percent: safeConfig.mitsubishi || 55 },
+    { id: "other", label: "其他", percent: safeConfig.other || 50, default: true }
+  ];
+
+  displayRules.forEach(function(rule) {
+    var id = String(rule.id || "").toLowerCase();
+    var label = rule.label || rule.id || "规则";
+    var percent = (safeConfig[id] !== undefined && Number.isFinite(Number(safeConfig[id])))
+      ? Number(safeConfig[id])
+      : (Number.isFinite(Number(rule.percent)) ? Number(rule.percent) : 55);
+    var inputId = "defaultDiscount-" + id;
+
+    var html = '<label class="discount-config-field" for="' + inputId + '">'
+      + '<span>' + label + '</span>'
+      + '<div class="field-shell">'
+      + '<input type="number" id="' + inputId + '" min="0" max="100" step="0.1" inputmode="decimal" data-discount-id="' + id + '">'
+      + '<span class="field-unit">%</span>'
+      + '</div>'
+      + '</label>';
+    grid.insertAdjacentHTML("beforeend", html);
+  });
+}
+
 function syncDefaultDiscountForm(config) {
-  const safeConfig = DiscountEngine.sanitizeDiscountConfig(config);
-  const mapping = { defaultDiscountEx: safeConfig.ex, defaultDiscountOsg: safeConfig.osg, defaultDiscountMitsubishi: safeConfig.mitsubishi, defaultDiscountOther: safeConfig.other };
-  Object.keys(mapping).forEach((id) => {
-    const input = document.getElementById(id);
-    if (input) input.value = formatCompactNumber(mapping[id]);
+  var safeConfig = DiscountEngine.sanitizeDiscountConfig(config, config);
+  // 动态：查找所有 data-discount-id 输入框并填充值
+  var inputs = document.querySelectorAll("#defaultDiscountModal .discount-config-grid input[data-discount-id]");
+  inputs.forEach(function(input) {
+    var id = input.getAttribute("data-discount-id") || "";
+    var value = (safeConfig[id] !== undefined && Number.isFinite(Number(safeConfig[id])))
+      ? Number(safeConfig[id])
+      : 55;
+    input.value = formatCompactNumber(value);
+  });
+  // 兼容旧版 4 个固定输入框（给兜底场景用）
+  var legacyMapping = { defaultDiscountEx: safeConfig.ex, defaultDiscountOsg: safeConfig.osg, defaultDiscountMitsubishi: safeConfig.mitsubishi, defaultDiscountOther: safeConfig.other };
+  Object.keys(legacyMapping).forEach(function(elId) {
+    var input = document.getElementById(elId);
+    if (input) input.value = formatCompactNumber(legacyMapping[elId]);
   });
 }
 
 function readDefaultDiscountForm() {
-  return DiscountEngine.sanitizeDiscountConfig({
-    ex: document.getElementById("defaultDiscountEx").value,
-    osg: document.getElementById("defaultDiscountOsg").value,
-    mitsubishi: document.getElementById("defaultDiscountMitsubishi").value,
-    other: document.getElementById("defaultDiscountOther").value
+  var out = {};
+  // 动态读取
+  var inputs = document.querySelectorAll("#defaultDiscountModal .discount-config-grid input[data-discount-id]");
+  inputs.forEach(function(input) {
+    var id = input.getAttribute("data-discount-id") || "";
+    if (id) out[id] = Number(input.value) || 55;
   });
+  // 兜底：如果动态输入框为空，回退到旧版
+  if (Object.keys(out).length === 0) {
+    out = {
+      ex: document.getElementById("defaultDiscountEx") ? document.getElementById("defaultDiscountEx").value : 32,
+      osg: document.getElementById("defaultDiscountOsg") ? document.getElementById("defaultDiscountOsg").value : 36,
+      mitsubishi: document.getElementById("defaultDiscountMitsubishi") ? document.getElementById("defaultDiscountMitsubishi").value : 55,
+      other: document.getElementById("defaultDiscountOther") ? document.getElementById("defaultDiscountOther").value : 50
+    };
+  }
+  return DiscountEngine.sanitizeDiscountConfig(out, out);
 }
 
 function syncDefaultDiscountButtonSummary() {
@@ -338,11 +423,14 @@ function setDefaultDiscountModalState(open) {
 }
 
 function openDefaultDiscountConfig() {
+  // 确保弹窗输入框已构建
+  var rules = (g_AppConfig && g_AppConfig.discount_rules) || g_RemoteDiscountRules || [];
+  buildDefaultDiscountForm(g_DefaultDiscountConfig, rules);
   syncDefaultDiscountForm(g_DefaultDiscountConfig);
   setDefaultDiscountModalState(true);
-  window.requestAnimationFrame(() => {
-    const input = document.getElementById("defaultDiscountEx");
-    if (input) input.focus();
+  window.requestAnimationFrame(function() {
+    var firstInput = document.querySelector("#defaultDiscountModal .discount-config-grid input[data-discount-id]");
+    if (firstInput) firstInput.focus();
   });
 }
 
@@ -356,9 +444,10 @@ function resetDefaultDiscountConfig() {
 
 function applyDefaultDiscountPresetToRow(row, flash) {
   if (!row) return;
+  const rules = (g_AppConfig && g_AppConfig.discount_rules) || g_RemoteDiscountRules || [];
   const preset = window.ConfigCore
     ? window.ConfigCore.getDiscountPreset(toCoreRow(row), getRuntimeAppConfig())
-    : DiscountEngine.getDefaultDiscountPreset({ spec: row.spec, special: row.special, brand: row.brand, name: row.name }, getDefaultDiscountConfig());
+    : DiscountEngine.getDefaultDiscountPreset({ spec: row.spec, special: row.special, brand: row.brand, name: row.name }, getDefaultDiscountConfig(), rules);
   row.discountPercent = preset.percent;
   row.discountLabel = preset.label;
   row.discountCategory = preset.category || "";
@@ -422,8 +511,6 @@ function renderConfigDrivenControls() {
   const stepWrap = document.getElementById("stepPresetControls");
   if (stepWrap) {
     const existingConfigButton = document.getElementById("btnDefaultDiscounts");
-    const resultStat = stepWrap.querySelector(".result-stat");
-    const selectAll = stepWrap.querySelector(".select-all-toggle");
     stepWrap.innerHTML = "";
     (cfg.pricing?.discount_step?.presets || [0.1, 0.5, 1]).forEach((step) => {
       const button = document.createElement("button");
@@ -439,8 +526,6 @@ function renderConfigDrivenControls() {
     configButton.className = "step-preset step-preset-action";
     configButton.textContent = cfg.labels?.config_button || "配置";
     stepWrap.appendChild(configButton);
-    if (resultStat) stepWrap.appendChild(resultStat);
-    if (selectAll) stepWrap.appendChild(selectAll);
   }
 
   const copyWrap = document.getElementById("copyColumnControls");
@@ -468,27 +553,6 @@ window.onload = async function () {
   g_DefaultDiscountConfig = loadLocalDefaultDiscountConfig() || getSystemDefaultDiscountConfig();
   applyAppConfig(window.APP_CONFIG || {});
   bindUiEvents();
-
-  // ═══ 登录门禁：未登录则停在这里 ═══
-  const token = localStorage.getItem(SQ_TOKEN_KEY);
-  if (!token) {
-    sqShowAuthGate();
-    bindCustomerControls();
-    return;
-  }
-
-  // 已登录：验证 token + 加载 profile
-  try {
-    const profile = await sqApi("/api/customer/me");
-    sqShowPortal(profile);
-    bindCustomerControls();
-  } catch (err) {
-    console.warn("token 校验失败", err);
-    sqShowAuthGate();
-    bindCustomerControls();
-    return;
-  }
-
   syncDefaultDiscountButtonSummary();
   syncDefaultDiscountForm(g_DefaultDiscountConfig);
   syncDiscountStepInput(document.getElementById("discountStep").value);
@@ -637,256 +701,22 @@ async function loadLegacyVersion(source) {
   }
 }
 
-// ═══ 客户门户：登录门禁 ════════════════════════════════════════════════════
-
-const SQ_API_BASE = (function () {
-  if (location.protocol === "file:") return "http://127.0.0.1:8001";
-  if (location.hostname === "127.0.0.1" || location.hostname === "localhost") return "";
-  // 生产：读取 localStorage 配置（可在控制台设置：localStorage.sq_api_base = "https://..."）
-  return localStorage.getItem("sq_api_base") || "";
-})();
-
-async function sqApi(path, options) {
-  const token = localStorage.getItem(SQ_TOKEN_KEY) || "";
-  const resp = await fetch(SQ_API_BASE + path, {
-    ...options,
-    headers: {
-      "X-Customer-Token": token,
-      "Content-Type": "application/json",
-      ...((options && options.headers) || {}),
-    },
-  });
-  const text = await resp.text();
-  let data;
-  try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
-  if (!resp.ok) {
-    if (resp.status === 401) {
-      localStorage.removeItem(SQ_TOKEN_KEY);
-      sqShowAuthGate();
-    }
-    throw new Error(data.detail || `HTTP ${resp.status}`);
-  }
-  return data;
-}
-
-function sqShowAuthGate() {
-  const gate = document.getElementById("authGate");
-  if (gate) gate.classList.remove("hidden");
-  const bar = document.getElementById("customerInfoBar");
-  if (bar) bar.classList.add("is-hidden");
-  const ctrls = document.getElementById("customerControls");
-  if (ctrls) ctrls.style.display = "none";
-  document.body.classList.remove("is-customer-company");
-
-  // 异步拉取公司列表填充下拉框
-  sqLoadCompanyList();
-}
-
-let _sqCompaniesLoaded = false;
-async function sqLoadCompanyList() {
-  if (_sqCompaniesLoaded) return;
-  const sel = document.getElementById("authCompany");
-  if (!sel) return;
-  try {
-    const resp = await fetch(SQ_API_BASE + "/api/companies", { headers: { "Accept": "application/json" } });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
-    const list = Array.isArray(data) ? data : [];
-    sel.innerHTML = "";
-    if (list.length === 0) {
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "暂无可用公司";
-      sel.appendChild(opt);
-      return;
-    }
-    list.forEach(c => {
-      const opt = document.createElement("option");
-      opt.value = c.code || c.id || "";
-      opt.textContent = `${c.code || c.id}${c.name ? " · " + c.name : ""}`;
-      sel.appendChild(opt);
-    });
-    // 只有一家公司时默认选中
-    if (list.length === 1) {
-      sel.value = list[0].code || list[0].id || "";
-    }
-    _sqCompaniesLoaded = true;
-  } catch (err) {
-    console.warn("加载公司列表失败", err);
-    // 降级为可手动输入
-    if (sel.tagName === "SELECT") {
-      const input = document.createElement("input");
-      input.id = "authCompany";
-      input.type = "text";
-      input.autocomplete = "organization";
-      input.required = true;
-      input.placeholder = "如 TJLH";
-      sel.parentNode.replaceChild(input, sel);
-    }
-  }
-}
-
-function sqShowPortal(profile) {
-  g_CustomerProfile = profile;
-  g_IsCustomerCompany = profile.account_type === "company";
-  g_TaxRate = Number(profile.tax_rate || 0);
-  g_ProfitMode = profile.profit_mode || "none";
-  g_ProfitValue = Number(profile.profit_value || 0);
-  g_ShowInclTax = true;
-
-  const gate = document.getElementById("authGate");
-  if (gate) gate.classList.add("hidden");
-  const bar = document.getElementById("customerInfoBar");
-  if (bar) {
-    bar.classList.remove("is-hidden");
-    document.getElementById("customerName").textContent = profile.display_name || profile.username || "—";
-    const badge = document.getElementById("customerRoleBadge");
-    if (g_IsCustomerCompany) {
-      badge.textContent = "公司账号";
-      badge.className = "role-badge company";
-    } else {
-      badge.textContent = "管理员";
-      badge.className = "role-badge admin";
-    }
-  }
-  if (g_IsCustomerCompany) {
-    document.body.classList.add("is-customer-company");
-    document.getElementById("profitMode").value = g_ProfitMode;
-    document.getElementById("profitValue").value = g_ProfitValue;
-    sqUpdateTaxToggleUi();
-  } else {
-    document.body.classList.remove("is-customer-company");
-  }
-}
-
-function sqUpdateTaxToggleUi() {
-  const toggle = document.getElementById("taxToggle");
-  const label = document.getElementById("taxToggleLabel");
-  if (!toggle || !label) return;
-  toggle.classList.toggle("active", g_ShowInclTax);
-  label.textContent = g_ShowInclTax ? "含税" : "未税";
-}
-
-async function sqHandleLogin(e) {
-  e.preventDefault();
-  const btn = document.getElementById("authBtn");
-  const errEl = document.getElementById("authError");
-  errEl.textContent = "";
-  btn.disabled = true;
-  btn.textContent = "登录中...";
-  try {
-    const resp = await fetch(SQ_API_BASE + "/api/customer/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        company_code: document.getElementById("authCompany").value.trim(),
-        username: document.getElementById("authUser").value.trim(),
-        password: document.getElementById("authPass").value,
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || "登录失败");
-    localStorage.setItem(SQ_TOKEN_KEY, data.token);
-    await sqBootstrap();
-  } catch (err) {
-    errEl.textContent = err.message;
-    btn.disabled = false;
-    btn.textContent = "登录";
-  }
-}
-
-async function sqLogout() {
-  try { await sqApi("/api/customer/logout", { method: "POST" }); } catch {}
-  localStorage.removeItem(SQ_TOKEN_KEY);
-  g_CustomerProfile = null;
-  g_IsCustomerCompany = false;
-  sqShowAuthGate();
-  // 清空结果
-  const body = document.getElementById("resultBody");
-  if (body) body.innerHTML = "";
-  g_Results = [];
-  updateResultCount && updateResultCount();
-}
-
-async function sqSaveProfit() {
-  const mode = document.getElementById("profitMode").value;
-  const value = parseFloat(document.getElementById("profitValue").value) || 0;
-  try {
-    const updated = await sqApi("/api/customer/profile", {
-      method: "PATCH",
-      body: JSON.stringify({ profit_mode: mode, profit_value: value }),
-    });
-    g_ProfitMode = updated.profit_mode;
-    g_ProfitValue = Number(updated.profit_value || 0);
-    // 刷新已显示结果的价格
-    if (typeof refreshRenderedPrices === "function") {
-      refreshRenderedPrices();
-    } else if (g_Results && g_Results.length) {
-      // 重新执行搜索
-      const btn = document.getElementById("btnSearch");
-      if (btn) btn.click();
-    }
-  } catch (err) {
-    alert("保存利润设置失败：" + err.message);
-  }
-}
-
-async function sqBootstrap() {
-  // 验证 token + 加载 profile + 加载数据
-  try {
-    const profile = await sqApi("/api/customer/me");
-    sqShowPortal(profile);
-    bindCustomerControls();
-    // 登录成功后启动 app 主流程（与 window.onload 完全一致的路径）
-    renderLoadingState("正在极速同步远程数据");
-    updateResultCount();
-    const ready = await ensureDataLoaded();
-    if (ready) {
-      renderEmptyState("输入规格后开始查询，可在结果卡中直接调价与勾选复制。");
-    } else {
-      renderErrorState("远程数据未就绪，请重试。");
-    }
-  } catch (err) {
-    console.warn("登录校验失败", err);
-    sqShowAuthGate();
-  }
-}
-
-function bindCustomerControls() {
-  // 防止重复绑定
-  if (window._sqCustomerBound) return;
-  window._sqCustomerBound = true;
-
-  const form = document.getElementById("authForm");
-  if (form) form.addEventListener("submit", sqHandleLogin);
-
-  const logoutBtn = document.getElementById("customerLogoutBtn");
-  if (logoutBtn) logoutBtn.addEventListener("click", sqLogout);
-
-  const taxToggle = document.getElementById("taxToggle");
-  if (taxToggle) {
-    taxToggle.addEventListener("click", () => {
-      g_ShowInclTax = !g_ShowInclTax;
-      sqUpdateTaxToggleUi();
-      if (typeof refreshRenderedPrices === "function") refreshRenderedPrices();
-    });
-  }
-
-  const profitMode = document.getElementById("profitMode");
-  if (profitMode) profitMode.addEventListener("change", sqSaveProfit);
-  const profitValue = document.getElementById("profitValue");
-  if (profitValue) profitValue.addEventListener("change", sqSaveProfit);
-}
-
 async function loadDataWithCache() {
   console.log("开始检查版本更新...");
   let source = getDataSourceConfig();
 
-  try {
-    await loadRemoteConfig(source);
-  } catch (err) {
-    console.warn("远程配置加载失败，使用内置默认配置:", err);
-    applyAppConfig(window.APP_CONFIG || {});
+  // 如果配置已通过后端 API 加载，跳过 Supabase config.json 加载
+  // 但仍需要加载 price/stock bundles
+  const configLoadedFromApi = g_AppConfig && g_AppConfig._loadedFromApi;
+  if (!configLoadedFromApi) {
+    try {
+      await loadRemoteConfig(source);
+    } catch (err) {
+      console.warn("远程配置加载失败，使用内置默认配置:", err);
+      applyAppConfig(window.APP_CONFIG || {});
+    }
+  } else {
+    console.log("[loadDataWithCache] 配置已从后端 API 加载，跳过 Supabase config.json");
   }
 
   source = getDataSourceConfig();
@@ -1389,9 +1219,10 @@ function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runti
   const coreRow = toCoreRow(matchKey, item);
   const fields = { ...(coreRow.fields || {}) };
   if (!runtimeConfig) runtimeConfig = getRuntimeAppConfig();
+  const rules = (g_AppConfig && g_AppConfig.discount_rules) || g_RemoteDiscountRules || [];
   const preset = window.ConfigCore
     ? window.ConfigCore.getDiscountPreset({ key: coreRow.key, fields }, runtimeConfig)
-    : DiscountEngine.getDefaultDiscountPreset({ spec: matchKey, special: item.s || "", brand: item.b || "", name: item.n || "" }, getDefaultDiscountConfig());
+    : DiscountEngine.getDefaultDiscountPreset({ spec: matchKey, special: item.s || "", brand: item.b || "", name: item.n || "" }, getDefaultDiscountConfig(), rules);
   const settings = getCurrentPriceSettings();
   const facePrice = Number(fields.face_price !== undefined ? fields.face_price : item.p) || 0;
   const priceInfo = calcDiscountedPrice(facePrice, preset.percent / 100, settings.decimals, settings.threshold);
@@ -1434,20 +1265,6 @@ function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runti
   }).join("");
   const metaLineMarkup = (chipMarkup || detailMarkup) ? '<div class="meta-line">' + chipMarkup + detailMarkup + "</div>" : "";
   const metricMarkup = (function () {
-    if (g_IsCustomerCompany) {
-      // 公司账号视图：成本价 = 未税(面价×折扣%)，含税 = 未税×(1+税率)
-      const basePrice = priceInfo.display;  // 未税成本
-      const finalPrice = applyCustomerProfit(basePrice);  // 应用利润后的未税
-      const taxAmount = finalPrice * g_TaxRate;
-      const priceInclTax = finalPrice + taxAmount;
-      const mainPrice = g_ShowInclTax ? priceInclTax : finalPrice;
-      const mainLabel = g_ShowInclTax ? "含税" : "未税";
-      return [
-        '<div class="metric-inline"><span class="metric-label">成本价</span><strong>¥', formatCompactNumber(basePrice), '</strong></div>',
-        '<div class="metric-inline metric-inline-accent"><span class="metric-label">', mainLabel, '</span><strong class="price">¥', formatCompactNumber(mainPrice), '</strong></div>',
-        '<div class="metric-inline"><span class="metric-label">税率</span><strong>', (g_TaxRate * 100).toFixed(1).replace(/\.0$/, ""), '%</strong></div>'
-      ].join("");
-    }
     return metricFields.map((field) => {
       const value = field === "quote_price" ? priceInfo.display : getConfiguredValue(rowData, field);
       const display = field === "face_price" ? formatCompactNumber(value || 0) : value;
@@ -1461,7 +1278,7 @@ function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runti
   resultCard.className = "result-card" + (isExact ? " match-exact" : "");
   resultCard.setAttribute("data-row-id", String(rowData.id));
   // 公司账号视图：隐藏折扣调价按钮（成本价是固定的，不允许客户手动调折扣）
-  const discountPanelMarkup = g_IsCustomerCompany ? "" : [
+  const discountPanelMarkup = [
     '<div class="discount-panel"><div class="discount-stepper" data-id="', rowData.id, '">',
     getDiscountButtonMarkup(rowData.id, -1),
     '<label class="discount-input-shell"><input type="number" class="discount-manual" data-id="', rowData.id, '" min="0" max="100" step="0.1" inputmode="decimal" value="', escapeHtml(formatCompactNumber(rowData.discountPercent)), '"><span class="discount-unit">%</span></label>',
@@ -1473,7 +1290,10 @@ function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runti
     '<label class="select-chip discount-select-chip"><input type="checkbox" data-id="', rowData.id, '" ', rowData.checked ? "checked" : "", '><span>', escapeHtml(runtimeConfig.labels?.selected_label || "勾选"), '</span></label>',
     '<div class="result-summary">',
     '<div class="identity-line"><div class="identity-code">', escapeHtml(identityLead), "</div>",
-    '<h3 class="identity-spec">', escapeHtml(identityTitle), "</h3>", extraIdentityMarkup, "</div>", metaLineMarkup, "</div>",
+    '<h3 class="identity-spec">', escapeHtml(identityTitle), "</h3>", extraIdentityMarkup,
+    '<div class="stock-live-placeholder" data-stock-id="', rowData.id, '" style="display:none"></div>',
+    "</div>", metaLineMarkup,
+    "</div>",
     '<div class="result-side"><div class="result-metrics">',
     metricMarkup,
     "</div>",
@@ -1611,6 +1431,17 @@ function handleGlobalPointerCancel(event) {
   stopDiscountPress(false);
 }
 
+/**
+ * 将列字段 ID 映射为行对象的属性名。
+ * 注意：normalizeFieldKey 把 "price" 映射成了 "quote_price"，
+ * 但行对象上实际是 `row.price`，需要修正。
+ */
+function fieldToRowProp(colField) {
+  var normalized = normalizeFieldKey(colField);
+  if (normalized === "quote_price") normalized = "price";
+  return normalized;
+}
+
 function doCopy() {
   const checkboxes = document.querySelectorAll("#resultBody input[type=checkbox]");
   checkboxes.forEach((cb) => {
@@ -1622,11 +1453,71 @@ function doCopy() {
   const selected = g_Results.filter((row) => row.checked);
   if (selected.length === 0) { showToast("请先勾选需要复制的行"); return; }
 
-  const selectedFields = Array.from(document.querySelectorAll('#copyColumnControls input[type="checkbox"][data-copy-field]:checked')).map((input) => input.dataset.copyField);
-  const text = window.ConfigCore
-    ? window.ConfigCore.renderCopyText(selected.map((row) => toCoreRow(row)), getRuntimeAppConfig(), selectedFields)
-    : selected.map((row) => [row.code, row.spec, getFieldConfig().copyPrefix + row.price].filter(Boolean).join(" ")).join("\n") + "\n";
+  // 读取未税金额复选框状态，决定输出含税/未税价格
+  const useUntaxed = (document.getElementById("chkUntaxedQuote")?.checked) ?? false;
+  const settings = getCurrentPriceSettings();
+  const decimals = settings.decimals;
+  const factor = Math.pow(10, decimals);
+
+  // 读取每个列的复选框状态
+  const columns = getCopyColumns();
+  const enabled = {};  // key = col.field, value = checked (boolean)
+  columns.forEach(function (col) {
+    var cbId = makeCopyCheckboxId(col.field);
+    var cb = document.getElementById(cbId);
+    enabled[col.field] = cb ? cb.checked : !!col.default;
+  });
+
+  // 找出价格列的 field ID（可能是 "price"/"c"/"p" 等）
+  var priceField = null;
+  columns.forEach(function (col) {
+    var prop = fieldToRowProp(col.field);
+    if (prop === "price" && enabled[col.field]) priceField = col.field;
+  });
+
+  const lines = selected.map(function (row) {
+    const mainParts = [];
+    const detailParts = [];
+    columns.forEach(function (col) {
+      if (!enabled[col.field]) return;
+      var prop = fieldToRowProp(col.field);
+      var lineGroup = col.line || "main";  // 默认 main
+
+      if (prop === "price") {
+        // 价格列：支持含税/未税切换
+        var rawPrice = parseFloat(row.price) || 0;
+        var displayPrice;
+        if (useUntaxed) {
+          displayPrice = Math.ceil(rawPrice / 1.13 * factor) / factor;
+        } else {
+          displayPrice = rawPrice;
+        }
+        var formatted = (decimals === 0 && displayPrice > settings.threshold)
+          ? displayPrice.toFixed(0)
+          : displayPrice.toFixed(decimals);
+        var priceStr = (useUntaxed ? "未税" : "含税") + formatted;
+        if (lineGroup === "detail") {
+          detailParts.push(priceStr);
+        } else {
+          mainParts.push(priceStr);
+        }
+      } else {
+        var val = row[prop];
+        if (val == null || val === "") return;
+        if (lineGroup === "detail") {
+          detailParts.push(val);
+        } else {
+          mainParts.push(val);
+        }
+      }
+    });
+    // 主行 + 每个 detail 各占一行
+    return [mainParts.join(" ")].concat(detailParts).join("\n");
+  });
+
+  const text = lines.join("\n") + "\n";
   copyToClipboard(text);
+  showToast("已复制 " + selected.length + " 条");
 }
 
 function toggleAll(source) {
@@ -1640,7 +1531,256 @@ function toggleAll(source) {
   updateSelectionUi();
 }
 
-function openMmcLogin() { window.open(MMC_URL, "_blank", "noopener"); }
+
+function getApiBase() {
+  if (typeof HARDCODED_PROD_API !== "undefined" && HARDCODED_PROD_API) {
+    return HARDCODED_PROD_API.replace(/\/+$/, "");
+  }
+  var urlParam = new URLSearchParams(window.location.search).get("api");
+  if (urlParam) return urlParam.replace(/\/+$/, "");
+  if (location.protocol === "file:") return "http://127.0.0.1:8001";
+  if (location.hostname === "127.0.0.1" || location.hostname === "localhost") return window.location.origin;
+  // 生产：读取 localStorage 配置
+  return localStorage.getItem("sq_api_base") || window.location.origin;
+}
+
+function parseStockResultLine(text) {
+  // 从原始 API 的文本行中提取库存数据
+  // 格式示例："CNMG120408-MA MP7135 上海库存501 日本库存1890"
+  //          "CNMG120408-MA MP7135 无货"
+  //          "CNMG120408-MA MP7135 登录失败，请检查账号密码"
+  var result = { shanghai: 0, japan: 0, error: null };
+  if (!text) { result.error = "无响应"; return result; }
+
+  var shMatch = text.match(/上海库存(\d+)/);
+  if (shMatch) result.shanghai = parseInt(shMatch[1], 10);
+
+  var jpMatch = text.match(/日本库存(\d+)/);
+  if (jpMatch) result.japan = parseInt(jpMatch[1], 10);
+
+  // 检测错误信息（排除正常结果）
+  if (!/[上日]本?库存/.test(text) && !/无货/.test(text)) {
+    // 提取冒号后的错误信息，或整行作为错误
+    var errMatch = text.match(/[：:]\s*(.+)$/);
+    result.error = errMatch ? errMatch[1] : text;
+  }
+  return result;
+}
+
+async function doMitsubishiStockQuery() {
+  var selected = g_Results.filter(function (row) { return row.checked; });
+  if (selected.length === 0) { showToast("请先勾选需要查询库存的规格"); return; }
+  var total = selected.length;
+
+  // 构建多行查询文本（每行 = spec 原文）
+  var queryText = selected.map(function (row) {
+    return (row.spec || "").trim();
+  }).filter(Boolean).join("\n");
+
+  if (!queryText) { showToast("选中的规格为空"); return; }
+
+  var mmcBtn = document.getElementById("btnMmc");
+  var setBtnText = function (text) {
+    if (mmcBtn) { mmcBtn.textContent = text; }
+  };
+
+  if (mmcBtn) {
+    if (!mmcBtn.dataset.defaultText) mmcBtn.dataset.defaultText = mmcBtn.textContent || "三菱库存";
+    setBtnText("正在连接...");
+    mmcBtn.disabled = true;
+    mmcBtn.classList.add("btn-loading");
+  }
+
+  selected.forEach(function (row) { updateCardStock(row, 'loading'); });
+
+  try {
+    var apiBase = getApiBase();
+    setBtnText("查询 " + total + " 项...");
+    var resp = await fetch(apiBase + "/api/stock-query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ queries: queryText }),
+    });
+
+    if (!resp.ok) {
+      showToast("库存服务异常: " + resp.status);
+      selected.forEach(function (row) { updateCardStock(row, null); });
+      setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");
+      if (mmcBtn) { mmcBtn.disabled = false; mmcBtn.classList.remove("btn-loading"); }
+      return;
+    }
+
+    var data = await resp.json();
+    var rawResults = data.results || [];
+
+    // 解析每条文本结果
+    var parsed = rawResults.map(function (line) {
+      return parseStockResultLine(line);
+    });
+
+    // 逐张卡片渐进展示
+    var errorCount = 0;
+    var doneCount = 0;
+    var updateNext = function () {
+      if (doneCount >= selected.length) return;
+      var idx = doneCount;
+      doneCount++;
+      setBtnText("已完成 " + doneCount + "/" + total);
+      if (idx < parsed.length) {
+        var r = parsed[idx];
+        if (r.error) errorCount++;
+        updateCardStock(selected[idx], r.error ? "error" : "data", r);
+      }
+      if (doneCount < selected.length) {
+        setTimeout(updateNext, 80);
+      } else {
+        // 全部完成：剪贴板输出
+        var lines = [];
+        selected.forEach(function (row, i) {
+          var r = i < parsed.length ? parsed[i] : null;
+          var out = buildStockClipboardLine(row, r);
+          if (out) lines.push(out);
+        });
+        var toastMsg = "已复制 " + lines.length + " 条库存信息";
+        if (errorCount > 0) toastMsg += "（" + errorCount + " 条失败）";
+        copyToClipboard(lines.join("\n") + "\n");
+        showToast(toastMsg);
+
+        setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");
+        if (mmcBtn) { mmcBtn.disabled = false; mmcBtn.classList.remove("btn-loading"); }
+      }
+    };
+    updateNext();
+
+  } catch (err) {
+    showToast("库存查询失败，请检查服务是否运行 (127.0.0.1:8001)");
+    selected.forEach(function (row) { updateCardStock(row, null); });
+    setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");
+    if (mmcBtn) { mmcBtn.disabled = false; mmcBtn.classList.remove("btn-loading"); }
+  }
+}
+
+/**
+ * 构建三菱库存查询的多行剪贴板输出。
+ * - 第一行：line: "main" 的列（代码/规格/报价）+ 库存信息
+ * - 后续行：line: "detail" 的列（特价/位置/备注等）各占一行
+ * 列复选框逻辑与 doCopy() 一致，但库存信息始终输出且不受「库存」复选框控制。
+ * @returns {string|null} 多行文本（每行用 \n 分隔），或 null
+ */
+function buildStockClipboardLine(row, stockResult) {
+  if (!row) return null;
+
+  // 读取列复选框状态（与 doCopy 一致）
+  var columns = getCopyColumns();
+  var enabled = {};
+  columns.forEach(function (col) {
+    var cbId = makeCopyCheckboxId(col.field);
+    var cb = document.getElementById(cbId);
+    enabled[col.field] = cb ? cb.checked : !!col.default;
+  });
+
+  // 价格设置
+  var useUntaxed = (document.getElementById("chkUntaxedQuote")?.checked) ?? false;
+  var settings = getCurrentPriceSettings();
+  var decimals = settings.decimals;
+  var factor = Math.pow(10, decimals);
+
+  // 将列按 line 分组：main / detail
+  var mainParts = [];
+  var detailParts = [];
+
+  columns.forEach(function (col) {
+    if (!enabled[col.field]) return;
+    var prop = fieldToRowProp(col.field);
+    var lineGroup = col.line || "main";  // 默认 main
+
+    // 价格列特殊处理（含税/未税）
+    if (prop === "price") {
+      var rawPrice = parseFloat(row.price) || 0;
+      var displayPrice = useUntaxed
+        ? Math.ceil(rawPrice / 1.13 * factor) / factor
+        : rawPrice;
+      var formatted = (decimals === 0 && displayPrice > (settings.threshold || 100))
+        ? displayPrice.toFixed(0)
+        : displayPrice.toFixed(decimals);
+      var priceStr = (useUntaxed ? "未税" : "含税") + formatted;
+      if (lineGroup === "detail") {
+        detailParts.push((col.label || "") + " " + priceStr);
+      } else {
+        mainParts.push(priceStr);
+      }
+    } else {
+      var val = row[prop];
+      if (val == null || val === "") return;
+      if (lineGroup === "detail") {
+        detailParts.push(val);
+      } else {
+        mainParts.push(val);
+      }
+    }
+  });
+
+  // 库存信息追加到 main 行末尾
+  var stockStr = "";
+  if (!stockResult) {
+    stockStr = "查询失败(无结果)";
+  } else if (stockResult.error) {
+    stockStr = "查询失败(" + stockResult.error + ")";
+  } else {
+    var stockParts = [];
+    if (stockResult.shanghai > 0) stockParts.push("上海库存" + stockResult.shanghai);
+    if (stockResult.japan > 0) stockParts.push("日本库存" + stockResult.japan);
+    stockStr = stockParts.length > 0 ? stockParts.join(" ") : "厂家无货";
+  }
+  mainParts.push(stockStr);
+
+  // 拼接多行
+  var resultLines = [];
+  resultLines.push(mainParts.join(" "));
+  for (var i = 0; i < detailParts.length; i++) {
+    resultLines.push(detailParts[i]);
+  }
+  return resultLines.join("\n");
+}
+
+/**
+ * 更新结果卡片的库存展示区。
+ * @param {object} row - g_Results 行数据
+ * @param {string|null} state - 'loading' | 'data' | 'error' | null(清除)
+ * @param {object} result - 库存结果 { shanghai, japan, error }
+ */
+function updateCardStock(row, state, result) {
+  if (!row || row.id === undefined) return;
+  var stockEl = document.querySelector('[data-stock-id="' + row.id + '"]');
+  if (!stockEl) {
+    var card = document.querySelector('[data-row-id="' + row.id + '"]');
+    if (card) {
+      stockEl = card.querySelector('[data-stock-id="' + row.id + '"]');
+    }
+  }
+  if (!stockEl) return;
+
+  if (state === null) {
+    stockEl.innerHTML = "";
+    stockEl.style.display = "none";
+  } else if (state === "loading") {
+    stockEl.innerHTML = '<span class="stock-signal stock-loading">等待查询</span>';
+    stockEl.style.display = "";
+  } else if (state === "error") {
+    stockEl.innerHTML = '<span class="stock-signal stock-live-data stock-error">查询失败</span>';
+    stockEl.style.display = "";
+  } else if (state === "data" && result) {
+    var parts = [];
+    if (result.shanghai > 0) parts.push("沪" + result.shanghai);
+    if (result.japan > 0) parts.push("日" + result.japan);
+    if (parts.length > 0) {
+      stockEl.innerHTML = '<span class="stock-signal stock-live-data">' + parts.join(" · ") + '</span>';
+    } else {
+      stockEl.innerHTML = '<span class="stock-signal stock-live-data stock-zero">厂家无货</span>';
+    }
+    stockEl.style.display = "";
+  }
+}
 
 function copyToClipboard(text) {
   if (navigator.clipboard && window.isSecureContext) {
@@ -1702,7 +1842,7 @@ function bindUiEvents() {
   const toggleAllInput = document.getElementById("toggleAllResults");
   if (searchBtn) searchBtn.addEventListener("click", doSearch);
   if (stockBtn) stockBtn.addEventListener("click", doRegexSearchConverted);
-  if (mmcBtn) mmcBtn.addEventListener("click", openMmcLogin);
+  if (mmcBtn) mmcBtn.addEventListener("click", doMitsubishiStockQuery);
   if (copyBtn) copyBtn.addEventListener("click", doCopy);
   if (backTopBtn) backTopBtn.addEventListener("click", scrollToTop);
   if (toggleAllInput) toggleAllInput.addEventListener("change", function () { toggleAll(this); });

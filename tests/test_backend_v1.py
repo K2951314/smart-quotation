@@ -18,8 +18,7 @@ class BackendV1Test(unittest.TestCase):
 
     def test_imports_v2_config_as_schema_v3(self):
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
-        config = store.normalize_config(company_id, {
+        config = store.normalize_config({
             "schema_version": 2,
             "version": "2026-06-01.1",
             "pricing": {
@@ -36,14 +35,12 @@ class BackendV1Test(unittest.TestCase):
         })
 
         self.assertEqual(config["schema_version"], 3)
-        self.assertEqual(config["company_id"], company_id)
         self.assertEqual(config["revision"], "2026-06-01.1")
         self.assertEqual(config["pricing"]["default_formula"], "face_price * discount_percent / 100")
         self.assertEqual(config["rules"][0]["actions"][0], {"type": "set_discount", "percent": 55})
 
     def test_quotes_with_rule_priority_and_rounding(self):
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         config = {
             "schema_version": 3,
             "revision": "r1",
@@ -75,84 +72,77 @@ class BackendV1Test(unittest.TestCase):
                 },
             ],
         }
-        store.save_config(company_id, config, status="published")
-        store.replace_items(company_id, "d1", [
+        store.save_config(config, status="published")
+        store.replace_items("d1", [
             {"item_key": "WNMG080408", "fields": {"spec": "WNMG080408", "special": "EX活动", "face_price": 101}},
         ])
 
-        results = QuotationEngine(store).quote(company_id, "WNMG")
+        results = QuotationEngine(store).quote("WNMG")
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["matched_rule"], "ex")
         self.assertEqual(results[0]["fields"]["quote_price"], "33")
 
-    def test_company_data_is_isolated(self):
+    def test_query_returns_only_requested_keys(self):
+        """查询 A-001 不应返回 B-001"""
         store = self.make_store()
-        company_a = store.create_company("Company A", "company-a")
-        company_b = store.create_company("Company B", "company-b")
         base_config = {
             "schema_version": 3,
             "revision": "r1",
             "fields": [{"key": "spec", "searchable": True, "required": True}],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 50}]}],
         }
-        store.save_config(company_a, base_config, status="published")
-        store.save_config(company_b, {**base_config, "revision": "r2"}, status="published")
-        store.replace_items(company_a, "d1", [{"item_key": "A-001", "fields": {"spec": "A-001"}}])
-        store.replace_items(company_b, "d1", [{"item_key": "B-001", "fields": {"spec": "B-001"}}])
+        store.save_config(base_config, status="published")
+        store.replace_items("d1", [
+            {"item_key": "A-001", "fields": {"spec": "A-001"}},
+            {"item_key": "B-001", "fields": {"spec": "B-001"}},
+        ])
 
         engine = QuotationEngine(store)
-
-        self.assertEqual([r["item_key"] for r in engine.quote(company_a, "A")], ["A-001"])
-        self.assertEqual(engine.quote(company_a, "B"), [])
+        self.assertEqual([r["item_key"] for r in engine.quote("A")], ["A-001"])
+        self.assertEqual(engine.quote("X"), [])
 
     def test_publishing_invalidates_config_cache(self):
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         config = {
             "schema_version": 3,
             "revision": "r1",
             "fields": [{"key": "spec", "searchable": True, "required": True}],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 50}]}],
         }
-        store.save_config(company_id, config, status="published")
-        self.assertEqual(store.get_active_config(company_id)["revision"], "r1")
+        store.save_config(config, status="published")
+        self.assertEqual(store.get_active_config()["revision"], "r1")
 
-        store.save_config(company_id, {**config, "revision": "r2"}, status="published")
-
-        self.assertEqual(store.get_active_config(company_id)["revision"], "r2")
+        store.save_config({**config, "revision": "r2"}, status="published")
+        self.assertEqual(store.get_active_config()["revision"], "r2")
 
     def test_rollback_config_restores_previous_revision(self):
         """发布 r2 后回滚到 r1，active config 应变回 r1"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         base = {
             "schema_version": 3,
             "fields": [{"key": "spec", "searchable": True, "required": True}],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 50}]}],
         }
-        store.save_config(company_id, {**base, "revision": "r1"}, status="published")
-        store.save_config(company_id, {**base, "revision": "r2"}, status="published")
-        self.assertEqual(store.get_active_config(company_id)["revision"], "r2")
+        store.save_config({**base, "revision": "r1"}, status="published")
+        store.save_config({**base, "revision": "r2"}, status="published")
+        self.assertEqual(store.get_active_config()["revision"], "r2")
 
-        store.rollback_config(company_id, "r1")
-
-        self.assertEqual(store.get_active_config(company_id)["revision"], "r1")
+        store.rollback_config("r1")
+        self.assertEqual(store.get_active_config()["revision"], "r1")
 
     def test_version_history_lists_all_revisions(self):
         """list_configs 应列出全部版本"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         base = {
             "schema_version": 3,
             "fields": [{"key": "spec", "searchable": True, "required": True}],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 50}]}],
         }
-        store.save_config(company_id, {**base, "revision": "r1"}, status="published")
-        store.save_config(company_id, {**base, "revision": "r2"}, status="draft")
+        store.save_config({**base, "revision": "r1"}, status="published")
+        store.save_config({**base, "revision": "r2"}, status="draft")
 
-        configs = store.list_configs(company_id)
-
+        configs = store.list_configs()
         revisions = {c["revision"] for c in configs}
         self.assertIn("r1", revisions)
         self.assertIn("r2", revisions)
@@ -160,43 +150,27 @@ class BackendV1Test(unittest.TestCase):
     def test_items_stats_returns_count_and_revision(self):
         """get_items_stats 应返回条数和版本"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
-        store.replace_items(company_id, "rev-1", [
+        store.replace_items("rev-1", [
             {"item_key": "A", "fields": {"spec": "A"}},
             {"item_key": "B", "fields": {"spec": "B"}},
         ])
 
-        stats = store.get_items_stats(company_id)
-
+        stats = store.get_items_stats()
         self.assertEqual(stats["count"], 2)
         self.assertEqual(stats["data_revision"], "rev-1")
-
-    def test_list_companies_returns_created_companies(self):
-        """list_companies 应返回所有已创建公司"""
-        store = self.make_store()
-        store.create_company("Company A", "company-a")
-        store.create_company("Company B", "company-b")
-
-        companies = store.list_companies()
-
-        codes = {c["code"] for c in companies}
-        self.assertIn("company-a", codes)
-        self.assertIn("company-b", codes)
 
     def test_audit_log_records_config_publish(self):
         """发布配置后审计日志应有记录"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         config = {
             "schema_version": 3,
             "revision": "r1",
             "fields": [{"key": "spec", "searchable": True, "required": True}],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 50}]}],
         }
-        store.save_config(company_id, config, status="published")
+        store.save_config(config, status="published")
 
-        events = store.list_audit(company_id)
-
+        events = store.list_audit()
         self.assertTrue(any(e["action"] == "config.published" for e in events))
 
     def test_validate_config_rejects_missing_default_rule(self):
@@ -236,34 +210,9 @@ class BackendV1Test(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_config(config)
 
-
-    def test_delete_company_soft_deletes(self):
-        """软删除后公司 status 变为 inactive"""
-        store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
-
-        store.delete_company(company_id)
-
-        companies = store.list_companies()
-        deleted = next((c for c in companies if c["id"] == company_id), None)
-        self.assertIsNotNone(deleted)
-        self.assertEqual(deleted["status"], "inactive")
-
-    def test_update_company_changes_name(self):
-        """update_company 可以修改公司名"""
-        store = self.make_store()
-        company_id = store.create_company("Old Name", "company-a")
-
-        updated = store.update_company(company_id, name="New Name")
-
-        self.assertEqual(updated["name"], "New Name")
-        self.assertEqual(updated["id"], company_id)
-
     def test_parse_csv_to_rows(self):
         """parse_excel_to_rows 可以解析 CSV 内容并按 excel_aliases 映射字段"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
-        # 先发布一个配置，让 alias_map 生效
         config = {
             "schema_version": 3,
             "revision": "r1",
@@ -273,10 +222,10 @@ class BackendV1Test(unittest.TestCase):
             ],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 55}]}],
         }
-        store.save_config(company_id, config, status="published")
+        store.save_config(config, status="published")
 
         csv_content = "规格型号,销售单价,备注\nWNMG080408,101.0,测试\nTNMG160408,88.0,\n".encode("utf-8")
-        rows, report = store.parse_excel_to_rows(csv_content, "test.csv", company_id)
+        rows, report = store.parse_excel_to_rows(csv_content, "test.csv")
 
         self.assertEqual(len(rows), 2)
         self.assertIn("spec", {k for row in rows for k in row["fields"]})
@@ -294,7 +243,6 @@ class BackendV1Test(unittest.TestCase):
         }
 
         errors = engine.validate_config(config)
-
         self.assertTrue(any("默认规则" in e for e in errors))
 
     def test_engine_validate_config_passes_valid_config(self):
@@ -315,14 +263,11 @@ class BackendV1Test(unittest.TestCase):
         }
 
         errors = engine.validate_config(config)
-
         self.assertEqual(errors, [])
-
 
     def test_detect_brands_by_filename_prefix(self):
         """detect_brands 按文件名前缀识别品牌"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         config = {
             "schema_version": 3,
             "revision": "r1",
@@ -338,13 +283,13 @@ class BackendV1Test(unittest.TestCase):
                 }
             },
         }
-        store.save_config(company_id, config, status="published")
+        store.save_config(config, status="published")
 
         csv1 = "规格\nWNMG080408\n".encode("utf-8")
         csv2 = "规格\nTNMG160408\n".encode("utf-8")
         files = [("MMC_价格表.csv", csv1), ("OSG_catalog.csv", csv2)]
 
-        results = store.detect_brands(files, company_id)
+        results = store.detect_brands(files)
 
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["detected_brand"], "MMC")
@@ -353,7 +298,6 @@ class BackendV1Test(unittest.TestCase):
     def test_detect_brands_default_for_unknown(self):
         """无法识别的文件名应返回默认品牌"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         config = {
             "schema_version": 3,
             "revision": "r1",
@@ -366,32 +310,29 @@ class BackendV1Test(unittest.TestCase):
                 }
             },
         }
-        store.save_config(company_id, config, status="published")
+        store.save_config(config, status="published")
 
         csv1 = "规格\nWNMG080408\n".encode("utf-8")
         files = [("unknown_brand.csv", csv1)]
 
-        results = store.detect_brands(files, company_id)
-
+        results = store.detect_brands(files)
         self.assertEqual(results[0]["detected_brand"], "OTHER")
 
     def test_build_price_bundle_without_encryption(self):
         """build_price_bundle 不加密时应返回 base64 编码的明文"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         config = {
             "schema_version": 3,
             "revision": "r1",
             "fields": [{"key": "spec", "label": "规格", "searchable": True, "required": True}],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 55}]}],
         }
-        store.save_config(company_id, config, status="published")
-        # 写入一些数据
-        store.replace_items(company_id, "r1", [
+        store.save_config(config, status="published")
+        store.replace_items("r1", [
             {"item_key": "WNMG080408", "fields": {"spec": "WNMG080408", "face_price": 101.0}},
         ])
 
-        bundle = store.build_price_bundle(company_id, password="")
+        bundle = store.build_price_bundle(password="")
 
         self.assertFalse(bundle["secured"])
         self.assertIn("payload", bundle)
@@ -400,19 +341,18 @@ class BackendV1Test(unittest.TestCase):
     def test_build_price_bundle_with_encryption(self):
         """build_price_bundle 加密时应返回 secured=True"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         config = {
             "schema_version": 3,
             "revision": "r1",
             "fields": [{"key": "spec", "label": "规格", "searchable": True, "required": True}],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 55}]}],
         }
-        store.save_config(company_id, config, status="published")
-        store.replace_items(company_id, "r1", [
+        store.save_config(config, status="published")
+        store.replace_items("r1", [
             {"item_key": "WNMG080408", "fields": {"spec": "WNMG080408", "face_price": 101.0}},
         ])
 
-        bundle = store.build_price_bundle(company_id, password="test_password")
+        bundle = store.build_price_bundle(password="test_password")
 
         self.assertTrue(bundle["secured"])
         self.assertIn("payload", bundle)
@@ -421,24 +361,23 @@ class BackendV1Test(unittest.TestCase):
     def test_build_stock_bundle(self):
         """build_stock_bundle 只包含有 stock 字段的行"""
         store = self.make_store()
-        company_id = store.create_company("Company A", "company-a")
         config = {
             "schema_version": 3,
             "revision": "r1",
             "fields": [{"key": "spec", "label": "规格", "searchable": True, "required": True}],
             "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 55}]}],
         }
-        store.save_config(company_id, config, status="published")
-        store.replace_items(company_id, "r1", [
+        store.save_config(config, status="published")
+        store.replace_items("r1", [
             {"item_key": "WNMG080408", "fields": {"spec": "WNMG080408", "stock": "10"}},
             {"item_key": "TNMG160408", "fields": {"spec": "TNMG160408", "stock": ""}},
-            {"item_key": "CCMT09T304", "fields": {"spec": "CCMT09T304"}},  # no stock field
+            {"item_key": "CCMT09T304", "fields": {"spec": "CCMT09T304"}},
         ])
 
-        bundle = store.build_stock_bundle(company_id)
+        bundle = store.build_stock_bundle()
 
         self.assertFalse(bundle["secured"])
-        self.assertEqual(bundle["meta"]["rowCount"], 1)  # only 1 has stock
+        self.assertEqual(bundle["meta"]["rowCount"], 1)
 
     def test_build_supabase_write_url(self):
         """build_supabase_write_url 应将 public URL 转为写入 URL"""

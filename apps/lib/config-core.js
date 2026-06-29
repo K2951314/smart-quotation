@@ -143,7 +143,7 @@
         out[key] = clone(value);
       } else if (value && typeof value === "object" && !Array.isArray(value)) {
         out[key] = mergePlain(out[key] || {}, value);
-      } else if (value !== undefined) {
+      } else if (value !== undefined && value !== "") {
         out[key] = value;
       }
     });

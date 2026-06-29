@@ -229,6 +229,44 @@
   }
 
   function normalizeDiscountRules(rawConfig) {
+    // ── v3 format: rawConfig.rules ────────────────────────────────────────
+    if (rawConfig && Array.isArray(rawConfig.rules) && rawConfig.rules.length) {
+      return rawConfig.rules.map(function (rule) {
+        var source = rule || {};
+        var action = (source.actions || [])[0] || {};
+        var conditions = [];
+
+        // Default rule has no conditions
+        if (!source.default && source.when && Array.isArray(source.when.all)) {
+          source.when.all.forEach(function (c) {
+            var cond = { field: toStringSafe(c.field) };
+            var op = String(c.op || "contains").toLowerCase();
+            var val = toStringSafe(c.value);
+            if (op === "contains") cond.contains = val;
+            else if (op === "equals") cond.equals = val;
+            else if (op === "regex") cond.regex = val;
+            else if (op === "gt") cond.gt = Number(val) || 0;
+            else if (op === "gte") cond.gte = Number(val) || 0;
+            else if (op === "lt") cond.lt = Number(val) || 0;
+            else if (op === "lte") cond.lte = Number(val) || 0;
+            else cond.contains = val; // fallback
+            conditions.push(cond);
+          });
+        }
+
+        return {
+          id: toStringSafe(source.id || source.label || "rule"),
+          label: toStringSafe(source.label || source.id || "规则"),
+          percent: compactNumber(action.percent, 55),
+          category: toStringSafe(source.id || source.label || "rule"),
+          source: toStringSafe(source.id || source.label || "rule"),
+          default: source.default === true,
+          conditions: conditions,
+        };
+      });
+    }
+
+    // ── v1 format: rawConfig.discounts (legacy flat object) ───────────────
     if (rawConfig && rawConfig.discounts && !Array.isArray(rawConfig.discount_rules)) {
       return [
         { id: "ex", label: "EX活动", percent: rawConfig.discounts.EX, conditions: [{ field: "special", contains: "EX活动" }] },
@@ -492,7 +530,9 @@
 
   function conditionMatches(row, condition) {
     var item = condition || {};
-    var value = toStringSafe(getFieldValue(row, item.field));
+    var rawValue = getFieldValue(row, item.field);
+    var value = toStringSafe(rawValue);
+
     if (item.equals !== undefined && value !== String(item.equals)) return false;
     if (item.contains !== undefined && value.replace(/\s+/g, "").toUpperCase().indexOf(String(item.contains).replace(/\s+/g, "").toUpperCase()) < 0) return false;
     if (item.regex !== undefined) {
@@ -502,6 +542,11 @@
         return false;
       }
     }
+    // Numeric comparison operators (from v3 rules format)
+    if (item.gt !== undefined) { if (Number(rawValue) <= Number(item.gt)) return false; }
+    if (item.gte !== undefined) { if (Number(rawValue) < Number(item.gte)) return false; }
+    if (item.lt !== undefined) { if (Number(rawValue) >= Number(item.lt)) return false; }
+    if (item.lte !== undefined) { if (Number(rawValue) > Number(item.lte)) return false; }
     return true;
   }
 

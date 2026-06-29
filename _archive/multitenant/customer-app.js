@@ -32,14 +32,14 @@
   async function listCustomers() {
     const companyId = currentCompanyId();
     if (!companyId) {
-      setStatus("错误：请先选择或创建公司", true);
+      setStatus("错误：请先选择或创建公司", "error");
       return;
     }
     try {
       const customers = await api(`/api/companies/${encodeURIComponent(companyId)}/customers`);
       renderCustomerList(customers);
     } catch (err) {
-      setStatus(`加载客户失败：${err.message}`, true);
+      setStatus(`加载客户失败：${err.message}`, "error");
     }
   }
 
@@ -68,8 +68,6 @@
           <small style="color:var(--muted);">${escapeHtml(c.username)}</small>
           ${typeBadge}
           ${statusBadge}
-          <small>折扣 ${(c.discount_rate * 100).toFixed(0)}%</small>
-          <small>税率 ${(c.tax_rate * 100).toFixed(1)}%</small>
           <small>${profitStr}</small>
           <div style="width:100%;display:flex;gap:4px;margin-top:4px;">
             <button type="button" class="small-btn" data-cust-edit="${escapeHtml(c.id)}">编辑</button>
@@ -98,26 +96,26 @@
     ["custUsername", "custPassword", "custDisplayName", "custNotes"].forEach((id) => {
       document.getElementById(id).value = "";
     });
-    document.getElementById("custDiscountRate").value = "0.65";
-    document.getElementById("custTaxRate").value = "0.13";
+    document.getElementById("custProfitMode").value = "none";
+    document.getElementById("custProfitValue").value = "0";
   }
 
   async function createCustomer() {
     const companyId = currentCompanyId();
     if (!companyId) {
-      setStatus("错误：请先选择公司", true);
+      setStatus("错误：请先选择公司", "error");
       return;
     }
     const username = document.getElementById("custUsername").value.trim();
     const password = document.getElementById("custPassword").value;
     const displayName = document.getElementById("custDisplayName").value.trim();
     const accountType = document.getElementById("custAccountType").value;
-    const discountRate = parseFloat(document.getElementById("custDiscountRate").value) || 1.0;
-    const taxRate = parseFloat(document.getElementById("custTaxRate").value) || 0;
+    const profitMode = document.getElementById("custProfitMode").value;
+    const profitValue = parseFloat(document.getElementById("custProfitValue").value) || 0;
     const notes = document.getElementById("custNotes").value.trim();
 
     if (!username || !password || !displayName) {
-      setStatus("错误：用户名、密码、客户名称不能为空", true);
+      setStatus("错误：用户名、密码、客户名称不能为空", "error");
       return;
     }
     try {
@@ -125,15 +123,17 @@
         method: "POST",
         body: JSON.stringify({
           username, password, display_name: displayName,
-          discount_rate: discountRate, tax_rate: taxRate, notes,
+          notes,
           account_type: accountType,
+          profit_mode: profitMode,
+          profit_value: profitValue,
         }),
       });
       setStatus(`客户 ${displayName} 已创建（${accountType === "admin" ? "管理员" : "公司账号"}）`);
       hideCreateForm();
       await listCustomers();
     } catch (err) {
-      setStatus(`创建失败：${err.message}`, true);
+      setStatus(`创建失败：${err.message}`, "error");
     }
   }
 
@@ -148,14 +148,12 @@
       document.getElementById("custEditName").textContent = customer.display_name;
       document.getElementById("custEditDisplayName").value = customer.display_name;
       document.getElementById("custEditAccountType").value = customer.account_type || "company";
-      document.getElementById("custEditDiscountRate").value = customer.discount_rate;
-      document.getElementById("custEditTaxRate").value = customer.tax_rate;
-      document.getElementById("custEditProfitMode").value = customer.profit_mode;
-      document.getElementById("custEditProfitValue").value = customer.profit_value;
+      document.getElementById("custEditProfitMode").value = customer.profit_mode || "none";
+      document.getElementById("custEditProfitValue").value = customer.profit_value || 0;
       document.getElementById("custEditStatus").value = customer.status;
       document.getElementById("custEditPanel").style.display = "flex";
     } catch (err) {
-      setStatus(`加载客户失败：${err.message}`, true);
+      setStatus(`加载客户失败：${err.message}`, "error");
     }
   }
 
@@ -170,8 +168,6 @@
     const payload = {
       display_name: document.getElementById("custEditDisplayName").value.trim(),
       account_type: document.getElementById("custEditAccountType").value,
-      discount_rate: parseFloat(document.getElementById("custEditDiscountRate").value),
-      tax_rate: parseFloat(document.getElementById("custEditTaxRate").value),
       profit_mode: document.getElementById("custEditProfitMode").value,
       profit_value: parseFloat(document.getElementById("custEditProfitValue").value) || 0,
       status: document.getElementById("custEditStatus").value,
@@ -185,7 +181,7 @@
       hideEditPanel();
       await listCustomers();
     } catch (err) {
-      setStatus(`更新失败：${err.message}`, true);
+      setStatus(`更新失败：${err.message}`, "error");
     }
   }
 
@@ -201,7 +197,7 @@
       setStatus("客户已删除");
       await listCustomers();
     } catch (err) {
-      setStatus(`删除失败：${err.message}`, true);
+      setStatus(`删除失败：${err.message}`, "error");
     }
   }
 
@@ -216,7 +212,7 @@
       setStatus(`客户已${newStatus === "active" ? "激活" : "停用"}`);
       await listCustomers();
     } catch (err) {
-      setStatus(`操作失败：${err.message}`, true);
+      setStatus(`操作失败：${err.message}`, "error");
     }
   }
 
@@ -224,7 +220,7 @@
     const newPw = prompt(`为客户 ${customerId} 设置新密码：`);
     if (!newPw) return;
     if (newPw.length < 4) {
-      setStatus("错误：密码至少 4 个字符", true);
+      setStatus("错误：密码至少 4 个字符", "error");
       return;
     }
     const companyId = currentCompanyId();
@@ -235,7 +231,7 @@
       });
       setStatus("密码已重置，该客户所有会话已作废");
     } catch (err) {
-      setStatus(`重置失败：${err.message}`, true);
+      setStatus(`重置失败：${err.message}`, "error");
     }
   }
 
@@ -266,7 +262,7 @@
         </tr>
       `).join("");
     } catch (err) {
-      setStatus(`加载价格覆盖失败：${err.message}`, true);
+      setStatus(`加载价格覆盖失败：${err.message}`, "error");
     }
   }
 
@@ -280,7 +276,7 @@
     const itemKey = document.getElementById("custPriceItemKey").value.trim();
     const price = parseFloat(document.getElementById("custPriceValue").value);
     if (!itemKey || isNaN(price)) {
-      setStatus("错误：商品编码和覆盖价不能为空", true);
+      setStatus("错误：商品编码和覆盖价不能为空", "error");
       return;
     }
     try {
@@ -293,7 +289,7 @@
       document.getElementById("custPriceValue").value = "";
       await listPriceOverrides(g_ActiveCustomerId);
     } catch (err) {
-      setStatus(`添加失败：${err.message}`, true);
+      setStatus(`添加失败：${err.message}`, "error");
     }
   }
 
@@ -307,7 +303,7 @@
       setStatus("价格覆盖已删除");
       await listPriceOverrides(g_ActiveCustomerId);
     } catch (err) {
-      setStatus(`删除失败：${err.message}`, true);
+      setStatus(`删除失败：${err.message}`, "error");
     }
   }
 
