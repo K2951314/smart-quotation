@@ -35,7 +35,7 @@
 ## 部署架构
 
 - **本地开发**：`py -m backend.smart_quotation` → FastAPI 同源代理 `apps/`
-- **Netlify 生产**：`apps/` 部署 Netlify，FastAPI 后端独立部署到 Railway/Render
+- **Netlify 生产**：`apps/` 部署 Netlify，FastAPI 后端独立部署到 Railway（`mitsubishi-stock.up.railway.app`）
   - portal.js 自动检测生产环境使用 `PROD_API_BASE`（可通过 URL 参数 `?api=URL` 或 `HARDCODED_PROD_API` 常量设定）
   - CSP `connect-src` 已设为 `https:` 通配以支持动态后端地址（`netlify.toml`）
 
@@ -59,7 +59,7 @@ py -m unittest tests.test_backend_v1 tests.test_admin_gui -v
 
 - `README.md`：项目概览、快速启动、功能列表、架构目录。
 - `docs/gui-admin-guide.md`：用户操作手册，面向非技术人员。
-- `docs/multitenant-config-v1-zh.md`：中文技术说明，含 API 参考和数据库模型。
+- `_archive/multitenant/multitenant-config-v1-zh.md`：v1 技术说明（已归档，含 API 参考和数据库模型）。
 
 ## 记忆原则
 
