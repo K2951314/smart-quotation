@@ -1560,7 +1560,8 @@ function parseStockResultLine(text) {
   if (jpMatch) result.japan = parseInt(jpMatch[1], 10);
 
   // 检测错误信息（排除正常结果）
-  if (!/[上日]本?库存/.test(text) && !/无货/.test(text)) {
+  var hasStock = (result.shanghai > 0 || result.japan > 0);
+  if (!hasStock && !/上海库存|日本库存/.test(text) && !/无货/.test(text)) {
     // 提取冒号后的错误信息，或整行作为错误
     var errMatch = text.match(/[：:]\s*(.+)$/);
     result.error = errMatch ? errMatch[1] : text;

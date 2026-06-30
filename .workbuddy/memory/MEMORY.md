@@ -20,8 +20,8 @@
 ## 部署架构
 
 - **本地开发**：`py -m backend.smart_quotation` → FastAPI 同源代理
-- **生产**：Netlify 前端 + Railway/Render 后端
-- apps/index.html 通过 HARDCODED_PROD_API 或 ?api= URL 参数切换后端
+- **生产**：Netlify 前端 + Railway 后端（`mitsubishi-stock.up.railway.app`）
+- `HARDCODED_PROD_API` 已硬编码指向 Railway，Procfile 负责 Railway 启动
 
 ## 客户账号 · 专属定价 · 税务 · 利润率
 
@@ -41,13 +41,13 @@
 
 - 后端：FastAPI + SQLite，company_id 隔离，store.py 全套 CRUD
 - API 端点 16+：公司管理、配置管理、数据管理、数据拼接、报价、审计、客户管理
-- GUI admin/：10 个导航区（2026-06-08 删除数据导入区）
+- GUI admin/：9 个导航区（2026-06-29 删除 ERPNext 区后）
 - 数据拼接区：品牌识别→数据合并→Bundle生成（AES-GCM加密可选）→Supabase部署
 - **端口**：8001（8000 被 VMware NAT 占用）
 - 依赖：fastapi, uvicorn, pydantic, PyYAML, openpyxl, python-multipart, cryptography
 - **文档**：
   - `docs/gui-admin-guide.md`：中文 GUI 操作手册
-  - `docs/multitenant-config-v1-zh.md`：中文技术说明，含架构/API/数据库模型/schema v3
+  - `_archive/multitenant/multitenant-config-v1-zh.md`：v1 技术说明（已归档，含架构/API/数据库模型/schema v3）
 
 ## 配置数据流转链路 (2026-06-28 修复)
 

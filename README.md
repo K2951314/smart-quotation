@@ -24,8 +24,7 @@ py -m backend.smart_quotation
 
 ### 文档
 
-- [GUI 配置中心操作手册](docs/gui-admin-guide.md) — 面向非技术人员，覆盖 10 个功能区的完整操作指南
-- [多租户配置平台技术说明](docs/multitenant-config-v1-zh.md) — 面向开发人员，含架构、API 参考、数据库模型
+- [GUI 配置中心操作手册](docs/gui-admin-guide.md) — 面向非技术人员，覆盖 9 个功能区的完整操作指南
 
 ### 功能概览
 
@@ -42,7 +41,6 @@ py -m backend.smart_quotation
 | 审计日志 | 按公司隔离，记录所有配置和数据操作 |
 | 热加载 | 发布新配置无需重启，下次请求立即生效 |
 | 三菱库存实时查询 | 勾选规格 → 自动查上海/日本库存并回写卡片（`POST /api/stock-query`，无认证） |
-| ERPNext 预留 | 接口已预留，v1 为 stub，不阻塞独立运行 |
 
 ### 运行测试
 
@@ -50,7 +48,7 @@ py -m backend.smart_quotation
 py -m unittest tests.test_backend_v1 tests.test_admin_gui -v
 ```
 
-当前 34 条测试全绿。
+当前 28 条 Python + 11 条 JS 测试全绿。
 
 ---
 
