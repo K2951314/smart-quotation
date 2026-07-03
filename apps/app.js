@@ -1730,8 +1730,8 @@ function buildStockClipboardLine(row, stockResult) {
     stockStr = "查询失败(" + stockResult.error + ")";
   } else {
     var stockParts = [];
-    if (stockResult.shanghai > 0) stockParts.push("上海库存" + stockResult.shanghai);
-    if (stockResult.japan > 0) stockParts.push("日本库存" + stockResult.japan);
+    if (stockResult.shanghai > 0) stockParts.push("上海" + stockResult.shanghai);
+        if (stockResult.japan > 0) stockParts.push("日本" + stockResult.japan);
     stockStr = stockParts.length > 0 ? stockParts.join(" ") : "厂家无货";
   }
   mainParts.push(stockStr);
@@ -1773,8 +1773,8 @@ function updateCardStock(row, state, result) {
     stockEl.style.display = "";
   } else if (state === "data" && result) {
     var parts = [];
-    if (result.shanghai > 0) parts.push("沪" + result.shanghai);
-    if (result.japan > 0) parts.push("日" + result.japan);
+    if (result.shanghai > 0) parts.push("上海" + result.shanghai);
+        if (result.japan > 0) parts.push("日本" + result.japan);
     if (parts.length > 0) {
       stockEl.innerHTML = '<span class="stock-signal stock-live-data">' + parts.join(" · ") + '</span>';
     } else {

@@ -11,7 +11,9 @@
       "Bash(py -m pytest tests/test_backend_v1.py tests/test_customer_features.py tests/test_e2e_company_view.py tests/test_rbac_permissions.py -v --tb=short)",
       "Bash(py -m unittest tests.test_backend_api_and_extensions tests.test_admin_gui -v)",
       "Bash(py -m unittest tests.test_rbac_permissions -v)",
-      "Bash(py -m unittest tests.test_backend_api_and_extensions tests.test_admin_gui tests.test_rbac_permissions -v)"
+      "Bash(py -m unittest tests.test_backend_api_and_extensions tests.test_admin_gui tests.test_rbac_permissions -v)",
+      "Bash(npx tsc *)",
+      "Bash(Select-Object -First 30)"
     ],
     "autoAccept": true
   }

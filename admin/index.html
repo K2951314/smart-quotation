@@ -43,7 +43,7 @@
             <button id="publishBtn" class="primary" type="button"><span aria-hidden="true">↑</span> 发布配置</button>
           </div>
           <div class="secondary-actions">
-            <button id="loadConfigBtn" type="button" title="用服务器已发布配置覆盖当前草稿"><span aria-hidden="true">↻</span> 恢复已发布配置</button>
+            <button id="loadConfigBtn" type="button" title="从 Supabase 下载 config.json 覆盖当前草稿"><span aria-hidden="true">↻</span> 从 Supabase 恢复</button>
             <button id="saveDraftBtn" type="button" title="保存为草稿"><span aria-hidden="true">✓</span> 保存</button>
           </div>
         </div>
@@ -166,126 +166,107 @@
       </section>
 
       <!-- 数据拼接 -->
-      <section id="merger" class="band" style="scroll-margin-top:130px;">
-        <div class="section-head">
-          <h2>数据拼接</h2>
-          <p class="hint">阶段1同品牌拼接，阶段2跨品牌拼接，导出价格包与库存包。</p>
-        </div>
-        <div id="merger-statusBox" class="merger-status info">就绪：先执行阶段1分析</div>
-
-        <!-- 两列卡片行 1：阶段1 + 阶段2 -->
-        <div class="merger-cards">
-
-          <!-- 阶段1 -->
-          <div class="mcard">
-            <div class="mcard-head">
-              <span class="mcard-icon">①</span>
-              <div>
-                <h3>阶段1：同品牌拼接</h3>
-                <p class="mcard-desc">上传原始报价文件，自动识别品牌后可手动修正，再导出分品牌文件。</p>
+            <section id="merger" class="band" style="scroll-margin-top:130px;">
+              <div class="section-head">
+                <h2>数据拼接</h2>
+                <p class="hint">上传报价 Excel 和库存 Excel，合并后导出价格包与库存包。</p>
               </div>
-            </div>
-            <div class="mcard-body">
-              <label class="mcard-label">品牌原始文件
-                <input id="merger-stage1Files" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
-              </label>
-              <div class="mcard-meta">
-                <span>文件数：<strong id="merger-stage1Count">0</strong></span>
-                <span>品牌汇总：<strong id="merger-stage1Summary">—</strong></span>
-              </div>
-            </div>
-            <div class="mcard-foot">
-              <button id="merger-analyzeStage1Btn" type="button" class="mcard-btn primary">分析并识别品牌</button>
-              <button id="merger-exportStage1Btn" type="button" class="mcard-btn secondary">导出各品牌文件</button>
-            </div>
-            <!-- 品牌映射表（识别后显示） -->
-            <div id="merger-stage1TableWrap" style="display:none;margin-top:12px;">
-              <table class="mcard-table">
-                <thead>
-                  <tr><th>文件名</th><th>识别品牌</th><th>人工修正</th><th>行数</th></tr>
-                </thead>
-                <tbody id="merger-mappingBody"></tbody>
-              </table>
-            </div>
-          </div>
+              <div id="merger-statusBox" class="merger-status info">就绪</div>
 
-          <!-- 阶段2 -->
-          <div class="mcard">
-            <div class="mcard-head">
-              <span class="mcard-icon">②</span>
-              <div>
-                <h3>阶段2：跨品牌拼接</h3>
-                <p class="mcard-desc">加载按品牌拆分的文件，合并为价格数据集，随后导出价格包。</p>
-              </div>
-            </div>
-            <div class="mcard-body">
-              <label class="mcard-label">处理后品牌文件
-                <input id="merger-stage2Files" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
-              </label>
-              <div class="mcard-meta">
-                <span>总行数：<strong id="merger-stage2Count">0</strong></span>
-              </div>
-            </div>
-            <div class="mcard-foot">
-              <button id="merger-loadStage2Btn" type="button" class="mcard-btn secondary">加载文件</button>
-              <button id="merger-exportPriceBtn" type="button" class="mcard-btn primary">导出价格包</button>
-            </div>
-          </div>
+              <div class="merger-cards">
 
-        </div><!-- /.merger-cards -->
+                <!-- 报价文件 -->
+                <div class="mcard">
+                  <div class="mcard-head">
+                    <span class="mcard-icon">①</span>
+                    <div>
+                      <h3>报价文件</h3>
+                      <p class="mcard-desc">上传原始报价 Excel，系统按列名自动对齐合并。</p>
+                    </div>
+                  </div>
+                  <div class="mcard-body">
+                    <label class="mcard-label">报价 Excel 文件
+                      <input id="merger-priceFiles" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
+                    </label>
+                    <div class="mcard-meta">
+                      <span>文件数：<strong id="merger-fileCount">0</strong></span>
+                      <span>总行数：<strong id="merger-rowCount">0</strong></span>
+                    </div>
+                  </div>
+                  <div class="mcard-foot">
+                    <button id="merger-loadPriceBtn" type="button" class="mcard-btn primary">加载并合并</button>
+                    <button id="merger-exportPriceBtn" type="button" class="mcard-btn secondary">导出价格包</button>
+                  </div>
+                </div>
 
-        <!-- 两列卡片行 2：库存 + 全量导出 -->
-        <div class="merger-cards" style="margin-top:12px;">
+                <!-- 库存文件 -->
+                <div class="mcard">
+                  <div class="mcard-head">
+                    <span class="mcard-icon">②</span>
+                    <div>
+                      <h3>库存文件</h3>
+                      <p class="mcard-desc">加载库存 Excel，导出库存包。</p>
+                    </div>
+                  </div>
+                  <div class="mcard-body">
+                    <label class="mcard-label">库存 Excel 文件
+                      <input id="merger-stockFiles" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
+                    </label>
+                    <div class="mcard-meta">
+                      <span>库存行数：<strong id="merger-stockCount">0</strong></span>
+                    </div>
+                  </div>
+                  <div class="mcard-foot">
+                    <button id="merger-loadStockBtn" type="button" class="mcard-btn secondary">加载库存</button>
+                    <button id="merger-exportStockBtn" type="button" class="mcard-btn primary">导出库存包</button>
+                  </div>
+                </div>
 
-          <!-- 库存 -->
-          <div class="mcard">
-            <div class="mcard-head">
-              <span class="mcard-icon">③</span>
-              <div>
-                <h3>库存包</h3>
-                <p class="mcard-desc">加载库存 Excel，单独导出库存包 stock.bundle.json。</p>
-              </div>
-            </div>
-            <div class="mcard-body">
-              <label class="mcard-label">库存文件
-                <input id="merger-stockFiles" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
-              </label>
-              <div class="mcard-meta">
-                <span>库存行数：<strong id="merger-stockCount">0</strong></span>
-              </div>
-            </div>
-            <div class="mcard-foot">
-              <button id="merger-loadStockBtn" type="button" class="mcard-btn secondary">加载库存</button>
-              <button id="merger-exportStockBtn" type="button" class="mcard-btn primary">导出库存包</button>
-            </div>
-          </div>
+                <!-- 全量导出 -->
+                <div class="mcard mcard--highlight">
+                  <div class="mcard-head">
+                    <span class="mcard-icon mcard-icon--accent">↓</span>
+                    <div>
+                      <h3>全量导出</h3>
+                      <p class="mcard-desc">同时导出总表 xlsx、价格包与库存包三个文件，可选价格包加密。</p>
+                    </div>
+                  </div>
+                  <div class="mcard-body">
+                    <label class="mcard-label">价格包密码（可选）
+                      <input id="merger-pricePassword" type="password" placeholder="为空则不加密" class="mcard-input">
+                    </label>
+                  </div>
+                  <div class="mcard-foot">
+                    <button id="merger-exportAllBtn" type="button" class="mcard-btn primary mcard-btn--wide">全部导出（总表 + 价格包 + 库存包）</button>
+                  </div>
+                </div>
 
-          <!-- 全量导出 -->
-          <div class="mcard mcard--highlight">
-            <div class="mcard-head">
-              <span class="mcard-icon mcard-icon--accent">↓</span>
-              <div>
-                <h3>全量导出</h3>
-                <p class="mcard-desc">同时导出总表 xlsx、价格包与库存包三个文件，可选价格包加密。</p>
-              </div>
-            </div>
-            <div class="mcard-body">
-              <label class="mcard-label">价格包密码（可选）
-                <input id="merger-pricePassword" type="password" placeholder="为空则不加密" class="mcard-input">
-              </label>
-            </div>
-            <div class="mcard-foot">
-              <button id="merger-exportAllBtn" type="button" class="mcard-btn primary mcard-btn--wide">全部导出（总表 + 价格包 + 库存包）</button>
-            </div>
-          </div>
+                                <!-- 独立报价单 -->
+                                <div class="mcard mcard--highlight">
+                                  <div class="mcard-head">
+                                    <span class="mcard-icon mcard-icon--accent">📄</span>
+                                    <div>
+                                      <h3>独立报价单</h3>
+                                      <p class="mcard-desc">一键生成可独立运行的报价单 HTML，CSS/JS 全部内联，数据从云端加载，发给客户双击即用。</p>
+                                    </div>
+                                  </div>
+                                  <div class="mcard-body" style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+                                    <button id="sb-generateStandaloneBtn" type="button" class="mcard-btn primary" style="flex:1;">
+                                      <span aria-hidden="true">📄</span> 生成并下载
+                                    </button>
+                                    <button id="sb-deployStandaloneBtn" type="button" class="mcard-btn secondary" style="flex:1;" title="上传到 Supabase 后客户可通过 URL 访问">
+                                      <span aria-hidden="true">↑</span> 上传到 Supabase
+                                    </button>
+                                  </div>
+                                </div>
 
-        </div><!-- /.merger-cards -->
+                              </div><!-- /.merger-cards -->
 
-        <!-- 隐藏：merger-app.js 仍需要这些 DOM 节点，但不在 UI 中显示 -->
-        <textarea id="merger-appConfig" style="display:none;"></textarea>
-        <pre id="merger-configPreview" style="display:none;"></pre>
-        <input id="merger-supabaseAnonKey" type="password" style="display:none;">
-      </section>
+              <!-- 隐藏：merger-app.js 仍需要这些 DOM 节点，但不在 UI 中显示 -->
+              <textarea id="merger-appConfig" style="display:none;"></textarea>
+              <pre id="merger-configPreview" style="display:none;"></pre>
+              <input id="merger-supabaseAnonKey" type="password" style="display:none;">
+            </section>
 
 
         <!-- Supabase 部署面板 -->
@@ -335,20 +316,20 @@
             </div>
 
             <!-- stock.bundle.json -->
-            <div class="deploy-card">
-              <div class="deploy-card-name">库存包</div>
-              <div class="deploy-card-file">stock.bundle.json</div>
-              <p style="font-size:11px;color:var(--muted);margin:0;">在数据拼接区导出库存包后可直接上传；或手动选择文件。</p>
-              <label style="text-transform:none;font-weight:400;font-size:11px;letter-spacing:0;color:var(--muted);">
-                备用文件（可选）
-                <input id="sb-stockFileInput" type="file" accept=".json" style="font-size:11px;">
-              </label>
-              <button id="sb-uploadStockBtn" type="button" class="small-btn">
-                <span aria-hidden="true">↑</span> 上传库存包
-              </button>
-            </div>
+                        <div class="deploy-card">
+                          <div class="deploy-card-name">库存包</div>
+                          <div class="deploy-card-file">stock.bundle.json</div>
+                          <p style="font-size:11px;color:var(--muted);margin:0;">在数据拼接区导出库存包后可直接上传；或手动选择文件。</p>
+                          <label style="text-transform:none;font-weight:400;font-size:11px;letter-spacing:0;color:var(--muted);">
+                            备用文件（可选）
+                            <input id="sb-stockFileInput" type="file" accept=".json" style="font-size:11px;">
+                          </label>
+                          <button id="sb-uploadStockBtn" type="button" class="small-btn">
+                            <span aria-hidden="true">↑</span> 上传库存包
+                          </button>
+                        </div>
 
-          </div><!-- /.supabase-deploy-grid -->
+                        </div><!-- /.supabase-deploy-grid -->
 
           <div id="sb-statusBar" class="supabase-status"></div>
         </div><!-- /.supabase-panel -->

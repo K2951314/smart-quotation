@@ -50,132 +50,94 @@
     var generic = isGenericColumns(columns);
     var genericCols = generic ? sortGenericColumns(columns) : [];
     var cfg = ConfigCore ? ConfigCore.normalizeConfig(config || {}) : null;
-    var configuredPriceFields = cfg ? cfg.fields.filter(function (field) {
+    var priceFields = cfg ? cfg.fields.filter(function (field) {
       return field.source === "price" && field.type !== "computed";
     }) : [];
     var out = [];
 
+    if (generic) {
+      for (var i = 0; i < list.length; i++) {
+        var row = list[i] || {};
+        var normalized = {};
+        for (var g = 0; g < priceFields.length; g++) {
+          var genericKey = genericCols[g];
+          var targetField = priceFields[g];
+          if (genericKey && targetField) normalized[targetField.label] = row[genericKey];
+        }
+        if (normalized["销售单价"] !== undefined) normalized["销售单价"] = parseMoney(normalized["销售单价"]);
+        out.push(normalized);
+      }
+      return out;
+    }
+
+    // 非通用列名：保留原始列名和顺序，不做自动补充
     for (var i = 0; i < list.length; i++) {
       var row = list[i] || {};
       var normalized = {};
 
-      if (cfg) {
-        var sourceRow = row;
-        if (generic) {
-          sourceRow = {};
-          for (var g = 0; g < configuredPriceFields.length; g++) {
-            var genericKey = genericCols[g];
-            var targetField = configuredPriceFields[g];
-            if (genericKey && targetField) sourceRow[targetField.key] = row[genericKey];
+      if (cfg && priceFields.length) {
+        var fields = ConfigCore.mapExcelRowToFields(row, cfg, "price");
+        for (var k = 0; k < columns.length; k++) {
+          var col = columns[k];
+          var matchedField = null;
+          for (var f = 0; f < priceFields.length; f++) {
+            var field = priceFields[f];
+            var aliases = (field.excel_aliases || []).concat([field.label, field.key]);
+            if (aliases.indexOf(col) >= 0) { matchedField = field; break; }
+          }
+          if (matchedField && fields[matchedField.key] !== undefined) {
+            normalized[col] = matchedField.type === "number" ? parseMoney(fields[matchedField.key]) : toStringSafe(fields[matchedField.key]);
+          } else if (row[col] !== undefined) {
+            normalized[col] = toStringSafe(row[col]);
           }
         }
-        var fields = ConfigCore.mapExcelRowToFields(sourceRow, cfg, "price");
-        configuredPriceFields.forEach(function (field) {
-          if (fields[field.key] !== undefined) normalized[field.label] = fields[field.key];
-        });
-        if (Object.prototype.hasOwnProperty.call(sourceRow, "brand")) {
-          normalized.brand = toStringSafe(sourceRow.brand);
-        } else if (fields.brand) {
-          normalized.brand = toStringSafe(fields.brand);
-        }
-      } else if (generic) {
-        for (var j = 0; j < STANDARD_PRICE_COLS.length; j++) {
-          var key = genericCols[j];
-          normalized[STANDARD_PRICE_COLS[j]] = toStringSafe(key ? row[key] : "");
-        }
       } else {
-        for (var k = 0; k < STANDARD_PRICE_COLS.length; k++) {
-          var col = STANDARD_PRICE_COLS[k];
-          normalized[col] = toStringSafe(row[col]);
+        for (var k = 0; k < columns.length; k++) {
+          var col = columns[k];
+          var val = row[col];
+          normalized[col] = toStringSafe(val);
         }
       }
 
-      if (Object.prototype.hasOwnProperty.call(row, "brand")) {
-        normalized.brand = toStringSafe(row.brand);
-      }
-
-      if (Object.prototype.hasOwnProperty.call(normalized, "销售单价")) {
-        normalized["销售单价"] = parseMoney(normalized["销售单价"]);
-      }
+      if (normalized["销售单价"] !== undefined) normalized["销售单价"] = parseMoney(normalized["销售单价"]);
       out.push(normalized);
     }
-
     return out;
-  }
-
-  function getBaseName(filename) {
-    var name = toStringSafe(filename);
-    var p = name.split(/[\\/]/).pop() || name;
-    return p.replace(/\.[^.]+$/, "");
-  }
-
-  function detectBrandByFilename(filename, config) {
-    var cfg = config || {};
-    var brands = Array.isArray(cfg.brands) ? cfg.brands : [];
-    var defaultBrand = toStringSafe(cfg.defaultBrand) || "UNMAPPED";
-    var base = getBaseName(filename).toUpperCase();
-
-    for (var i = 0; i < brands.length; i++) {
-      var brand = brands[i] || {};
-      var brandId = toStringSafe(brand.id);
-      var prefixes = Array.isArray(brand.prefixes) ? brand.prefixes : [];
-      for (var j = 0; j < prefixes.length; j++) {
-        var prefix = toStringSafe(prefixes[j]).toUpperCase();
-        if (!prefix) continue;
-        if (base.indexOf(prefix) === 0) {
-          return brandId || defaultBrand;
-        }
-      }
-    }
-
-    return defaultBrand;
-  }
-
-  function getBrandConfig(config) {
-    var cfg = config || {};
-    if (cfg.merger && cfg.merger.brand_rules) return cfg.merger.brand_rules;
-    return cfg;
-  }
-
-  function splitPriceFilesByBrand(files, config, overrides) {
-    var list = Array.isArray(files) ? files : [];
-    var overrideMap = overrides || {};
-    var brandConfig = getBrandConfig(config);
-    var grouped = {};
-    var fileBrands = [];
-
-    for (var i = 0; i < list.length; i++) {
-      var item = list[i] || {};
-      var filename = toStringSafe(item.filename);
-      var normalizedRows = normalizePriceRows(item.rows || [], config);
-      var detected = detectBrandByFilename(filename, brandConfig);
-      var selected = toStringSafe(overrideMap[filename]) || detected;
-
-      if (!grouped[selected]) grouped[selected] = [];
-      for (var j = 0; j < normalizedRows.length; j++) {
-        var row = normalizedRows[j];
-        row.brand = selected;
-        grouped[selected].push(row);
-      }
-
-      fileBrands.push({
-        filename: filename,
-        detectedBrand: detected,
-        selectedBrand: selected,
-        rowCount: normalizedRows.length,
-      });
-    }
-
-    return { grouped: grouped, fileBrands: fileBrands };
   }
 
   function mergePriceTables(tables, config) {
     var list = Array.isArray(tables) ? tables : [];
     var merged = [];
+
     for (var i = 0; i < list.length; i++) {
       var rows = normalizePriceRows(list[i] || [], config);
       for (var j = 0; j < rows.length; j++) merged.push(rows[j]);
     }
+
+    // 多批来源且列名相同但顺序不同 → 统一以第一批为准
+    if (merged.length > 0 && list.length > 1) {
+      var canon = Object.keys(merged[0]);
+      var sameNames = true;
+      for (var i = 0; i < merged.length; i++) {
+        var keys = Object.keys(merged[i]);
+        if (keys.length !== canon.length) { sameNames = false; break; }
+        var a = canon.slice().sort();
+        var b = keys.slice().sort();
+        for (var c = 0; c < a.length; c++) { if (a[c] !== b[c]) { sameNames = false; break; } }
+        if (!sameNames) break;
+      }
+      if (sameNames) {
+        for (var i = 0; i < merged.length; i++) {
+          var row = merged[i];
+          var reordered = {};
+          for (var c = 0; c < canon.length; c++) {
+            reordered[canon[c]] = row[canon[c]] !== undefined ? row[canon[c]] : "";
+          }
+          merged[i] = reordered;
+        }
+      }
+    }
+
     return merged;
   }
 
@@ -188,7 +150,6 @@
       for (var x = 0; x < sourceRows.length; x++) {
         var sourceRow = sourceRows[x] || {};
         var fields = ConfigCore.mapExcelRowToFields(sourceRow, cfg, "price");
-        if (sourceRow.brand && !fields.brand) fields.brand = toStringSafe(sourceRow.brand);
         var key = toStringSafe(fields[primary]);
         if (!key) continue;
         normalizedRows.push({ key: key, fields: fields });
@@ -207,7 +168,7 @@
         p: parseMoney(row["销售单价"]),
         s: toStringSafe(row["特价"]),
         r: toStringSafe(row["补充说明"]),
-        b: toStringSafe(row.brand),
+        b: toStringSafe(row.brand || ""),
         n: toStringSafe(row["名称"]),
         m: toStringSafe(row["助记码"]),
         a: toStringSafe(row["别名"]),
@@ -302,29 +263,20 @@
       var chunk = bytes.subarray(i, i + chunkSize);
       binary += String.fromCharCode.apply(null, chunk);
     }
-
     if (typeof btoa === "function") return btoa(binary);
-    if (typeof Buffer !== "undefined") {
-      return Buffer.from(binary, "binary").toString("base64");
-    }
+    if (typeof Buffer !== "undefined") return Buffer.from(binary, "binary").toString("base64");
     throw new Error("Base64 encoder is not available");
   }
 
   function utf8ToBase64(text) {
-    if (typeof TextEncoder !== "undefined") {
-      return bytesToBase64(new TextEncoder().encode(text));
-    }
-    if (typeof Buffer !== "undefined") {
-      return Buffer.from(String(text), "utf8").toString("base64");
-    }
+    if (typeof TextEncoder !== "undefined") return bytesToBase64(new TextEncoder().encode(text));
+    if (typeof Buffer !== "undefined") return Buffer.from(String(text), "utf8").toString("base64");
     return btoa(unescape(encodeURIComponent(String(text))));
   }
 
   return {
     STANDARD_PRICE_COLS: STANDARD_PRICE_COLS,
     normalizePriceRows: normalizePriceRows,
-    detectBrandByFilename: detectBrandByFilename,
-    splitPriceFilesByBrand: splitPriceFilesByBrand,
     mergePriceTables: mergePriceTables,
     buildPriceDataset: buildPriceDataset,
     buildStockByCode: buildStockByCode,

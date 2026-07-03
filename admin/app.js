@@ -92,6 +92,172 @@ async function sbUploadFile(filename, content, contentType) {
   sbSetStatus("✅ 已成功上传 " + filename, "ok");
 }
 
+// ─── Standalone HTML 生成 ────────────────────────────────────────────
+const STANDALONE_FILES = [
+  "index.html",
+  "styles.css",
+  "lib/query-regex.js",
+  "lib/discount-utils.js",
+  "lib/result-sort.js",
+  "lib/config-core.js",
+  "app.js",
+];
+
+function getAppsBaseUrl() {
+  // 相对于当前页面，找 apps/ 目录
+  // http://host/admin/  →  http://host/apps/
+  // file:///.../admin/  →  file:///.../apps/
+  return new URL("../apps/", window.location.href).href;
+}
+
+async function fetchStandaloneSources() {
+  const baseUrl = getAppsBaseUrl();
+  const keys = ["html","css","js0","js1","js2","js3","js4"];
+  const results = await Promise.all(STANDALONE_FILES.map(async (file, i) => {
+    const url = baseUrl + file + "?t=" + Date.now();
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`加载 ${file} 失败 (HTTP ${resp.status})`);
+    return resp.text();
+  }));
+  const map = {};
+  keys.forEach((k, i) => { map[k] = results[i]; });
+  return map;
+}
+
+function patchCacheApi(appJs) {
+  // 将 fetchFileWithCache 中的 Cache API 调用替换为 file:// 兼容版本
+  const old = `const cache = await caches.open(cacheName);
+  let response = await cache.match(fileUrl);
+
+  if (!response) {
+    console.log(\`[\${filename}] 缓存未命中或版本更新，从 Supabase 下载...\`);
+    response = await fetch(fileUrl);
+    if (response.ok) {
+      await cache.put(fileUrl, response.clone());
+      // 异步清理旧缓存，不阻塞流程
+      cleanOldCache(cache, filename, fileUrl);
+    } else {
+      throw new Error(\`\${filename} 下载失败\`);
+    }
+  }`;
+
+  const fixed = `let response = null;
+  if (typeof caches !== 'undefined') {
+    try {
+      const cache = await caches.open(cacheName);
+      response = await cache.match(fileUrl);
+    } catch (e) {
+      response = null;
+    }
+  }
+
+  if (!response) {
+    console.log(\`[\${filename}] 缓存未命中或版本更新，从 Supabase 下载...\`);
+    response = await fetch(fileUrl);
+    if (response.ok) {
+      if (typeof caches !== 'undefined') {
+        try {
+          const cache = await caches.open(cacheName);
+          await cache.put(fileUrl, response.clone());
+          cleanOldCache(cache, filename, fileUrl);
+        } catch (e) {}
+      }
+    } else {
+      throw new Error(\`\${filename} 下载失败\`);
+    }
+  }`;
+
+  return appJs.replace(old, fixed);
+}
+
+function buildStandaloneHtml(sources) {
+  const bodyStart = sources.html.indexOf("<body>") + "<body>".length;
+  const bodyEnd   = sources.html.indexOf("</body>");
+  let bodyContent = sources.html.slice(bodyStart, bodyEnd);
+
+  // 移除外部引用
+  bodyContent = bodyContent.replace('<link rel="stylesheet" href="./styles.css">', "");
+  bodyContent = bodyContent.replace(/<script\s+src="\.\/lib\/[^"]+\.js(\?v=[\d]+)?"><\/script>/g, "");
+  bodyContent = bodyContent.replace(/<script\s+src="\.\/app\.js(\?v=[\d]+)?"><\/script>/g, "");
+
+  const appJsFixed = patchCacheApi(sources.js4);
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#f7f3ec">
+<title>智能询价系统</title>
+<style>
+${sources.css}
+</style>
+</head>
+<body>
+${bodyContent.trim()}
+<script>
+${sources.js0}
+</script>
+<script>
+${sources.js1}
+</script>
+<script>
+${sources.js2}
+</script>
+<script>
+${sources.js3}
+</script>
+<script>
+${appJsFixed}
+</script>
+</body>
+</html>`;
+}
+
+function downloadBlob(text, filename) {
+  const blob = new Blob([text], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+async function generateStandalone() {
+  if (window.location.protocol === "file:") {
+    sbSetStatus("❌ 请通过 FastAPI 启动后访问 http://127.0.0.1:8001/admin/ 使用此功能（file:// 下浏览器禁止 fetch）", "error");
+    return;
+  }
+  sbSetStatus("正在加载前端源文件...", "info");
+  try {
+    const sources = await fetchStandaloneSources();
+    sbSetStatus("正在拼接独立 HTML...", "info");
+    const html = buildStandaloneHtml(sources);
+    downloadBlob(html, "standalone.html");
+    sbSetStatus("✅ 已生成 standalone.html，可发给客户直接使用", "ok");
+  } catch (err) {
+    sbSetStatus("❌ 生成失败: " + (err.message || err), "error");
+  }
+}
+
+async function deployStandalone() {
+  if (window.location.protocol === "file:") {
+    sbSetStatus("❌ 请通过 FastAPI 启动后访问 http://127.0.0.1:8001/admin/ 使用此功能", "error");
+    return;
+  }
+  try {
+    sbAutoFillBaseUrl();
+    const sources = await fetchStandaloneSources();
+    const html = buildStandaloneHtml(sources);
+    await sbUploadFile("standalone.html", html, "text/html;charset=utf-8");
+  } catch (err) {
+    sbSetStatus("❌ " + err.message, "error");
+  }
+}
+
 function defaultConfig() {
   return {
     schema_version: 3,
@@ -643,11 +809,26 @@ function updatePreview() {
 // ─── Config API Calls ────────────────────────────────────────────────────────
 
 async function loadConfig() {
-  const confirmed = confirm("将用服务器已发布配置覆盖当前草稿，未保存的修改会丢失。\n\n是否继续？");
+  const confirmed = confirm("将从 Supabase 下载 config.json 覆盖当前草稿，未保存的修改会丢失。\n\n是否继续？");
   if (!confirmed) return;
-  state.config = await request("/api/config");
-  renderAll();
-  setStatus("已恢复服务器已发布配置");
+
+  sbAutoFillBaseUrl();
+  const baseUrl = sbGetBaseUrl();
+  const configUrl = baseUrl + "/config.json";
+
+  try {
+    const resp = await fetch(configUrl + "?t=" + Date.now());
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const raw = await resp.json();
+    // 确保 schema_version 存在，标记为草稿
+    if (!raw.schema_version) raw.schema_version = 2;
+    raw.status = "draft";
+    state.config = raw;
+    renderAll();
+    setStatus("✅ 已从 Supabase 恢复 config.json");
+  } catch (err) {
+    setStatus("❌ 从 Supabase 恢复失败: " + (err.message || err), true);
+  }
 }
 
 async function saveConfig(status) {
@@ -928,25 +1109,33 @@ function bind() {
   });
 
   // 上传库存包（优先读取拼接区内存数据，回退到文件选择器）
-  const sbUploadStockBtn = $("sb-uploadStockBtn");
-  if (sbUploadStockBtn) sbUploadStockBtn.addEventListener("click", async () => {
-    try {
-      let text = null;
-      if (window._mergerBundles && window._mergerBundles.stock) {
-        text = window._mergerBundles.stock;
-        sbSetStatus("ℹ️ 使用拼接区刚生成的库存包…", "info");
-      } else {
-        const fileInput = $("sb-stockFileInput");
-        if (!fileInput || !fileInput.files || !fileInput.files[0])
-          throw new Error("请先在数据拼接区导出库存包，或手动选择 stock.bundle.json 文件");
-        text = await fileInput.files[0].text();
+    const sbUploadStockBtn = $("sb-uploadStockBtn");
+    if (sbUploadStockBtn) sbUploadStockBtn.addEventListener("click", async () => {
+      try {
+        let text = null;
+        if (window._mergerBundles && window._mergerBundles.stock) {
+          text = window._mergerBundles.stock;
+          sbSetStatus("ℹ️ 使用拼接区刚生成的库存包…", "info");
+        } else {
+          const fileInput = $("sb-stockFileInput");
+          if (!fileInput || !fileInput.files || !fileInput.files[0])
+            throw new Error("请先在数据拼接区导出库存包，或手动选择 stock.bundle.json 文件");
+          text = await fileInput.files[0].text();
+        }
+        JSON.parse(text);
+        await sbUploadFile("stock.bundle.json", text, "application/json;charset=utf-8");
+      } catch (err) {
+        sbSetStatus("❌ " + err.message, "error");
       }
-      JSON.parse(text);
-      await sbUploadFile("stock.bundle.json", text, "application/json;charset=utf-8");
-    } catch (err) {
-      sbSetStatus("❌ " + err.message, "error");
-    }
-  });
+    });
+
+    // 生成独立报价单
+    const sbGenerateBtn = $("sb-generateStandaloneBtn");
+    if (sbGenerateBtn) sbGenerateBtn.addEventListener("click", () => run(generateStandalone));
+
+    // 上传独立报价单到 Supabase
+    const sbDeployBtn = $("sb-deployStandaloneBtn");
+    if (sbDeployBtn) sbDeployBtn.addEventListener("click", () => run(deployStandalone));
 
   // 当 base_url input 聚焦时尝试从 config 自动填充
   if (sbBaseUrlInput) sbBaseUrlInput.addEventListener("focus", sbAutoFillBaseUrl);

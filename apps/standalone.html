@@ -1,0 +1,6053 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#f7f3ec">
+<title>智能询价系统</title>
+<style>
+:root {
+  --bg: #f4eee4;
+  --bg-soft: #fffaf2;
+  --surface: rgba(255, 255, 255, 0.88);
+  --surface-strong: #ffffff;
+  --surface-muted: #f6f0e7;
+  --line: rgba(94, 78, 54, 0.14);
+  --line-strong: rgba(94, 78, 54, 0.2);
+  --text: #24303a;
+  --text-soft: #5b6773;
+  --text-faint: #7d8791;
+  --accent: #0f766e;
+  --accent-ink: #0c5d57;
+  --accent-soft: rgba(15, 118, 110, 0.1);
+  --success: #18794e;
+  --warning: #986d17;
+  --danger: #a54f44;
+  --shadow: 0 16px 36px -30px rgba(78, 61, 35, 0.2);
+  --shadow-soft: 0 12px 26px -24px rgba(78, 61, 35, 0.16);
+  --transition: 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 26%),
+    radial-gradient(circle at top right, rgba(214, 188, 142, 0.22), transparent 28%),
+    linear-gradient(180deg, #fbf7f0 0%, #f4eee4 48%, #eee5d7 100%);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(87, 74, 52, 0.024) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(87, 74, 52, 0.024) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.6), transparent 82%);
+  opacity: 0.55;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+button,
+input,
+textarea {
+  transition:
+    transform var(--transition),
+    border-color var(--transition),
+    box-shadow var(--transition),
+    background-color var(--transition),
+    color var(--transition),
+    opacity var(--transition);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+}
+
+.shell {
+  position: relative;
+  z-index: 1;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 14px 14px 40px;
+}
+
+.masthead,
+.toolbar,
+.query-panel,
+.result-panel {
+  animation: surface-in 0.52s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.masthead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, auto);
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 1.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.92));
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.brand-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.brand-line {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.eyebrow,
+.panel-kicker,
+.copy-title,
+.field-group label,
+.metric-label,
+.state-kicker {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.brand-line h1 {
+  margin: 0;
+  font-size: clamp(1.55rem, 3vw, 2.25rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.subline {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  line-height: 1.42;
+  max-width: 56ch;
+}
+
+.masthead-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.status-badge,
+.version-bar,
+.result-stat,
+.select-all-toggle,
+.opt-lbl,
+.select-chip,
+.stock-chip,
+.special-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.05rem;
+  padding: 0 0.78rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.status-badge {
+  color: var(--text-soft);
+}
+
+.status-badge::before {
+  content: "";
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 0.3rem rgba(15, 118, 110, 0.08);
+  animation: status-breathe 2s ease-in-out infinite;
+}
+
+.status-badge.info {
+  color: var(--text-soft);
+}
+
+.status-badge.ok {
+  color: var(--success);
+  background: rgba(24, 121, 78, 0.08);
+}
+
+.status-badge.error {
+  color: var(--danger);
+  background: rgba(165, 79, 68, 0.08);
+}
+
+.status-badge.lock {
+  color: var(--warning);
+  background: rgba(152, 109, 23, 0.08);
+}
+
+.version-bar {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.mmc-btn {
+  min-height: 2.1rem;
+  padding: 0 0.82rem;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mmc-btn:hover {
+  transform: translateY(-1px);
+}
+
+.mmc-btn:active {
+  transform: scale(0.98);
+}
+
+.toolbar,
+.query-panel,
+.result-panel {
+  border-radius: 1.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  background: rgba(255, 250, 242, 0.88);
+  box-shadow: var(--shadow-soft);
+}
+
+.toolbar {
+  position: sticky;
+  top: 14px;
+  z-index: 18;
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  backdrop-filter: blur(10px);
+}
+
+.toolbar-top {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toolbar-title {
+  display: grid;
+  gap: 2px;
+}
+
+.toolbar-title h2,
+.section-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.section-head p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.toolbar-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: min(100%, 420px);
+}
+
+.btn {
+  min-height: 2.7rem;
+  padding: 0 0.82rem;
+  border-radius: 0.9rem;
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.btn-search {
+  background: linear-gradient(135deg, #12796f, #0d625b);
+  color: #f7fbfa;
+}
+
+.btn-regex {
+  border-color: rgba(15, 118, 110, 0.16);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-ink);
+}
+
+.btn-copy {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
+.toolbar-main {
+  display: grid;
+  grid-template-columns: minmax(116px, 0.56fr) minmax(132px, 0.66fr) minmax(230px, 1.12fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.field-group-large {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+
+.toolbar-main > .field-group:nth-child(2) {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.toolbar-main > .field-group:nth-child(3) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.field-group {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.result-toolbar-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-group-large .step-presets {
+  gap: 6px;
+}
+
+.field-shell {
+  display: flex;
+  align-items: center;
+  min-height: 2.6rem;
+  padding: 0 0.82rem;
+  border-radius: 0.9rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.field-shell:focus-within {
+  border-color: rgba(15, 118, 110, 0.24);
+}
+
+input[type="number"] {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+}
+
+.field-unit {
+  flex-shrink: 0;
+  padding-left: 0.55rem;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+}
+
+.step-presets,
+.toolbar-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.step-preset {
+  min-width: 3.35rem;
+  min-height: 1.9rem;
+  padding: 0 0.68rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.step-preset:hover,
+.step-preset.is-active {
+  border-color: rgba(15, 118, 110, 0.24);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.toolbar-copy {
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid rgba(94, 78, 54, 0.1);
+}
+
+.copy-title {
+  margin-right: 0.2rem;
+}
+
+.opt-lbl,
+.select-all-toggle,
+.select-chip {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-soft);
+}
+
+.opt-lbl input,
+.select-all-toggle input,
+.select-chip input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.opt-lbl.is-accent {
+  border-color: rgba(15, 118, 110, 0.2);
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--accent-ink);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(228px, 292px) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+  align-items: start;
+}
+
+.query-panel,
+.result-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-head-compact {
+  margin-bottom: 0;
+}
+
+.query-input {
+  width: 100%;
+  min-height: 12rem;
+  padding: 0.85rem 0.92rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Microsoft YaHei UI", monospace;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+}
+
+.query-input::placeholder {
+  color: #98a1aa;
+}
+
+.query-note-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.query-note-inline span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.85rem;
+  padding: 0 0.72rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.result-panel-header {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.result-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.result-stat {
+  color: var(--text-soft);
+}
+
+.result-stat.is-accent {
+  border-color: rgba(15, 118, 110, 0.2);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-ink);
+}
+
+.result-stat strong {
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+  font-size: 0.9rem;
+  color: inherit;
+}
+
+.results-shell {
+  display: block;
+}
+
+.result-list {
+  display: grid;
+  gap: 8px;
+}
+
+.result-card {
+  display: grid;
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 78, 54, 0.12);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 245, 238, 0.98));
+  box-shadow: 0 8px 18px -20px rgba(78, 61, 35, 0.24);
+  content-visibility: auto;
+  contain-intrinsic-size: 92px;
+}
+
+.result-card.match-exact {
+  border-color: rgba(15, 118, 110, 0.18);
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.06), rgba(255, 255, 255, 0.98) 42%);
+}
+
+.result-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(322px, auto);
+  gap: 10px;
+  align-items: center;
+}
+
+.select-chip {
+  justify-content: center;
+  min-width: 3.45rem;
+}
+
+.result-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.identity-code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.8rem;
+  padding: 0 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-soft);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.identity-spec {
+  margin: 0;
+  font-size: 0.96rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  word-break: break-word;
+}
+
+.stock-chip,
+.special-chip {
+  min-height: 1.75rem;
+  padding: 0 0.58rem;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.stock-chip {
+  border-color: rgba(15, 118, 110, 0.16);
+  color: var(--accent-ink);
+}
+
+.special-chip {
+  border-color: rgba(15, 118, 110, 0.12);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-ink);
+}
+
+.info-note {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.result-side {
+  display: grid;
+  grid-template-columns: minmax(150px, auto) minmax(168px, auto);
+  gap: 8px;
+  align-items: center;
+  justify-content: end;
+}
+
+.result-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, auto));
+  gap: 6px;
+  justify-content: end;
+}
+
+.metric-inline {
+  display: grid;
+  gap: 2px;
+  min-width: 72px;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.82rem;
+  border: 1px solid var(--line);
+  background: var(--surface-muted);
+  text-align: right;
+}
+
+.metric-inline-accent {
+  border-color: rgba(15, 118, 110, 0.16);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.metric-label {
+  font-size: 0.62rem;
+}
+
+.metric-inline strong,
+.discount-manual {
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+}
+
+.metric-inline strong {
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.price {
+  color: var(--accent-ink);
+}
+
+.price.is-flashing {
+  animation: flash-price 0.42s ease;
+}
+
+.discount-panel {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.discount-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.discount-stepper-btn {
+  width: 1.95rem;
+  height: 1.95rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-ink);
+  font-size: 0.92rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.discount-stepper-btn.is-pressing,
+.discount-stepper-btn:hover {
+  transform: translateY(-1px);
+  background: rgba(15, 118, 110, 0.16);
+}
+
+.discount-stepper-btn:active {
+  transform: scale(0.98);
+}
+
+.discount-input-shell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 1.95rem;
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.discount-manual {
+  width: 3.1rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-size: 0.88rem;
+}
+
+.discount-unit {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+
+.state-card {
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+  border: 1px dashed rgba(94, 78, 54, 0.18);
+  border-radius: 1.2rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 243, 235, 0.96));
+}
+
+.state-card h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.15;
+}
+
+.state-card p {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+.state-card--loading {
+  border-color: rgba(15, 118, 110, 0.16);
+}
+
+.state-card--error {
+  border-color: rgba(165, 79, 68, 0.18);
+}
+
+.state-skeleton {
+  display: grid;
+  gap: 8px;
+}
+
+.skeleton-line {
+  position: relative;
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.88), transparent);
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+
+.skeleton-line-wide {
+  width: min(100%, 420px);
+}
+
+.skeleton-line-short {
+  width: min(65%, 260px);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  min-width: 8rem;
+  padding: 0.8rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(37, 48, 58, 0.92);
+  color: #f8fbfb;
+  display: none;
+  z-index: 2000;
+}
+
+@keyframes surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes flash-price {
+  0% {
+    color: var(--text);
+    background: rgba(15, 118, 110, 0.22);
+  }
+  100% {
+    color: var(--accent-ink);
+    background: transparent;
+  }
+}
+
+@keyframes status-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@media (max-width: 1180px) {
+  .masthead,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-main {
+    grid-template-columns: minmax(116px, 0.56fr) minmax(132px, 0.66fr) minmax(220px, 1.08fr);
+  }
+
+  .result-row {
+    grid-template-columns: auto minmax(0, 1fr) minmax(320px, auto);
+  }
+}
+
+@media (max-width: 900px) {
+  .shell {
+    padding: 12px 12px 96px;
+  }
+
+  .toolbar {
+    position: static;
+  }
+
+  .toolbar-top,
+  .masthead,
+  .masthead-meta,
+  .result-panel-header {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-top,
+  .result-panel-header {
+    display: grid;
+  }
+
+  .toolbar-main {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .field-group-large {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .toolbar-main > .field-group:nth-child(2) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .toolbar-main > .field-group:nth-child(3) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .result-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .result-side {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding: 10px 10px 108px;
+  }
+
+  .masthead,
+  .toolbar,
+  .query-panel,
+  .result-panel {
+    padding: 12px;
+    border-radius: 1rem;
+  }
+
+  body::before {
+    display: none;
+  }
+
+  .brand-line,
+  .masthead-meta,
+  .result-panel-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .masthead-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-main {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .field-group-large {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .toolbar-main > .field-group:nth-child(2) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .toolbar-main > .field-group:nth-child(3) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .toolbar-actions {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 32;
+    padding: 10px;
+    min-width: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-radius: 1.15rem;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    background: rgba(255, 250, 242, 0.94);
+    box-shadow: 0 18px 40px -24px rgba(78, 61, 35, 0.34);
+    backdrop-filter: none;
+  }
+
+  .toolbar-title p {
+    display: none;
+  }
+
+  .query-input {
+    min-height: 9rem;
+  }
+
+  .query-note-inline {
+    display: grid;
+  }
+
+  .result-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .result-side {
+    grid-column: auto;
+    grid-template-columns: minmax(72px, 0.95fr) minmax(82px, 1fr) minmax(150px, 1.7fr);
+    gap: 6px;
+    justify-content: stretch;
+  }
+
+  .result-metrics {
+    display: contents;
+  }
+
+  .metric-inline,
+  .discount-panel {
+    grid-column: auto;
+  }
+
+  .result-stat,
+  .select-all-toggle,
+  .select-chip {
+    justify-content: space-between;
+  }
+
+  .discount-panel {
+    justify-content: stretch;
+    min-width: 0;
+  }
+
+  .discount-stepper {
+    width: 100%;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .discount-input-shell {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .discount-manual {
+    width: 100%;
+    max-width: 4rem;
+  }
+
+  .btn {
+    min-height: 3rem;
+  }
+}
+
+/* v9 refresh: editorial light workbench */
+
+:root {
+  --bg: #f7f3ec;
+  --bg-soft: #fffdf8;
+  --surface: rgba(255, 252, 246, 0.82);
+  --surface-strong: #fffdfa;
+  --surface-muted: #f3eee6;
+  --line: rgba(31, 48, 60, 0.11);
+  --line-strong: rgba(31, 48, 60, 0.18);
+  --text: #1f2e38;
+  --text-soft: #5e6d78;
+  --text-faint: #84919b;
+  --accent: #126c69;
+  --accent-ink: #0f5755;
+  --accent-soft: rgba(18, 108, 105, 0.09);
+  --success: #1f7b56;
+  --warning: #ab7220;
+  --danger: #b3584b;
+  --shadow: 0 26px 72px -46px rgba(47, 37, 20, 0.35);
+  --shadow-soft: 0 20px 52px -40px rgba(47, 37, 20, 0.28);
+}
+
+body {
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(18, 108, 105, 0.12), transparent 24%),
+    radial-gradient(circle at 86% 10%, rgba(233, 180, 112, 0.18), transparent 18%),
+    linear-gradient(180deg, #fffdf8 0%, #f8f3ec 44%, #f1eadf 100%);
+}
+
+body::before {
+  background-image:
+    linear-gradient(rgba(64, 83, 96, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(64, 83, 96, 0.028) 1px, transparent 1px);
+  background-size: 30px 30px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.72), transparent 88%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.62), transparent 22%),
+    radial-gradient(circle at 82% 0%, rgba(18, 108, 105, 0.06), transparent 24%);
+  opacity: 0.8;
+}
+
+.shell {
+  max-width: 1720px;
+  padding: 18px 18px 44px;
+}
+
+.masthead,
+.toolbar,
+.query-panel,
+.result-panel {
+  border-color: rgba(255, 255, 255, 0.74);
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.92), rgba(248, 243, 236, 0.88));
+}
+
+.masthead {
+  position: relative;
+  overflow: hidden;
+  gap: 18px;
+  padding: 20px 22px;
+  border-radius: 2rem;
+  box-shadow: var(--shadow);
+}
+
+.masthead::before,
+.masthead::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.masthead::before {
+  top: -2.8rem;
+  right: -1.8rem;
+  width: 13rem;
+  height: 13rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(18, 108, 105, 0.16) 0%, rgba(18, 108, 105, 0) 66%);
+}
+
+.masthead::after {
+  inset: auto auto -4.5rem -2rem;
+  width: 12rem;
+  height: 12rem;
+  border-radius: 2.75rem;
+  border: 1px solid rgba(18, 108, 105, 0.12);
+  transform: rotate(18deg);
+}
+
+.brand-stack,
+.toolbar-title {
+  position: relative;
+  z-index: 1;
+}
+
+.eyebrow,
+.panel-kicker,
+.copy-title,
+.field-group label,
+.metric-label,
+.state-kicker {
+  font-weight: 700;
+  letter-spacing: 0.17em;
+}
+
+.brand-line h1,
+.toolbar-title h2,
+.section-head h2,
+.state-card h3 {
+  font-family: "STZhongsong", "STSong", "Noto Serif SC", "Songti SC", serif;
+}
+
+.brand-line h1 {
+  font-size: clamp(1.85rem, 3.2vw, 2.85rem);
+  line-height: 0.95;
+}
+
+.subline {
+  max-width: 62ch;
+  font-size: 0.92rem;
+  line-height: 1.58;
+}
+
+.version-bar,
+.status-badge,
+.result-stat,
+.select-all-toggle,
+.opt-lbl,
+.select-chip,
+.stock-chip,
+.special-chip {
+  background: rgba(255, 255, 255, 0.74);
+  border-color: rgba(31, 48, 60, 0.1);
+}
+
+.status-badge {
+  backdrop-filter: blur(10px);
+}
+
+.mmc-btn {
+  min-height: 2.35rem;
+  padding: 0 0.95rem;
+  border-color: rgba(18, 108, 105, 0.14);
+  background: linear-gradient(135deg, rgba(18, 108, 105, 0.12), rgba(18, 108, 105, 0.05));
+}
+
+.toolbar {
+  gap: 14px;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 1.7rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.toolbar-top {
+  gap: 16px;
+}
+
+.toolbar-title {
+  gap: 4px;
+}
+
+.toolbar-actions {
+  min-width: min(100%, 470px);
+  padding: 6px;
+  border: 1px solid rgba(31, 48, 60, 0.09);
+  border-radius: 1.45rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 239, 230, 0.72));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.btn {
+  min-height: 2.95rem;
+  border-radius: 1.1rem;
+  white-space: nowrap;
+}
+
+.btn-search {
+  background: linear-gradient(135deg, #0f6d69, #15514f);
+  box-shadow: 0 16px 28px -22px rgba(15, 109, 105, 0.65);
+}
+
+.btn-regex {
+  background: linear-gradient(135deg, rgba(18, 108, 105, 0.13), rgba(18, 108, 105, 0.05));
+}
+
+.btn-copy {
+  border-color: rgba(31, 48, 60, 0.12);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(244, 238, 228, 0.92));
+}
+
+.toolbar-main {
+  grid-template-columns: minmax(260px, 1.5fr) repeat(2, minmax(136px, 0.78fr));
+  gap: 12px;
+}
+
+.field-group-large {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.toolbar-main > .field-group:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.toolbar-main > .field-group:nth-child(3) {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.field-shell,
+.query-input,
+.discount-input-shell,
+.discount-stepper,
+.metric-inline,
+.state-card,
+.result-card {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.field-shell {
+  min-height: 2.95rem;
+  padding: 0 0.94rem;
+  border-radius: 1.05rem;
+  border-color: rgba(31, 48, 60, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 241, 233, 0.94));
+}
+
+.field-group-large .step-presets {
+  gap: 8px;
+}
+
+.step-preset {
+  min-width: 3.7rem;
+  min-height: 2.05rem;
+  border-color: rgba(31, 48, 60, 0.11);
+}
+
+.toolbar-copy {
+  padding: 12px 0 0;
+  border-top-color: rgba(31, 48, 60, 0.08);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolbar-copy::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace {
+  grid-template-columns: minmax(310px, 360px) minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.query-panel,
+.result-panel {
+  gap: 14px;
+  padding: 18px;
+  border-radius: 1.75rem;
+}
+
+@media (min-width: 1181px) {
+  .query-panel {
+    position: sticky;
+    top: 124px;
+  }
+}
+
+.query-input {
+  min-height: 16.5rem;
+  padding: 1rem 1.02rem;
+  border-radius: 1.25rem;
+  border-color: rgba(31, 48, 60, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 243, 236, 0.92));
+  color: var(--text);
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Microsoft YaHei UI", monospace;
+  font-size: 0.92rem;
+}
+
+.query-note-inline {
+  gap: 8px;
+}
+
+.query-note-inline span {
+  min-height: 2rem;
+  padding: 0 0.78rem;
+  border-color: rgba(18, 108, 105, 0.1);
+  background: rgba(18, 108, 105, 0.06);
+}
+
+.result-panel-header {
+  gap: 12px;
+  align-items: center;
+}
+
+.result-panel-actions {
+  gap: 8px;
+}
+
+.result-list {
+  gap: 12px;
+}
+
+.result-card {
+  position: relative;
+  overflow: hidden;
+  padding: 12px 14px;
+  border-radius: 1.35rem;
+  border-color: rgba(31, 48, 60, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 242, 233, 0.98));
+  box-shadow: 0 18px 34px -30px rgba(47, 37, 20, 0.24);
+}
+
+.result-card::before {
+  content: "";
+  position: absolute;
+  inset: 12px auto 12px 0;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(18, 108, 105, 0.95), rgba(233, 180, 112, 0.55));
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.result-card.match-exact {
+  border-color: rgba(18, 108, 105, 0.16);
+  background: linear-gradient(180deg, rgba(18, 108, 105, 0.08), rgba(255, 255, 255, 0.98) 26%, rgba(247, 242, 233, 0.98));
+}
+
+.result-card.is-selected {
+  border-color: rgba(18, 108, 105, 0.22);
+  transform: translateY(-1px);
+  box-shadow: 0 26px 44px -34px rgba(18, 108, 105, 0.3);
+}
+
+.result-card.is-selected::before {
+  opacity: 1;
+}
+
+.result-row {
+  grid-template-columns: auto minmax(0, 1fr) minmax(360px, auto);
+  gap: 12px;
+}
+
+.select-chip {
+  min-width: 4.2rem;
+  justify-content: center;
+}
+
+.result-summary {
+  gap: 6px;
+}
+
+.identity-code {
+  min-height: 1.95rem;
+  padding: 0 0.72rem;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.identity-spec {
+  font-size: 1.05rem;
+  line-height: 1.18;
+}
+
+.info-note {
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.result-side {
+  grid-template-columns: minmax(168px, auto) minmax(188px, auto);
+  gap: 10px;
+}
+
+.metric-inline {
+  min-width: 80px;
+  padding: 0.68rem 0.76rem;
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(244, 239, 232, 0.95), rgba(255, 255, 255, 0.9));
+}
+
+.metric-inline strong {
+  font-size: 0.98rem;
+}
+
+.discount-panel {
+  justify-content: flex-end;
+}
+
+.discount-stepper {
+  gap: 6px;
+  padding: 5px;
+  border-radius: 999px;
+  border-color: rgba(18, 108, 105, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 238, 229, 0.92));
+}
+
+.discount-stepper-btn {
+  width: 2.08rem;
+  height: 2.08rem;
+}
+
+.discount-input-shell {
+  min-height: 2.08rem;
+  padding: 0 0.68rem;
+  border-color: rgba(18, 108, 105, 0.1);
+  background: rgba(18, 108, 105, 0.05);
+}
+
+.discount-manual {
+  width: 3.4rem;
+}
+
+.state-card {
+  padding: 26px;
+  border-style: solid;
+  border-color: rgba(31, 48, 60, 0.1);
+  border-radius: 1.4rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 242, 233, 0.96));
+}
+
+.toast {
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  padding: 0.88rem 1.14rem;
+  border-radius: 999px;
+  background: rgba(31, 46, 56, 0.92);
+  box-shadow: 0 18px 34px -24px rgba(31, 46, 56, 0.45);
+}
+
+@media (max-width: 1180px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .query-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 900px) {
+  .shell {
+    padding: 14px 14px 40px;
+  }
+
+  .toolbar-main {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .field-group-large {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .toolbar-main > .field-group:nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .toolbar-main > .field-group:nth-child(3) {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .result-row {
+    grid-template-columns: 1fr;
+  }
+
+  .result-side {
+    grid-column: auto;
+    justify-content: stretch;
+  }
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding: 10px 10px 28px;
+  }
+
+  .masthead,
+  .toolbar,
+  .query-panel,
+  .result-panel {
+    padding: 14px;
+    border-radius: 1.25rem;
+  }
+
+  .brand-line {
+    align-items: flex-start;
+  }
+
+  .toolbar-top {
+    gap: 12px;
+  }
+
+  .toolbar-actions {
+    position: sticky;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    left: auto;
+    right: auto;
+    bottom: auto;
+    z-index: 40;
+    width: 100%;
+    min-width: 0;
+    padding: 8px;
+    border-radius: 1.2rem;
+    background: rgba(255, 252, 246, 0.96);
+    box-shadow: 0 24px 46px -32px rgba(47, 37, 20, 0.34);
+    backdrop-filter: blur(16px);
+  }
+
+  .toolbar-copy {
+    flex-wrap: nowrap;
+    padding-top: 10px;
+  }
+
+  .query-input,
+  input[type="number"],
+  .discount-manual {
+    font-size: 16px;
+  }
+
+  .query-input {
+    min-height: 10rem;
+  }
+
+  .result-panel-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .result-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .result-metrics {
+    display: contents;
+  }
+
+  .discount-panel {
+    grid-column: 1 / -1;
+  }
+
+  .discount-stepper {
+    width: 100%;
+  }
+
+  .discount-input-shell {
+    flex: 1 1 auto;
+  }
+
+  .discount-manual {
+    max-width: none;
+  }
+}
+
+/* v9 compact pass */
+
+.copy-title,
+.panel-kicker,
+.section-head p {
+  display: none;
+}
+
+.masthead {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 1.45rem;
+}
+
+.masthead-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.brand-line {
+  gap: 8px;
+}
+
+.brand-line h1 {
+  font-size: clamp(1.28rem, 2.2vw, 1.82rem);
+  letter-spacing: -0.035em;
+}
+
+.status-badge,
+.version-bar,
+.result-stat,
+.select-all-toggle,
+.opt-lbl,
+.select-chip,
+.stock-chip,
+.special-chip {
+  min-height: 1.88rem;
+  padding: 0 0.68rem;
+}
+
+.version-bar {
+  font-size: 0.76rem;
+}
+
+.mmc-btn {
+  min-height: 2.08rem;
+  padding: 0 0.82rem;
+  font-size: 0.82rem;
+}
+
+.toolbar {
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 1.4rem;
+}
+
+.toolbar-actions {
+  min-width: 0;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 1.18rem;
+}
+
+.btn {
+  min-height: 2.58rem;
+  padding: 0 0.72rem;
+  font-size: 0.84rem;
+}
+
+.toolbar-main {
+  grid-template-columns: minmax(228px, 1.28fr) repeat(2, minmax(120px, 0.72fr));
+  gap: 10px;
+}
+
+.field-shell {
+  min-height: 2.58rem;
+  padding: 0 0.82rem;
+}
+
+.step-preset {
+  min-width: 3.15rem;
+  min-height: 1.82rem;
+  font-size: 0.8rem;
+}
+
+.toolbar-copy {
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.opt-lbl {
+  font-size: 0.78rem;
+}
+
+.workspace {
+  grid-template-columns: minmax(260px, 296px) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.query-panel,
+.result-panel {
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 1.45rem;
+}
+
+.section-head-inline {
+  display: flex;
+  align-items: center;
+  min-height: 1.2rem;
+}
+
+.section-head-inline h2 {
+  font-size: 0.96rem;
+  line-height: 1;
+}
+
+@media (min-width: 1181px) {
+  .query-panel {
+    top: 96px;
+  }
+}
+
+.query-input {
+  min-height: 13rem;
+  padding: 0.82rem 0.88rem;
+  font-size: 0.86rem;
+  line-height: 1.42;
+}
+
+.query-note-inline span {
+  min-height: 1.74rem;
+  padding: 0 0.64rem;
+  font-size: 0.76rem;
+}
+
+.result-panel-header {
+  gap: 8px;
+}
+
+.result-panel-actions {
+  gap: 6px;
+}
+
+.result-list {
+  gap: 8px;
+}
+
+.result-card {
+  padding: 8px 10px;
+  border-radius: 1rem;
+}
+
+.result-row {
+  grid-template-columns: auto minmax(0, 1fr) minmax(300px, auto);
+  gap: 8px;
+}
+
+.identity-code {
+  min-height: 1.72rem;
+  padding: 0 0.56rem;
+  font-size: 0.72rem;
+}
+
+.identity-spec {
+  font-size: 0.9rem;
+  line-height: 1.12;
+}
+
+.info-note {
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.result-side {
+  grid-template-columns: minmax(138px, auto) minmax(170px, auto);
+  gap: 8px;
+}
+
+.metric-inline {
+  min-width: 64px;
+  gap: 1px;
+  padding: 0.42rem 0.54rem;
+  border-radius: 0.82rem;
+}
+
+.metric-label {
+  font-size: 0.58rem;
+}
+
+.metric-inline strong {
+  font-size: 0.86rem;
+}
+
+.discount-stepper {
+  gap: 4px;
+  padding: 3px;
+}
+
+.discount-stepper-btn {
+  width: 1.9rem;
+  height: 1.9rem;
+}
+
+.discount-input-shell {
+  min-height: 1.9rem;
+  padding: 0 0.55rem;
+}
+
+.discount-manual {
+  width: 3rem;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-main {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .masthead {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    padding: 10px 12px;
+  }
+
+  .masthead-main {
+    gap: 4px;
+  }
+
+  .brand-line h1 {
+    font-size: 1.16rem;
+  }
+
+  .version-bar {
+    font-size: 0.72rem;
+  }
+
+  .toolbar {
+    padding: 8px 10px 10px;
+  }
+
+  .toolbar-actions {
+    top: calc(6px + env(safe-area-inset-top, 0px));
+    padding: 6px;
+    border-radius: 1rem;
+  }
+
+  .toolbar-actions.is-stuck {
+    max-width: min(100%, 352px);
+    margin-inline: auto;
+    border-radius: 999px;
+    box-shadow: 0 18px 34px -24px rgba(31, 46, 56, 0.28);
+  }
+
+  .toolbar-actions.is-stuck .btn {
+    min-height: 2.3rem;
+    padding: 0 0.58rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+  }
+
+  .toolbar-main {
+    gap: 8px;
+  }
+
+  .query-panel,
+  .result-panel {
+    padding: 10px 12px;
+  }
+
+  .query-input {
+    min-height: 9.6rem;
+  }
+
+  .result-row {
+    grid-template-columns: 1fr;
+  }
+
+  .result-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .discount-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+/* v9 density refinement */
+
+.field-group-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 10px;
+}
+
+.field-group-inline .step-presets {
+  flex: 0 0 auto;
+}
+
+.toolbar-copy-inline {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  flex: 1 1 380px;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0;
+  border-top: none;
+  overflow: visible;
+}
+
+.result-controls-band {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.toolbar-copy-inline .opt-lbl {
+  white-space: nowrap;
+}
+
+.result-summary {
+  gap: 4px;
+}
+
+.meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.info-note-inline {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.72rem;
+  padding: 0 0.58rem;
+  border-radius: 999px;
+  border: 1px dashed rgba(31, 48, 60, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-soft);
+}
+
+@media (max-width: 900px) {
+  .field-group-inline {
+    align-items: flex-start;
+  }
+
+  .toolbar-copy-inline {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .field-group-inline {
+    gap: 6px;
+  }
+
+  .toolbar-copy-inline {
+    flex-basis: 100%;
+    gap: 5px;
+  }
+
+  .toolbar-copy-inline .opt-lbl {
+    font-size: 0.74rem;
+  }
+
+  .result-summary {
+    gap: 3px;
+  }
+
+  .meta-line {
+    gap: 5px;
+  }
+
+  .info-note-inline {
+    min-height: 1.62rem;
+  }
+
+  .result-side {
+    grid-template-columns: minmax(60px, 0.82fr) minmax(60px, 0.82fr) minmax(142px, 1.76fr);
+    align-items: center;
+  }
+
+  .metric-inline {
+    min-width: 0;
+  }
+
+  .metric-inline strong {
+    font-size: 0.8rem;
+  }
+
+  .discount-panel {
+    grid-column: auto;
+  }
+
+  .discount-stepper {
+    width: 100%;
+    gap: 3px;
+  }
+
+  .discount-stepper-btn {
+    width: 1.7rem;
+    height: 1.7rem;
+  }
+
+  .discount-input-shell {
+    min-height: 1.72rem;
+  }
+
+  .discount-manual {
+    width: 2.3rem;
+  }
+}
+
+/* v9 single-row toolbar refinement */
+
+@media (min-width: 901px) {
+  .toolbar-main {
+    grid-template-columns: minmax(0, 1.72fr) minmax(96px, 0.42fr) minmax(110px, 0.48fr);
+  }
+
+  .field-group-inline {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+  }
+
+  .toolbar-copy-inline {
+    flex: 0 0 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 4px;
+    overflow: visible;
+  }
+
+  .toolbar-copy-inline .opt-lbl {
+    min-height: 1.62rem;
+    padding: 0 0.48rem;
+    font-size: 0.71rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .field-group-inline {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .toolbar-copy-inline {
+    width: 100%;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .toolbar-copy-inline::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding: 8px 6px 16px;
+  }
+
+  .masthead,
+  .toolbar,
+  .query-panel,
+  .result-panel {
+    padding: 8px 9px;
+    border-radius: 0.94rem;
+  }
+
+  .toolbar {
+    gap: 5px;
+  }
+
+  .toolbar-actions {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .toolbar-actions.is-stuck {
+    max-width: min(100%, 304px);
+    padding: 4px;
+  }
+
+  .toolbar-actions .btn,
+  .toolbar-actions.is-stuck .btn {
+    min-height: 2.08rem;
+    padding: 0 0.46rem;
+    font-size: 0.76rem;
+  }
+
+  .toolbar-main {
+    gap: 6px;
+  }
+
+  .field-shell {
+    min-height: 1.79rem;
+  }
+
+  .step-preset {
+    min-width: 2.88rem;
+    min-height: 1.68rem;
+    font-size: 0.74rem;
+  }
+
+  .toolbar-copy-inline .opt-lbl {
+    min-height: 1.54rem;
+    padding: 0 0.42rem;
+    font-size: 0.7rem;
+  }
+
+  .query-panel,
+  .result-panel {
+    gap: 8px;
+  }
+
+  .query-input {
+    min-height: 8.8rem;
+    padding: 0.7rem 0.76rem;
+  }
+
+  .result-card {
+    padding: 6px 7px;
+    border-radius: 0.86rem;
+  }
+
+  .result-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "summary summary"
+      "side select";
+    gap: 6px;
+    align-items: end;
+  }
+
+  .result-summary {
+    grid-area: summary;
+  }
+
+  .select-chip {
+    min-width: 0;
+    padding: 0 0.52rem;
+  }
+
+  .discount-select-chip {
+    grid-area: select;
+    align-self: stretch;
+    justify-content: center;
+    min-height: 1.6rem;
+    padding: 0 0.44rem;
+    border-radius: 0.74rem;
+    font-size: 0.68rem;
+  }
+
+  .identity-code {
+    min-height: 1.56rem;
+    padding: 0 0.48rem;
+    font-size: 0.66rem;
+  }
+
+  .identity-spec {
+    font-size: 0.82rem;
+  }
+
+  .meta-line {
+    gap: 4px;
+  }
+
+  .stock-chip,
+  .special-chip,
+  .info-note-inline {
+    min-height: 1.56rem;
+    padding: 0 0.46rem;
+    font-size: 0.68rem;
+  }
+
+  .result-side {
+    grid-area: side;
+    grid-template-columns: minmax(46px, 0.72fr) minmax(46px, 0.72fr) minmax(104px, 1.58fr);
+    gap: 5px;
+    align-items: center;
+  }
+
+  .metric-inline {
+    padding: 0.3rem 0.36rem;
+    border-radius: 0.72rem;
+  }
+
+  .metric-label {
+    font-size: 0.52rem;
+  }
+
+  .metric-inline strong {
+    font-size: 0.74rem;
+  }
+
+  .discount-panel {
+    grid-column: auto;
+  }
+
+  .discount-stepper {
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .discount-stepper-btn {
+    width: 1.48rem;
+    height: 1.48rem;
+    font-size: 0.82rem;
+  }
+
+  .discount-input-shell {
+    min-height: 1.52rem;
+    padding: 0 0.32rem;
+    gap: 2px;
+  }
+
+  .discount-manual {
+    width: 1.9rem;
+    font-size: 16px;
+  }
+
+  .discount-unit {
+    font-size: 0.62rem;
+  }
+
+  .result-panel-actions {
+    gap: 4px;
+  }
+
+  .result-stat,
+  .select-all-toggle {
+    min-height: 1.68rem;
+    padding: 0 0.52rem;
+    font-size: 0.7rem;
+  }
+}
+
+.mobile-back-top {
+  position: fixed;
+  right: 10px;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.2rem;
+  padding: 0 0.78rem;
+  border: 1px solid rgba(18, 108, 105, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 252, 246, 0.96);
+  color: var(--accent-ink);
+  font-size: 0.76rem;
+  font-weight: 700;
+  box-shadow: 0 18px 34px -24px rgba(31, 46, 56, 0.28);
+  backdrop-filter: blur(14px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition:
+    opacity var(--transition),
+    transform var(--transition),
+    box-shadow var(--transition);
+}
+
+.mobile-back-top.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.mobile-back-top:hover {
+  box-shadow: 0 20px 38px -22px rgba(18, 108, 105, 0.24);
+}
+
+@media (min-width: 721px) {
+  .mobile-back-top {
+    display: none;
+  }
+}
+
+/* v9 configurable default discounts */
+
+body.has-overlay {
+  overflow: hidden;
+}
+
+.toolbar-main {
+  grid-template-columns: minmax(0, 1.24fr) minmax(104px, 0.4fr) minmax(112px, 0.44fr);
+  gap: 10px;
+}
+
+.field-group-large,
+.toolbar-main > .field-group:nth-child(2),
+.toolbar-main > .field-group:nth-child(3) {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.toolbar-secondary {
+  display: grid;
+  gap: 8px;
+}
+
+.toolbar-secondary-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.toolbar-secondary .step-presets {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolbar-secondary .step-presets::-webkit-scrollbar,
+.toolbar-secondary .toolbar-copy-inline::-webkit-scrollbar {
+  display: none;
+}
+
+.step-preset-action {
+  min-width: 4.9rem;
+  border-color: rgba(18, 108, 105, 0.16);
+  background: linear-gradient(135deg, rgba(18, 108, 105, 0.12), rgba(232, 184, 123, 0.12));
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+.toolbar-secondary .toolbar-copy-inline {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-column: auto;
+  min-width: 0;
+  width: 100%;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 0;
+  border-top: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.toolbar-secondary .toolbar-copy-inline .opt-lbl {
+  min-height: 1.68rem;
+  padding: 0 0.54rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.discount-config-modal[hidden] {
+  display: none;
+}
+
+.discount-config-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.discount-config-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(26, 35, 44, 0.18);
+  backdrop-filter: blur(12px);
+}
+
+.discount-config-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 560px);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 1.35rem;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(246, 240, 232, 0.96));
+  box-shadow: 0 28px 54px -32px rgba(31, 46, 56, 0.38);
+}
+
+.discount-config-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.discount-config-kicker {
+  margin: 0 0 4px;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.discount-config-head h2 {
+  margin: 0;
+  font-family: "Fraunces", "STSong", serif;
+  font-size: 1.22rem;
+  line-height: 1;
+}
+
+.discount-config-copy {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.84rem;
+  line-height: 1.52;
+}
+
+.discount-config-close {
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid rgba(31, 48, 60, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-soft);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.discount-config-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.discount-config-field {
+  display: grid;
+  gap: 6px;
+}
+
+.discount-config-field > span {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.discount-config-field .field-shell {
+  min-height: 2.46rem;
+}
+
+.discount-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-ghost {
+  border-color: rgba(31, 48, 60, 0.12);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .toolbar-main {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar-secondary-main {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .toolbar-secondary .toolbar-copy-inline {
+    justify-content: flex-start;
+  }
+
+  .discount-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .toolbar-main {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .toolbar-secondary {
+    gap: 5px;
+  }
+
+  .toolbar-secondary-main {
+    gap: 5px;
+  }
+
+  .toolbar-secondary .step-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr) auto auto;
+    gap: 2px;
+    white-space: nowrap;
+    padding-bottom: 1px;
+  }
+
+  .step-preset-action {
+    min-width: 2.9rem;
+  }
+
+  .toolbar-secondary .toolbar-copy-inline .opt-lbl {
+    min-height: 1.56rem;
+    padding: 0 0.3rem;
+    font-size: 0.69rem;
+  }
+
+  .discount-config-modal {
+    padding: 10px;
+  }
+
+  .discount-config-card {
+    gap: 12px;
+    padding: 14px;
+    border-radius: 1rem;
+  }
+
+  .discount-config-grid {
+    gap: 8px;
+  }
+
+  .discount-config-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .discount-config-actions .btn {
+    min-height: 2.2rem;
+    padding: 0 0.42rem;
+    font-size: 0.76rem;
+  }
+
+  .discount-config-field .field-shell,
+  .discount-config-field input {
+    font-size: 16px;
+  }
+}
+
+/* v9 toolbar/result control alignment */
+
+:root {
+  --toolbar-stack-height: 0px;
+}
+
+.btn-mmc {
+  border-color: rgba(18, 108, 105, 0.16);
+  background: linear-gradient(135deg, rgba(18, 108, 105, 0.14), rgba(232, 184, 123, 0.1));
+  color: var(--accent-ink);
+}
+
+.masthead {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.toolbar {
+  top: 12px;
+}
+
+.toolbar-actions {
+  min-width: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.toolbar-main {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.field-group-large,
+.toolbar-main > .field-group:nth-child(2),
+.toolbar-main > .field-group:nth-child(3) {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.toolbar-secondary-main {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.toolbar-control-band {
+  display: contents;
+}
+
+.toolbar-step-presets {
+  grid-column: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolbar-step-presets::-webkit-scrollbar {
+  display: none;
+}
+
+.toolbar-result-actions {
+  grid-column: 2;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+
+.toolbar-result-actions .result-stat,
+.toolbar-result-actions .select-all-toggle {
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+}
+
+.toolbar-copy-inline {
+  grid-column: 3;
+  width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  justify-content: flex-start;
+  padding-top: 0;
+  border-top: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.toolbar-copy-inline::-webkit-scrollbar {
+  display: none;
+}
+
+.toolbar-copy-inline .opt-lbl {
+  flex: 0 0 auto;
+  min-height: 1.68rem;
+  padding: 0 0.54rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.result-panel-header {
+  align-items: center;
+}
+
+.version-bar {
+  min-width: 0;
+}
+
+.query-panel {
+  position: sticky;
+  top: calc(12px + var(--toolbar-stack-height) + 12px);
+  z-index: 17;
+}
+
+@media (max-width: 900px) {
+  .toolbar-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .toolbar-main,
+  .toolbar-secondary-main {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar-result-actions {
+    grid-column: 2;
+    gap: 6px;
+  }
+
+  .toolbar-copy-inline {
+    grid-column: 3;
+  }
+
+  .query-panel {
+    top: calc(12px + var(--toolbar-stack-height) + 10px);
+  }
+}
+
+@media (max-width: 720px) {
+  .toolbar {
+    position: sticky;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    z-index: 32;
+  }
+
+  .toolbar-actions {
+    position: static;
+    top: auto;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    z-index: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .toolbar-main {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .toolbar-secondary-main {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .toolbar-step-presets,
+  .toolbar-result-actions {
+    grid-column: auto;
+    gap: 5px;
+  }
+
+  .toolbar-copy-inline {
+    grid-column: auto;
+    width: 100%;
+    gap: 5px;
+  }
+
+  .toolbar-result-actions .result-stat,
+  .toolbar-result-actions .select-all-toggle {
+    min-height: 1.9rem;
+    padding: 0 0.44rem;
+    font-size: 0.68rem;
+  }
+
+  .toolbar-copy-inline .opt-lbl {
+    min-height: 1.56rem;
+    padding: 0 0.46rem;
+    font-size: 0.69rem;
+  }
+
+  .version-bar {
+    overflow-x: auto;
+    white-space: nowrap;
+    word-break: normal;
+    scrollbar-width: none;
+  }
+
+  .version-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .query-panel {
+    position: static;
+    top: auto;
+    z-index: auto;
+  }
+
+  .query-input {
+    min-height: 11rem;
+    max-height: 38vh;
+  }
+}
+
+
+/* ═══════════════════════════════════════════
+   三菱库存实时展示 + 按钮 loading 态
+   ═══════════════════════════════════════════ */
+
+.stock-live-placeholder {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 0.5rem;
+  min-height: 1.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.stock-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.stock-live-data {
+  color: #059669;
+}
+
+.stock-live-data.stock-zero {
+  color: #9ca3af;
+}
+
+.stock-live-data.stock-error {
+  color: #ef4444;
+}
+
+.stock-loading {
+  color: #f59e0b;
+  animation: stock-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes stock-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* 按钮 loading 态 */
+.btn-mmc.btn-loading {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+/* 移动端适配 */
+@media (max-width: 780px) {
+  .stock-live-placeholder {
+    padding: 1px 0;
+    min-height: 18px;
+  }
+  .stock-signal {
+    font-size: 0.7rem;
+  }
+}
+
+</style>
+</head>
+<body>
+<div id="toast" class="toast" role="status" aria-live="polite">已复制</div>
+
+<div class="shell">
+  <header class="masthead">
+    <div class="masthead-main">
+      <div class="brand-line">
+        <h1>智能询价系统</h1>
+        <div id="status" class="status-badge info">等待数据...</div>
+      </div>
+      <div id="versions" class="version-bar">价格版本: - | 库存版本: -</div>
+    </div>
+  </header>
+
+  <section class="toolbar" aria-label="查询控制台">
+    <div class="toolbar-actions">
+      <button id="btnSearch" class="btn btn-search" type="button">智能查询</button>
+      <button id="btnRegexConvert" class="btn btn-regex" type="button">库存查询</button>
+      <button id="btnMmc" class="btn btn-mmc" type="button">三菱库存</button>
+      <button id="btnCopy" class="btn btn-copy" type="button">复制勾选</button>
+    </div>
+
+    <div class="toolbar-main">
+      <div class="field-group field-group-large">
+        <label for="discountStep">折扣步长</label>
+        <div class="field-shell">
+          <input type="number" id="discountStep" value="0.1" step="0.1" min="0.1" inputmode="decimal">
+          <span class="field-unit">百分点</span>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="decimals">小数位数</label>
+        <div class="field-shell">
+          <input type="number" id="decimals" value="1" step="1" min="0" inputmode="numeric">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="threshold">取整阈值</label>
+        <div class="field-shell">
+          <input type="number" id="threshold" value="100" step="1" min="0" inputmode="numeric">
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar-secondary">
+      <div class="toolbar-secondary-main">
+        <div class="toolbar-control-band">
+          <div id="stepPresetControls" class="step-presets toolbar-step-presets">
+            <button id="btnDefaultDiscounts" type="button" class="step-preset step-preset-action">配置</button>
+          </div>
+        </div>
+
+        <div class="result-controls-band">
+          <div class="result-stat"><strong id="resultCount">0</strong>结果</div>
+          <label class="select-all-toggle"><input id="toggleAllResults" type="checkbox">全选</label>
+          <label class="opt-lbl"><input id="chkUntaxedQuote" type="checkbox">未税</label>
+        </div>
+
+        <div id="copyColumnControls" class="toolbar-copy toolbar-copy-inline"></div>
+      </div>
+    </div>
+  </section>
+
+  <main class="workspace">
+    <section class="query-panel">
+      <div class="section-head section-head-compact section-head-inline">
+        <h2>输入</h2>
+      </div>
+      <textarea id="queryInput" class="query-input" placeholder="请输入规格型号...&#10;支持多关键词，例如：&#10;WNMG080408 UC5115"></textarea>
+      <div class="query-note query-note-inline">
+        <span>勾选项自动置顶</span>
+      </div>
+    </section>
+
+    <section class="result-panel">
+      <div class="result-panel-header">
+        <div class="section-head section-head-compact section-head-inline">
+          <h2>结果</h2>
+        </div>
+      </div>
+
+      <div class="results-shell">
+        <div id="resultBody" class="result-list" aria-live="polite"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="defaultDiscountModal" class="discount-config-modal" hidden>
+    <div id="defaultDiscountBackdrop" class="discount-config-backdrop"></div>
+  <section class="discount-config-card" role="dialog" aria-modal="true" aria-labelledby="defaultDiscountTitle">
+    <div class="discount-config-head">
+      <div>
+        <p class="discount-config-kicker">Default Discount</p>
+        <h2 id="defaultDiscountTitle">默认折扣设置</h2>
+      </div>
+      <button id="btnCloseDefaultDiscounts" type="button" class="discount-config-close" aria-label="关闭">×</button>
+    </div>
+
+    <p class="discount-config-copy">按品牌或活动设置默认折扣。保存后，新查询结果会自动套用，未手动改过折扣的当前结果也会同步更新。</p>
+
+    <div class="discount-config-grid">
+      <!-- 动态渲染：由 app.js 的 buildDefaultDiscountForm() 根据 discount_rules 生成输入框 -->
+      <!-- 兜底隐藏输入（旧版兼容，当 JS 动态渲染失败时回退） -->
+      <label class="discount-config-field" for="defaultDiscountEx" hidden>
+        <span>EX</span>
+        <div class="field-shell">
+          <input type="number" id="defaultDiscountEx" min="0" max="100" step="0.1" inputmode="decimal">
+          <span class="field-unit">%</span>
+        </div>
+      </label>
+      <label class="discount-config-field" for="defaultDiscountOsg" hidden>
+        <span>OSG</span>
+        <div class="field-shell">
+          <input type="number" id="defaultDiscountOsg" min="0" max="100" step="0.1" inputmode="decimal">
+          <span class="field-unit">%</span>
+        </div>
+      </label>
+      <label class="discount-config-field" for="defaultDiscountMitsubishi" hidden>
+        <span>三菱</span>
+        <div class="field-shell">
+          <input type="number" id="defaultDiscountMitsubishi" min="0" max="100" step="0.1" inputmode="decimal">
+          <span class="field-unit">%</span>
+        </div>
+      </label>
+      <label class="discount-config-field" for="defaultDiscountOther" hidden>
+        <span>其他</span>
+        <div class="field-shell">
+          <input type="number" id="defaultDiscountOther" min="0" max="100" step="0.1" inputmode="decimal">
+          <span class="field-unit">%</span>
+        </div>
+      </label>
+    </div>
+
+    <div class="discount-config-actions">
+      <button id="btnResetDefaultDiscounts" type="button" class="btn btn-ghost">恢复默认</button>
+      <button id="btnCancelDefaultDiscounts" type="button" class="btn btn-ghost">取消</button>
+      <button id="btnSaveDefaultDiscounts" type="button" class="btn btn-search">保存</button>
+    </div>
+  </section>
+</div>
+
+<button id="btnBackToTop" class="mobile-back-top" type="button">回到顶部</button>
+
+<!-- 把绝对路径改成相对路径，确保前面有 ./ -->
+
+
+
+
+<!-- 干干净净的主程序 -->
+<script>
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) {
+    module.exports = factory();
+  } else {
+    root.QueryRegex = factory();
+  }
+})(typeof self !== "undefined" ? self : this, function () {
+  function toStringSafe(value) {
+    if (value === null || value === undefined) return "";
+    return String(value);
+  }
+
+  function escapeRegexLiteral(text) {
+    return toStringSafe(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function convertPlainLineToRegex(line) {
+    var normalized = toStringSafe(line).trim();
+    if (!normalized) return null;
+    var parts = normalized.split(/\s+/).filter(Boolean);
+    if (!parts.length) return null;
+    var pattern = parts.map(escapeRegexLiteral).join(".*");
+    return new RegExp(pattern, "i");
+  }
+
+  function testRegex(re, value) {
+    var flags = toStringSafe(re.flags).replace(/g/g, "");
+    var safe = new RegExp(re.source, flags);
+    return safe.test(toStringSafe(value));
+  }
+
+  function collectMatchFields(args) {
+    if (!args.length) return [];
+
+    var first = args[0];
+    if (Array.isArray(first)) return first;
+    if (first && typeof first === "object") {
+      return [
+        first.spec,
+        first.code,
+        first.name,
+        first.mnemonic,
+        first.remark,
+        first.alias,
+        first.special,
+      ];
+    }
+    if (args.length === 1) return [args[0]];
+
+    return args;
+  }
+
+  function matchRegexTarget() {
+    var args = Array.prototype.slice.call(arguments);
+    var re = args.pop();
+    if (!(re instanceof RegExp)) throw new Error("re must be RegExp");
+    var fields = collectMatchFields(args);
+    var combined = fields.map(toStringSafe).join(" ");
+    return (
+      testRegex(re, combined) ||
+      fields.some(function (field) {
+        return testRegex(re, field);
+      })
+    );
+  }
+
+  function hasStockValue(stockText) {
+    return !!toStringSafe(stockText).trim();
+  }
+
+  return {
+    escapeRegexLiteral: escapeRegexLiteral,
+    convertPlainLineToRegex: convertPlainLineToRegex,
+    matchRegexTarget: matchRegexTarget,
+    hasStockValue: hasStockValue,
+  };
+});
+
+</script>
+<script>
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) {
+    module.exports = factory();
+  } else {
+    root.DiscountUtils = factory();
+  }
+})(typeof self !== "undefined" ? self : this, function () {
+  var FALLBACK_DISCOUNT_PERCENT = 55;
+  var OSG_DISCOUNT_PERCENT = 36;
+  var EX_ACTIVITY_DISCOUNT_PERCENT = 32;
+  var MITSUBISHI_DISCOUNT_PERCENT = 55;
+  var MIN_DISCOUNT_PERCENT = 0;
+  var MAX_DISCOUNT_PERCENT = 100;
+  var DEFAULT_STEP_PERCENT = 0.1;
+  // 兜底默认折扣（4 个固定品牌），在没有加载到 admin 配置时使用
+  var FALLBACK_DISCOUNT_CONFIG = Object.freeze({
+    ex: EX_ACTIVITY_DISCOUNT_PERCENT,
+    osg: OSG_DISCOUNT_PERCENT,
+    mitsubishi: MITSUBISHI_DISCOUNT_PERCENT,
+    other: FALLBACK_DISCOUNT_PERCENT,
+  });
+
+  function toStringSafe(value) {
+    if (value === null || value === undefined) return "";
+    return String(value).trim();
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function roundToTwo(value) {
+    return Math.round(Number(value || 0) * 100) / 100;
+  }
+
+  function normalizePercent(value, fallback) {
+    var num = Number(value);
+    if (!Number.isFinite(num)) num = Number(fallback);
+    if (!Number.isFinite(num)) num = FALLBACK_DISCOUNT_PERCENT;
+    return clamp(roundToTwo(num), MIN_DISCOUNT_PERCENT, MAX_DISCOUNT_PERCENT);
+  }
+
+  function sanitizeStepPercent(value) {
+    var num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return DEFAULT_STEP_PERCENT;
+    return Math.max(DEFAULT_STEP_PERCENT, roundToTwo(num));
+  }
+
+  function compactText(value) {
+    return toStringSafe(value).replace(/\s+/g, "");
+  }
+
+  function includesNormalized(haystack, needle) {
+    return compactText(haystack).toUpperCase().indexOf(compactText(needle).toUpperCase()) >= 0;
+  }
+
+  /**
+   * 从 discount_rules 数组构建扁平折扣配置对象 { ruleId: percent, ... }
+   * 这是动态品牌键的核心函数，替代硬编码的 {ex, osg, mitsubishi, other}
+   */
+  function buildDiscountConfigFromRules(rules, fallbackConfig) {
+    var out = {};
+    var fb = fallbackConfig || FALLBACK_DISCOUNT_CONFIG;
+
+    // 从 rules 中提取每个规则的 percent
+    (Array.isArray(rules) ? rules : []).forEach(function (rule) {
+      var id = String(rule.id || "").toLowerCase();
+      if (id && Number.isFinite(Number(rule.percent))) {
+        out[id] = Number(rule.percent);
+      }
+    });
+
+    // 兜底：如果没有 rules，使用 fallback config
+    if (Object.keys(out).length === 0) {
+      Object.keys(fb).forEach(function (key) {
+        out[key] = fb[key];
+      });
+    }
+
+    return out;
+  }
+
+  /**
+   * 动态版 sanitizeDiscountConfig：规范化任意键的折扣对象
+   * 对 config 中的每个键规范化其 percent 值，缺失的键从 fallbackConfig 补充
+   */
+  function sanitizeDiscountConfig(config, fallbackConfig) {
+    var source = config || {};
+    var fb = fallbackConfig || FALLBACK_DISCOUNT_CONFIG;
+
+    // 收集所有已知的键
+    var allKeys = {};
+    Object.keys(fb).forEach(function (k) { allKeys[k] = true; });
+    Object.keys(source).forEach(function (k) { allKeys[k] = true; });
+
+    var out = {};
+    Object.keys(allKeys).forEach(function (key) {
+      var fallback = (fb[key] !== undefined) ? fb[key] : FALLBACK_DISCOUNT_PERCENT;
+      out[key] = normalizePercent(source[key], fallback);
+    });
+
+    return out;
+  }
+
+  /**
+   * 从 discount_rules 中匹配物品的折扣类别（动态版）
+   * 替代硬编码的 getDiscountCategory()，使用 rules conditions 来判断
+   */
+  function getDiscountCategoryFromRules(item, rules) {
+    if (!rules || !Array.isArray(rules) || !rules.length) {
+      // 回退到硬编码逻辑
+      return _getHardcodedCategory(item);
+    }
+
+    var source = item || {};
+    // 构造一个用于条件匹配的 row 对象
+    var special = toStringSafe(source.special);
+    var spec = toStringSafe(source.spec);
+    var brand = toStringSafe(source.brand || source.b);
+    var name = toStringSafe(source.name || source.n);
+    var code = toStringSafe(source.code || source.c);
+
+    var row = {
+      code: code, spec: spec, brand: brand, name: name, special: special,
+      // 支持 conditionMatches 中使用的字段
+      fields: {
+        code: code, spec: spec, brand: brand, name: name, special: special,
+        b: brand, n: name, c: code,
+      }
+    };
+
+    // 遍历 rules（按优先级），第一个匹配的非默认规则即为分类
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i];
+      if (rule.default) continue; // 跳过默认规则
+      var conditions = rule.conditions || [];
+      if (conditions.length === 0) continue;
+
+      var allMatch = conditions.every(function (cond) {
+        return _conditionMatches(row, cond);
+      });
+      if (allMatch) {
+        return String(rule.id || rule.category || "").toLowerCase();
+      }
+    }
+
+    // 未匹配任何特定规则 → fallback
+    // 找到 default 规则
+    for (var j = 0; j < rules.length; j++) {
+      if (rules[j].default) return String(rules[j].id || "other").toLowerCase();
+    }
+    return "other";
+  }
+
+  // 轻量条件匹配（不依赖 config-core.js）
+  function _conditionMatches(row, condition) {
+    var item = condition || {};
+    var rawValue = (row.fields && row.fields[item.field] !== undefined)
+      ? row.fields[item.field]
+      : (row[item.field] !== undefined ? row[item.field] : "");
+    var value = toStringSafe(rawValue);
+
+    if (item.equals !== undefined && value !== String(item.equals)) return false;
+    if (item.contains !== undefined && compactText(value).toUpperCase().indexOf(compactText(String(item.contains)).toUpperCase()) < 0) return false;
+    if (item.regex !== undefined) {
+      try {
+        if (!new RegExp(String(item.regex), "i").test(value)) return false;
+      } catch (e) { return false; }
+    }
+    if (item.gt !== undefined) { if (Number(rawValue) <= Number(item.gt)) return false; }
+    if (item.gte !== undefined) { if (Number(rawValue) < Number(item.gte)) return false; }
+    if (item.lt !== undefined) { if (Number(rawValue) >= Number(item.lt)) return false; }
+    if (item.lte !== undefined) { if (Number(rawValue) > Number(item.lte)) return false; }
+    return true;
+  }
+
+  // 硬编码分类（无 rules 时的回退）
+  function _getHardcodedCategory(item) {
+    var source = item || {};
+    var special = toStringSafe(source.special);
+    var spec = toStringSafe(source.spec);
+    var brand = toStringSafe(source.brand || source.b);
+    var name = toStringSafe(source.name || source.n);
+    var brandAndSpec = brand + " " + spec;
+
+    if (includesNormalized(special, "\u0045\u0058\u6d3b\u52a8")) {
+      return "ex";
+    }
+    if (/OSG/i.test(brandAndSpec)) {
+      return "osg";
+    }
+    if (name === "\u5200\u5177") {
+      return "mitsubishi";
+    }
+    return "other";
+  }
+
+  /**
+   * 公开的 getDiscountCategory（向后兼容 + 动态支持）
+   * 当提供 rules 参数时使用动态匹配，否则回退硬编码
+   */
+  function getDiscountCategory(item, rules) {
+    if (rules && Array.isArray(rules) && rules.length) {
+      return getDiscountCategoryFromRules(item, rules);
+    }
+    return _getHardcodedCategory(item);
+  }
+
+  function getDiscountLabel(category, percent, rules) {
+    // 尝试从 rules 中查找类别标签
+    if (rules && Array.isArray(rules)) {
+      for (var i = 0; i < rules.length; i++) {
+        if (String(rules[i].id || "").toLowerCase() === String(category).toLowerCase()) {
+          return (rules[i].label || category) + " " + formatDiscountPercent(percent);
+        }
+      }
+    }
+    // 硬编码回退
+    if (category === "ex") return "\u0045\u0058\u6d3b\u52a8 " + formatDiscountPercent(percent);
+    if (category === "osg") return "OSG " + formatDiscountPercent(percent);
+    if (category === "mitsubishi") return "\u4e09\u83f1 " + formatDiscountPercent(percent);
+    return String(category || "\u5176\u4ed6") + " " + formatDiscountPercent(percent);
+  }
+
+  function getDefaultDiscountPreset(item, config, rules) {
+    var category = getDiscountCategory(item, rules);
+    var normalizedConfig = sanitizeDiscountConfig(config);
+
+    var percent = normalizedConfig[category];
+    var source = category;
+
+    if (percent === undefined || !Number.isFinite(percent)) {
+      percent = normalizedConfig.other || FALLBACK_DISCOUNT_PERCENT;
+      source = "fallback";
+      category = "other";
+    }
+
+    return {
+      percent: percent,
+      source: source,
+      category: category,
+      label: getDiscountLabel(category, percent, rules),
+    };
+  }
+
+  function getDefaultDiscountPercent(item, config, rules) {
+    return getDefaultDiscountPreset(item, config, rules).percent;
+  }
+
+  function shiftDiscountPercent(currentPercent, stepPercent, direction) {
+    var current = normalizePercent(currentPercent, FALLBACK_DISCOUNT_PERCENT);
+    var step = sanitizeStepPercent(stepPercent);
+    var dir = Number(direction) < 0 ? -1 : 1;
+    return normalizePercent(current + step * dir, current);
+  }
+
+  function formatDiscountPercent(value) {
+    return normalizePercent(value, FALLBACK_DISCOUNT_PERCENT)
+      .toFixed(2)
+      .replace(/\.?0+$/, "") + "%";
+  }
+
+  return {
+    FALLBACK_DISCOUNT_PERCENT: FALLBACK_DISCOUNT_PERCENT,
+    OSG_DISCOUNT_PERCENT: OSG_DISCOUNT_PERCENT,
+    EX_ACTIVITY_DISCOUNT_PERCENT: EX_ACTIVITY_DISCOUNT_PERCENT,
+    MITSUBISHI_DISCOUNT_PERCENT: MITSUBISHI_DISCOUNT_PERCENT,
+    DEFAULT_STEP_PERCENT: DEFAULT_STEP_PERCENT,
+    DEFAULT_DISCOUNT_CONFIG: FALLBACK_DISCOUNT_CONFIG,
+    FALLBACK_DISCOUNT_CONFIG: FALLBACK_DISCOUNT_CONFIG,
+    normalizePercent: normalizePercent,
+    sanitizeStepPercent: sanitizeStepPercent,
+    sanitizeDiscountConfig: sanitizeDiscountConfig,
+    buildDiscountConfigFromRules: buildDiscountConfigFromRules,
+    getDiscountCategory: getDiscountCategory,
+    getDiscountCategoryFromRules: getDiscountCategoryFromRules,
+    getDefaultDiscountPreset: getDefaultDiscountPreset,
+    getDefaultDiscountPercent: getDefaultDiscountPercent,
+    shiftDiscountPercent: shiftDiscountPercent,
+    formatDiscountPercent: formatDiscountPercent,
+  };
+});
+
+</script>
+<script>
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) {
+    module.exports = factory();
+  } else {
+    root.ResultSort = factory();
+  }
+})(typeof self !== "undefined" ? self : this, function () {
+  function getStableOrderValue(row, fallbackIndex) {
+    var orderIndex = Number(row && row.orderIndex);
+    if (Number.isFinite(orderIndex)) return orderIndex;
+
+    var id = Number(row && row.id);
+    if (Number.isFinite(id)) return id;
+
+    return fallbackIndex;
+  }
+
+  function sortResultsBySelection(results) {
+    if (!Array.isArray(results)) return [];
+
+    return results
+      .map(function (row, index) {
+        return {
+          row: row,
+          checked: !!(row && row.checked),
+          orderIndex: getStableOrderValue(row, index)
+        };
+      })
+      .sort(function (left, right) {
+        if (left.checked !== right.checked) {
+          return left.checked ? -1 : 1;
+        }
+
+        return left.orderIndex - right.orderIndex;
+      })
+      .map(function (entry) {
+        return entry.row;
+      });
+  }
+
+  return {
+    sortResultsBySelection: sortResultsBySelection
+  };
+});
+
+</script>
+<script>
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) {
+    module.exports = factory();
+  } else {
+    root.ConfigCore = factory();
+  }
+})(typeof self !== "undefined" ? self : this, function () {
+  var DEFAULT_CONFIG = Object.freeze({
+    schema_version: 2,
+    version: "",
+    data_source: {
+      base_url: "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q",
+      version_file: "version.json",
+      config_file: "config.json",
+      price_bundle_file: "price.bundle.json",
+      stock_bundle_file: "stock.bundle.json",
+      cache_name: "quotation-cache-v3",
+    },
+    pricing: {
+      decimal_places: 1,
+      rounding_threshold: 100,
+      discount_step: {
+        default: 0.1,
+        min: 0.1,
+        presets: [0.1, 0.5, 1],
+      },
+    },
+    fields: [
+      { key: "code", label: "代码", type: "text", source: "price", excel_aliases: ["代码", "货号", "物料编码", "编码"], searchable: true, copyable: true, result_area: "identity", required: false },
+      { key: "spec", label: "规格型号", type: "text", source: "price", excel_aliases: ["规格型号", "规格", "型号", "产品型号"], searchable: true, copyable: true, result_area: "identity", required: true },
+      { key: "face_price", label: "面价", type: "number", source: "price", excel_aliases: ["销售单价", "面价", "目录价", "含税单价", "单价"], searchable: false, copyable: false, result_area: "metric", required: false },
+      { key: "quote_price", label: "报价", type: "computed", source: "computed", excel_aliases: [], searchable: false, copyable: true, result_area: "metric", required: false },
+      { key: "special", label: "特价", type: "text", source: "price", excel_aliases: ["特价", "活动", "促销"], searchable: true, copyable: true, result_area: "chip", required: false },
+      { key: "stock", label: "库存", type: "text", source: "stock", excel_aliases: ["库存", "库存数量", "可用数量", "数量"], searchable: false, copyable: true, result_area: "chip", required: false },
+      { key: "remark", label: "备注", type: "text", source: "price", excel_aliases: ["补充说明", "备注", "说明"], searchable: true, copyable: true, result_area: "detail", required: false },
+      { key: "brand", label: "品牌", type: "text", source: "price", excel_aliases: ["品牌", "厂家"], searchable: true, copyable: false, result_area: "detail", required: false },
+      { key: "name", label: "名称", type: "text", source: "price", excel_aliases: ["名称", "品名", "类别"], searchable: true, copyable: false, result_area: "detail", required: false },
+      { key: "mnemonic", label: "助记码", type: "text", source: "price", excel_aliases: ["助记码", "简码"], searchable: true, copyable: false, result_area: "detail", required: false },
+      { key: "alias", label: "别名", type: "text", source: "price", excel_aliases: ["别名", "旧型号"], searchable: true, copyable: false, result_area: "detail", required: false },
+    ],
+    copy: {
+      empty_value: "",
+      price_prefix: "含税",
+      columns: [
+        { field: "code", label: "代码", default: true, line: "main" },
+        { field: "spec", label: "规格", default: true, line: "main" },
+        { field: "quote_price", label: "报价", default: true, line: "main", prefix: "含税" },
+        { field: "special", label: "特价", default: false, line: "main" },
+        { field: "stock", label: "库存", default: false, line: "main" },
+        { field: "remark", label: "备注", default: false, line: "detail" },
+      ],
+    },
+    result_layout: {
+      identity: ["code", "spec"],
+      chips: ["stock", "special"],
+      metrics: ["face_price", "quote_price"],
+      details: ["remark"],
+    },
+    discount_rules: [
+      { id: "ex", label: "EX活动", percent: 32, conditions: [{ field: "special", contains: "EX活动" }] },
+      { id: "osg", label: "OSG", percent: 36, conditions: [{ field: "brand", regex: "OSG" }] },
+      { id: "mitsubishi", label: "三菱", percent: 55, conditions: [{ field: "name", equals: "刀具" }] },
+      { id: "other", label: "其他", percent: 55, default: true, conditions: [] },
+    ],
+    merger: {
+      primary_field: "spec",
+      stock_key_field: "code",
+      brand_rules: {
+        defaultBrand: "UNMAPPED",
+        brands: [
+          { id: "MITSUBISHI", prefixes: ["三菱", "MITSU"] },
+          { id: "OSG", prefixes: ["OSG"] },
+        ],
+      },
+      passthrough_fields: [],
+      stock_format: "{warehouse}:{quantity}{status}",
+      stock_joiner: " | ",
+      stock_columns: {
+        code: ["物料长代码", "代码", "物料编码", "编码"],
+        warehouse: ["发料仓库", "仓库", "仓位", "仓"],
+        quantity: ["库存数量", "数量", "可用数量", "库存"],
+        status: ["参考状态", "状态", "备注"],
+      },
+    },
+    labels: {
+      app_title: "智能询价系统",
+      search_button: "智能查询",
+      stock_search_button: "库存查询",
+      mmc_button: "三菱库存",
+      copy_button: "复制勾选",
+      selected_label: "勾选",
+      config_button: "配置",
+      input_title: "输入",
+      result_title: "结果",
+      query_placeholder: "请输入规格型号...\n支持多关键词，例如：\nWNMG080408 UC5115",
+      empty_hint: "支持规格、代码、助记码、别名、备注和特价关键词。",
+      stock_prefix: "库存 ",
+    },
+  });
+
+  var LEGACY_FIELD_MAP = {
+    c: "code",
+    p: "face_price",
+    s: "special",
+    r: "remark",
+    b: "brand",
+    n: "name",
+    m: "mnemonic",
+    a: "alias",
+    i: "stock",
+  };
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function toStringSafe(value) {
+    if (value === null || value === undefined) return "";
+    return String(value).trim();
+  }
+
+  function compactNumber(value, fallback) {
+    var num = Number(value);
+    if (!Number.isFinite(num)) num = Number(fallback);
+    return Number.isFinite(num) ? Math.round(num * 100) / 100 : 0;
+  }
+
+  function parseNumber(value) {
+    var num = Number(toStringSafe(value).replace(/,/g, ""));
+    return Number.isFinite(num) ? num : 0;
+  }
+
+  function normalizeArray(value) {
+    return Array.isArray(value) ? value.slice() : [];
+  }
+
+  function mergePlain(target, source) {
+    var out = clone(target || {});
+    var incoming = source || {};
+    Object.keys(incoming).forEach(function (key) {
+      var value = incoming[key];
+      if (Array.isArray(value)) {
+        out[key] = clone(value);
+      } else if (value && typeof value === "object" && !Array.isArray(value)) {
+        out[key] = mergePlain(out[key] || {}, value);
+      } else if (value !== undefined && value !== "") {
+        out[key] = value;
+      }
+    });
+    return out;
+  }
+
+  function normalizeField(field) {
+    var item = field || {};
+    var source = toStringSafe(item.source || "price");
+    if (source === "data" || source === "key") source = "price";
+    return {
+      key: toStringSafe(item.key),
+      label: toStringSafe(item.label || item.key),
+      type: toStringSafe(item.type || "text"),
+      source: source,
+      excel_aliases: normalizeArray(item.excel_aliases).map(toStringSafe).filter(Boolean),
+      searchable: item.searchable === true,
+      copyable: item.copyable === true,
+      result_area: toStringSafe(item.result_area || "detail"),
+      required: item.required === true,
+    };
+  }
+
+  function mergeFields(rawFields) {
+    var defaults = DEFAULT_CONFIG.fields.map(normalizeField);
+    if (rawFields && !Array.isArray(rawFields) && typeof rawFields === "object") {
+      rawFields = Object.keys(rawFields).map(function (key) {
+        var normalizedKey = LEGACY_FIELD_MAP[key] || (key === "price" ? "quote_price" : key);
+        return mergePlain({ key: normalizedKey }, rawFields[key] || {});
+      });
+    }
+    if (!Array.isArray(rawFields) || !rawFields.length) return defaults;
+
+    var byKey = {};
+    defaults.forEach(function (field) {
+      byKey[field.key] = field;
+    });
+
+    rawFields.map(normalizeField).forEach(function (field) {
+      if (!field.key) return;
+      byKey[field.key] = mergePlain(byKey[field.key] || {}, field);
+    });
+
+    var ordered = [];
+    rawFields.forEach(function (field) {
+      var key = toStringSafe(field && field.key);
+      if (key && byKey[key] && ordered.indexOf(key) < 0) ordered.push(key);
+    });
+    defaults.forEach(function (field) {
+      if (ordered.indexOf(field.key) < 0) ordered.push(field.key);
+    });
+
+    return ordered.map(function (key) {
+      return normalizeField(byKey[key]);
+    });
+  }
+
+  function normalizeCopy(config) {
+    var source = (config && config.copy) || {};
+    var fallback = DEFAULT_CONFIG.copy;
+    var legacyColumns = config && Array.isArray(config.copy_columns) ? config.copy_columns.map(function (column) {
+      return { field: column.field, label: column.label, default: column.default, line: column.field === "remark" || column.field === "r" ? "detail" : "main" };
+    }) : null;
+    var columns = Array.isArray(source.columns) && source.columns.length ? source.columns : (legacyColumns || fallback.columns);
+    return {
+      empty_value: source.empty_value !== undefined ? String(source.empty_value) : fallback.empty_value,
+      price_prefix: source.price_prefix !== undefined ? String(source.price_prefix) : fallback.price_prefix,
+      line_template: source.line_template ? String(source.line_template) : "",
+      columns: columns.map(function (column) {
+        var item = column || {};
+        return {
+          field: LEGACY_FIELD_MAP[toStringSafe(item.field)] || (toStringSafe(item.field) === "price" ? "quote_price" : toStringSafe(item.field)),
+          label: toStringSafe(item.label || item.field),
+          default: item.default === true,
+          line: toStringSafe(item.line || "main"),
+          prefix: item.prefix !== undefined ? String(item.prefix) : "",
+          suffix: item.suffix !== undefined ? String(item.suffix) : "",
+        };
+      }).filter(function (column) {
+        return column.field;
+      }),
+    };
+  }
+
+  function normalizeDiscountRules(rawConfig) {
+    // ── v3 format: rawConfig.rules ────────────────────────────────────────
+    if (rawConfig && Array.isArray(rawConfig.rules) && rawConfig.rules.length) {
+      return rawConfig.rules.map(function (rule) {
+        var source = rule || {};
+        var action = (source.actions || [])[0] || {};
+        var conditions = [];
+
+        // Default rule has no conditions
+        if (!source.default && source.when && Array.isArray(source.when.all)) {
+          source.when.all.forEach(function (c) {
+            var cond = { field: toStringSafe(c.field) };
+            var op = String(c.op || "contains").toLowerCase();
+            var val = toStringSafe(c.value);
+            if (op === "contains") cond.contains = val;
+            else if (op === "equals") cond.equals = val;
+            else if (op === "regex") cond.regex = val;
+            else if (op === "gt") cond.gt = Number(val) || 0;
+            else if (op === "gte") cond.gte = Number(val) || 0;
+            else if (op === "lt") cond.lt = Number(val) || 0;
+            else if (op === "lte") cond.lte = Number(val) || 0;
+            else cond.contains = val; // fallback
+            conditions.push(cond);
+          });
+        }
+
+        return {
+          id: toStringSafe(source.id || source.label || "rule"),
+          label: toStringSafe(source.label || source.id || "规则"),
+          percent: compactNumber(action.percent, 55),
+          category: toStringSafe(source.id || source.label || "rule"),
+          source: toStringSafe(source.id || source.label || "rule"),
+          default: source.default === true,
+          conditions: conditions,
+        };
+      });
+    }
+
+    // ── v1 format: rawConfig.discounts (legacy flat object) ───────────────
+    if (rawConfig && rawConfig.discounts && !Array.isArray(rawConfig.discount_rules)) {
+      return [
+        { id: "ex", label: "EX活动", percent: rawConfig.discounts.EX, conditions: [{ field: "special", contains: "EX活动" }] },
+        { id: "osg", label: "OSG", percent: rawConfig.discounts.OSG, conditions: [{ field: "brand", regex: "OSG" }] },
+        { id: "mitsubishi", label: "三菱", percent: rawConfig.discounts["三菱"], conditions: [{ field: "name", equals: "刀具" }] },
+        { id: "other", label: "其他", percent: rawConfig.discounts["其他"], default: true, conditions: [] },
+      ];
+    }
+
+    // ── v2 format: rawConfig.discount_rules ───────────────────────────────
+    var rules = rawConfig && Array.isArray(rawConfig.discount_rules) && rawConfig.discount_rules.length
+      ? rawConfig.discount_rules
+      : DEFAULT_CONFIG.discount_rules;
+
+    return rules.map(function (rule) {
+      var source = rule || {};
+      return {
+        id: toStringSafe(source.id || source.label || "rule"),
+        label: toStringSafe(source.label || source.id || "规则"),
+        percent: compactNumber(source.percent, 55),
+        category: toStringSafe(source.category || source.id || source.label || "rule"),
+        source: toStringSafe(source.source || source.id || source.label || "rule"),
+        default: source.default === true,
+        conditions: Array.isArray(source.conditions) ? source.conditions.map(function (condition) {
+          var item = condition || {};
+          return {
+            field: toStringSafe(item.field),
+            contains: item.contains !== undefined ? String(item.contains) : undefined,
+            equals: item.equals !== undefined ? String(item.equals) : undefined,
+            regex: item.regex !== undefined ? String(item.regex) : undefined,
+          };
+        }) : [],
+      };
+    });
+  }
+
+  function normalizePricing(rawPricing) {
+    var pricing = mergePlain(DEFAULT_CONFIG.pricing, rawPricing || {});
+    pricing.decimal_places = Math.max(0, Math.round(Number(pricing.decimal_places) || 0));
+    pricing.rounding_threshold = Number.isFinite(Number(pricing.rounding_threshold)) ? Number(pricing.rounding_threshold) : 100;
+    pricing.discount_step = mergePlain(DEFAULT_CONFIG.pricing.discount_step, pricing.discount_step || {});
+    pricing.discount_step.default = Math.max(Number(pricing.discount_step.min) || 0.1, compactNumber(pricing.discount_step.default, 0.1));
+    pricing.discount_step.min = Math.max(0.01, compactNumber(pricing.discount_step.min, 0.1));
+    pricing.discount_step.presets = normalizeArray(pricing.discount_step.presets)
+      .map(function (value) { return compactNumber(value, NaN); })
+      .filter(function (value) { return Number.isFinite(value) && value > 0; });
+    if (!pricing.discount_step.presets.length) pricing.discount_step.presets = DEFAULT_CONFIG.pricing.discount_step.presets.slice();
+    return pricing;
+  }
+
+  var _normalizeCache = new Map();
+  var _normalizeCacheMax = 8;
+
+  function normalizeConfig(rawConfig) {
+    var raw = rawConfig || {};
+    if (raw._normalized) return raw;
+    var cacheKey = "";
+    try { cacheKey = JSON.stringify(raw); } catch (e) { cacheKey = ""; }
+    if (cacheKey && _normalizeCache.has(cacheKey)) return _normalizeCache.get(cacheKey);
+
+    var merged = mergePlain(DEFAULT_CONFIG, raw);
+    merged.schema_version = 2;
+    merged.version = getConfigVersion(raw);
+    merged.data_source = mergePlain(DEFAULT_CONFIG.data_source, raw.data_source || {});
+    merged.pricing = normalizePricing(raw.pricing || {
+      decimal_places: raw.decimal_places,
+      rounding_threshold: raw.rounding_threshold,
+    });
+    merged.fields = mergeFields(raw.fields);
+    merged.copy = normalizeCopy(raw);
+    merged.result_layout = mergePlain(DEFAULT_CONFIG.result_layout, raw.result_layout || {});
+    merged.discount_rules = normalizeDiscountRules(raw);
+    merged.merger = mergePlain(DEFAULT_CONFIG.merger, raw.merger || {});
+    merged.labels = mergePlain(DEFAULT_CONFIG.labels, raw.labels || {});
+    merged._normalized = true;
+
+    if (cacheKey) {
+      if (_normalizeCache.size >= _normalizeCacheMax) _normalizeCache.clear();
+      _normalizeCache.set(cacheKey, merged);
+    }
+    return merged;
+  }
+
+  function getConfigVersion(config) {
+    var raw = config || {};
+    return toStringSafe(
+      raw.version ||
+      raw.data_version ||
+      (raw.data_source && (raw.data_source.cache_version || raw.data_source.version)) ||
+      ""
+    );
+  }
+
+  function getField(config, key) {
+    var cfg = normalizeConfig(config);
+    var name = toStringSafe(key);
+    for (var i = 0; i < cfg.fields.length; i++) {
+      if (cfg.fields[i].key === name) return cfg.fields[i];
+    }
+    return { key: name, label: name, type: "text", excel_aliases: [], searchable: false, copyable: false, result_area: "detail", required: false };
+  }
+
+  function getFieldsByArea(config, area) {
+    var cfg = normalizeConfig(config);
+    var name = toStringSafe(area);
+    return cfg.fields.filter(function (field) {
+      return field.result_area === name;
+    });
+  }
+
+  function readByAliases(row, aliases) {
+    var source = row || {};
+    var keys = normalizeArray(aliases);
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      if (Object.prototype.hasOwnProperty.call(source, key)) return source[key];
+    }
+    return undefined;
+  }
+
+  function normalizeFieldValue(value, field) {
+    if ((field && field.type) === "number") return parseNumber(value);
+    return toStringSafe(value);
+  }
+
+  function mapExcelRowToFields(row, config, sourceName) {
+    var cfg = normalizeConfig(config);
+    var source = toStringSafe(sourceName);
+    var out = {};
+    cfg.fields.forEach(function (field) {
+      if (field.source === "computed") return;
+      if (source && field.source !== source && field.source !== "both") return;
+      var aliases = field.excel_aliases.concat([field.label, field.key]);
+      var value = readByAliases(row, aliases);
+      if (value === undefined || value === null || String(value).trim() === "") return;
+      out[field.key] = normalizeFieldValue(value, field);
+    });
+    return out;
+  }
+
+  function getPrimaryField(config) {
+    var cfg = normalizeConfig(config);
+    return toStringSafe(cfg.merger.primary_field || "spec");
+  }
+
+  function getStockKeyField(config) {
+    var cfg = normalizeConfig(config);
+    return toStringSafe(cfg.merger.stock_key_field || "code");
+  }
+
+  function adaptLegacyPriceRow(spec, item) {
+    var source = item || {};
+    var fields = { spec: toStringSafe(spec) };
+    Object.keys(LEGACY_FIELD_MAP).forEach(function (legacyKey) {
+      var fieldKey = LEGACY_FIELD_MAP[legacyKey];
+      if (source[legacyKey] === undefined) return;
+      fields[fieldKey] = fieldKey === "face_price" ? parseNumber(source[legacyKey]) : toStringSafe(source[legacyKey]);
+    });
+    return { key: toStringSafe(spec), fields: fields };
+  }
+
+  function adaptPricePayload(payload, config) {
+    var data = payload || {};
+    if (data.schema_version === 2 && Array.isArray(data.rows)) {
+      var primary = toStringSafe(data.primary_field || getPrimaryField(config));
+      return data.rows.map(function (row) {
+        var fields = mergePlain({}, (row && row.fields) || {});
+        var key = toStringSafe((row && row.key) || fields[primary]);
+        if (primary && key && !fields[primary]) fields[primary] = key;
+        return { key: key, fields: fields };
+      }).filter(function (row) { return row.key; });
+    }
+
+    var bySpec = data.bySpec || {};
+    return Object.keys(bySpec).map(function (spec) {
+      return adaptLegacyPriceRow(spec, bySpec[spec]);
+    });
+  }
+
+  function adaptStockPayload(payload, config) {
+    var data = payload || {};
+    if (data.schema_version === 2 && Array.isArray(data.rows)) {
+      var keyField = toStringSafe(data.key_field || getStockKeyField(config));
+      return data.rows.map(function (row) {
+        var fields = mergePlain({}, (row && row.fields) || {});
+        var key = toStringSafe((row && row.key) || fields[keyField]);
+        if (keyField && key && !fields[keyField]) fields[keyField] = key;
+        return { key: key, fields: fields };
+      }).filter(function (row) { return row.key; });
+    }
+
+    var byCode = data.byCode || {};
+    return Object.keys(byCode).map(function (code) {
+      return { key: toStringSafe(code), fields: { code: toStringSafe(code), stock: toStringSafe(byCode[code]) } };
+    });
+  }
+
+  function mergePriceAndStockRows(priceRows, stockRows, config) {
+    var cfg = normalizeConfig(config);
+    var stockKey = getStockKeyField(cfg);
+    var stockMap = {};
+    (Array.isArray(stockRows) ? stockRows : []).forEach(function (row) {
+      if (!row || !row.key) return;
+      stockMap[toStringSafe(row.key)] = row.fields || {};
+    });
+
+    return (Array.isArray(priceRows) ? priceRows : []).map(function (row) {
+      var fields = mergePlain({}, row.fields || {});
+      var key = toStringSafe(row.key || fields[getPrimaryField(cfg)]);
+      var stockLookup = toStringSafe(fields[stockKey]);
+      var stockFields = stockMap[stockLookup] || stockMap[key] || null;
+      if (stockFields) fields = mergePlain(fields, stockFields);
+      if (!fields[getPrimaryField(cfg)]) fields[getPrimaryField(cfg)] = key;
+      return { key: key, fields: fields };
+    });
+  }
+
+  function getFieldValue(row, key, emptyValue) {
+    var fields = (row && row.fields) || {};
+    var value = fields[toStringSafe(key)];
+    if (value === null || value === undefined || String(value) === "") return emptyValue !== undefined ? emptyValue : "";
+    return value;
+  }
+
+  var _searchableFieldsCache = null;
+  var _searchableFieldsCacheKey = null;
+
+  function rowMatchesText(row, text, config) {
+    var query = toStringSafe(text).toUpperCase();
+    if (!query) return false;
+    var cfg = config && config._normalized ? config : normalizeConfig(config);
+    var tokens = query.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return false;
+    var fieldKeys;
+    var cacheKey = cfg.schema_version + "|" + cfg.fields.length;
+    if (_searchableFieldsCacheKey === cacheKey && _searchableFieldsCache) {
+      fieldKeys = _searchableFieldsCache;
+    } else {
+      fieldKeys = cfg.fields.filter(function (field) { return field.searchable; }).map(function (field) { return field.key; });
+      _searchableFieldsCache = fieldKeys;
+      _searchableFieldsCacheKey = cacheKey;
+    }
+    var fields = (row && row.fields) || {};
+    var values = [];
+    for (var i = 0; i < fieldKeys.length; i++) {
+      var v = toStringSafe(fields[fieldKeys[i]]).toUpperCase();
+      if (v) values.push(v);
+    }
+    var combined = values.join(" ");
+    for (var t = 0; t < tokens.length; t++) {
+      var token = tokens[t];
+      var found = combined.indexOf(token) >= 0;
+      if (!found) {
+        for (var j = 0; j < values.length; j++) {
+          if (values[j].indexOf(token) >= 0) { found = true; break; }
+        }
+      }
+      if (!found) return false;
+    }
+    return true;
+  }
+
+  function conditionMatches(row, condition) {
+    var item = condition || {};
+    var rawValue = getFieldValue(row, item.field);
+    var value = toStringSafe(rawValue);
+
+    if (item.equals !== undefined && value !== String(item.equals)) return false;
+    if (item.contains !== undefined && value.replace(/\s+/g, "").toUpperCase().indexOf(String(item.contains).replace(/\s+/g, "").toUpperCase()) < 0) return false;
+    if (item.regex !== undefined) {
+      try {
+        if (!new RegExp(String(item.regex), "i").test(value)) return false;
+      } catch (error) { return false; }
+    }
+    // Numeric comparison operators (from v3 rules format)
+    if (item.gt !== undefined) { if (Number(rawValue) <= Number(item.gt)) return false; }
+    if (item.gte !== undefined) { if (Number(rawValue) < Number(item.gte)) return false; }
+    if (item.lt !== undefined) { if (Number(rawValue) >= Number(item.lt)) return false; }
+    if (item.lte !== undefined) { if (Number(rawValue) > Number(item.lte)) return false; }
+    return true;
+  }
+
+  function formatPercent(value) {
+    return compactNumber(value, 55).toFixed(2).replace(/\.?0+$/, "") + "%";
+  }
+
+  function getDiscountPreset(row, config) {
+    var cfg = normalizeConfig(config);
+    var defaultRule = null;
+    for (var i = 0; i < cfg.discount_rules.length; i++) {
+      var rule = cfg.discount_rules[i];
+      if (rule.default) defaultRule = rule;
+      if (!rule.default && rule.conditions.every(function (condition) { return conditionMatches(row, condition); })) {
+        return { percent: rule.percent, label: rule.label + " " + formatPercent(rule.percent), source: rule.source || rule.id, category: rule.category || rule.id };
+      }
+    }
+    var fallback = defaultRule || { id: "other", label: "其他", percent: 55, source: "fallback", category: "other" };
+    return { percent: fallback.percent, label: fallback.label + " " + formatPercent(fallback.percent), source: fallback.source || fallback.id || "fallback", category: fallback.category || fallback.id || "other" };
+  }
+
+  function renderColumnValue(row, config, column) {
+    var cfg = normalizeConfig(config);
+    var value = getFieldValue(row, column.field, cfg.copy.empty_value);
+    if (value === "") return "";
+    return String(column.prefix || "") + String(value) + String(column.suffix || "");
+  }
+
+  function renderCopyText(rows, config, selectedFields) {
+    var cfg = normalizeConfig(config);
+    var selected = Array.isArray(selectedFields) ? selectedFields : cfg.copy.columns.filter(function (column) { return column.default; }).map(function (column) { return column.field; });
+    var lines = [];
+    (Array.isArray(rows) ? rows : []).forEach(function (row) {
+      var main = [];
+      var detail = [];
+      cfg.copy.columns.forEach(function (column) {
+        if (selected.indexOf(column.field) < 0) return;
+        var value = renderColumnValue(row, cfg, column);
+        if (!value) return;
+        if (column.line === "detail") detail.push(value);
+        else main.push(value);
+      });
+      if (main.length) lines.push(main.join(" "));
+      detail.forEach(function (value) { lines.push(value); });
+    });
+    return lines.length ? lines.join("\n") + "\n" : "";
+  }
+
+  function validateConfig(rawConfig) {
+    var errors = [];
+    var raw = rawConfig || {};
+    if (raw.fields !== undefined && !Array.isArray(raw.fields)) errors.push("fields must be an array");
+    if (Array.isArray(raw.fields)) {
+      raw.fields.forEach(function (field, index) {
+        if (!toStringSafe(field && field.key)) errors.push("fields[" + index + "].key is required");
+      });
+    }
+    var presets = raw.pricing && raw.pricing.discount_step && raw.pricing.discount_step.presets;
+    if (presets !== undefined) {
+      if (!Array.isArray(presets) || presets.some(function (value) { return !Number.isFinite(Number(value)) || Number(value) <= 0; })) {
+        errors.push("pricing.discount_step.presets must contain positive numbers");
+      }
+    }
+    var cfg = normalizeConfig(raw);
+    if (!getField(cfg, getPrimaryField(cfg)).key) errors.push("merger.primary_field must reference a field");
+    if (!getField(cfg, getStockKeyField(cfg)).key) errors.push("merger.stock_key_field must reference a field");
+    return { ok: errors.length === 0, errors: errors, config: cfg };
+  }
+
+  return {
+    DEFAULT_CONFIG: DEFAULT_CONFIG,
+    LEGACY_FIELD_MAP: LEGACY_FIELD_MAP,
+    normalizeConfig: normalizeConfig,
+    validateConfig: validateConfig,
+    getConfigVersion: getConfigVersion,
+    getField: getField,
+    getFieldsByArea: getFieldsByArea,
+    getPrimaryField: getPrimaryField,
+    getStockKeyField: getStockKeyField,
+    getFieldValue: getFieldValue,
+    mapExcelRowToFields: mapExcelRowToFields,
+    adaptPricePayload: adaptPricePayload,
+    adaptStockPayload: adaptStockPayload,
+    mergePriceAndStockRows: mergePriceAndStockRows,
+    rowMatchesText: rowMatchesText,
+    getDiscountPreset: getDiscountPreset,
+    renderCopyText: renderCopyText,
+    formatPercent: formatPercent,
+  };
+});
+
+</script>
+<script>
+let PRICE_DATA = { bySpec: {} };
+let STOCK_DATA = { byCode: {} };
+let PRICE_ROWS = [];
+let STOCK_ROWS = [];
+let PRICE_META = null;
+let STOCK_META = null;
+let DB = {};
+let g_Results =[];
+let g_DataReady = false;
+let g_DataLoadingPromise = null;
+let g_ToastTimer = null;
+let g_DiscountPressState = null;
+let g_RemoteDefaultDiscountConfig = null;
+let g_HasLocalDefaultDiscountConfig = false;
+let g_LayoutMetricsFrame = null;
+const APP_BUILD_TAG = "v4-2026-06-18-13:48";
+console.log("app.js", APP_BUILD_TAG, "loaded");
+var HARDCODED_PROD_API = "https://mitsubishi-stock.up.railway.app";
+let g_AppConfig = null;
+let g_RuntimeConfigCache = null;
+let g_RuntimeConfigDiscountFingerprint = null;
+let g_SearchIndex = null;
+
+const HOLD_START_DELAY_MS = 280;
+const HOLD_REPEAT_INTERVAL_MS = 70;
+const DEFAULT_DISCOUNT_STORAGE_KEY = "v9-default-discount-config";
+
+
+window.addEventListener("error", (event) => {
+  const msg = event?.message || "未知错误";
+  const status = document.getElementById("status");
+  if (status) {
+    status.textContent = `JS 错误：${msg}`;
+    status.className = "status-badge danger";
+  }
+});
+
+const DiscountEngine = window.DiscountUtils || {
+  DEFAULT_DISCOUNT_CONFIG: Object.freeze({ ex: 32, osg: 36, mitsubishi: 55, other: 55 }),
+  FALLBACK_DISCOUNT_CONFIG: Object.freeze({ ex: 32, osg: 36, mitsubishi: 55, other: 55 }),
+  DEFAULT_STEP_PERCENT: 0.1,
+  normalizePercent(value, fallback) {
+    const num = Number(value);
+    const safe = Number.isFinite(num) ? num : Number(fallback);
+    const base = Number.isFinite(safe) ? safe : 55;
+    return Math.min(100, Math.max(0, Math.round(base * 100) / 100));
+  },
+  sanitizeStepPercent(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return 0.1;
+    return Math.max(0.1, Math.round(num * 100) / 100);
+  },
+  sanitizeDiscountConfig(config, fallbackConfig) {
+    // 向后兼容：无 fallbackConfig 时用旧逻辑
+    var source = config || {};
+    var fb = fallbackConfig || this.FALLBACK_DISCOUNT_CONFIG;
+    // 如果 window.DiscountUtils 可用，委托给它（支持动态键）
+    if (window.DiscountUtils && window.DiscountUtils !== this) {
+      return window.DiscountUtils.sanitizeDiscountConfig(source, fb);
+    }
+    return {
+      ex: this.normalizePercent(source.ex, fb.ex || 32),
+      osg: this.normalizePercent(source.osg, fb.osg || 36),
+      mitsubishi: this.normalizePercent(source.mitsubishi, fb.mitsubishi || 55),
+      other: this.normalizePercent(source.other, fb.other || 55)
+    };
+  },
+  buildDiscountConfigFromRules(rules, fallbackConfig) {
+    if (window.DiscountUtils && window.DiscountUtils !== this) {
+      return window.DiscountUtils.buildDiscountConfigFromRules(rules, fallbackConfig);
+    }
+    return this.FALLBACK_DISCOUNT_CONFIG;
+  },
+  getDiscountCategory(item, rules) {
+    if (window.DiscountUtils && window.DiscountUtils !== this) {
+      return window.DiscountUtils.getDiscountCategory(item, rules);
+    }
+    const source = item || {};
+    const compact = (value) => String(value || "").replace(/\s+/g, "").toUpperCase();
+    const brandAndSpec = [source.brand, source.spec].filter(Boolean).join(" ");
+    const name = String(source.name || source.n || "").trim();
+    if (compact(source.special).includes("EX活动")) return "ex";
+    if (/OSG/i.test(brandAndSpec)) return "osg";
+    if (name === "刀具") return "mitsubishi";
+    return "other";
+  },
+  getDefaultDiscountPreset(item, config, rules) {
+    if (window.DiscountUtils && window.DiscountUtils !== this) {
+      return window.DiscountUtils.getDefaultDiscountPreset(item, config, rules);
+    }
+    const normalized = this.sanitizeDiscountConfig(config);
+    const category = this.getDiscountCategory(item);
+    if (category === "ex") return { percent: normalized.ex, source: "ex-activity", category, label: "EX活动 " + this.formatDiscountPercent(normalized.ex) };
+    if (category === "osg") return { percent: normalized.osg, source: "osg", category, label: "OSG " + this.formatDiscountPercent(normalized.osg) };
+    if (category === "mitsubishi") return { percent: normalized.mitsubishi, source: "mitsubishi", category, label: "三菱 " + this.formatDiscountPercent(normalized.mitsubishi) };
+    return { percent: normalized.other, source: "fallback", category, label: "其他 " + this.formatDiscountPercent(normalized.other) };
+  },
+  formatDiscountPercent(value) {
+    const normalized = this.normalizePercent(value, 55);
+    return normalized.toFixed(2).replace(/\.?0+$/, "") + "%";
+  },
+  shiftDiscountPercent(currentPercent, stepPercent, direction) {
+    const current = this.normalizePercent(currentPercent, 55);
+    const step = Number.isFinite(Number(stepPercent)) && Number(stepPercent) > 0 ? Math.max(0.1, Number(stepPercent)) : 0.1;
+    const dir = Number(direction) < 0 ? -1 : 1;
+    const next = current + step * dir;
+    return Math.min(100, Math.max(0, Math.round(next * 100) / 100));
+  }
+};
+
+// ================== 字段配置化（Phase 1） ==================
+const DEFAULT_FIELDS = {
+  "c":     { label: "代码",   source: "data" },
+  "spec":  { label: "规格型号", source: "key" },
+  "p":     { label: "面价",   source: "data" },
+  "price": { label: "报价",   source: "computed" },
+  "s":     { label: "特价",   source: "data" },
+  "i":     { label: "库存",   source: "data" },
+  "r":     { label: "备注",   source: "data" },
+  "b":     { label: "品牌",   source: "data" },
+  "n":     { label: "名称",   source: "data" },
+  "m":     { label: "助记码", source: "data" },
+  "a":     { label: "别名",   source: "data" }
+};
+
+const DEFAULT_COPY_COLUMNS = [
+  { field: "c",     id: "chk_code",    label: "代码", default: true },
+  { field: "spec",  id: "chk_spec",    label: "规格", default: true },
+  { field: "price", id: "chk_price",   label: "报价", default: true },
+  { field: "s",     id: "chk_special", label: "特价", default: false },
+  { field: "i",     id: "chk_stock",   label: "库存", default: false },
+  { field: "r",     id: "chk_remark",  label: "备注", default: false }
+];
+
+function getFieldConfig() {
+  const cfg = getAppConfig();
+  const fields = {};
+  (cfg.fields || []).forEach((field) => { fields[field.key] = field; });
+  const copyColumns = (cfg.copy && cfg.copy.columns) || DEFAULT_COPY_COLUMNS;
+  const copyPrefix = (cfg.copy && cfg.copy.price_prefix) || "含税";
+  const stockPrefix = (cfg.labels && cfg.labels.stock_prefix) || "库存 ";
+  return { fields, copyColumns, copyPrefix, stockPrefix };
+}
+
+function getFieldLabel(key) {
+  const normalizedKey = normalizeFieldKey(key);
+  if (window.ConfigCore) {
+    const cfg = getAppConfig();
+    const fields = cfg.fields || [];
+    for (let i = 0; i < fields.length; i++) {
+      if (fields[i].key === normalizedKey) return fields[i].label || normalizedKey;
+    }
+    return normalizedKey;
+  }
+  const { fields } = getFieldConfig();
+  return (fields[normalizedKey] && fields[normalizedKey].label) || normalizedKey;
+}
+
+function getCopyColumns() {
+  return getFieldConfig().copyColumns;
+}
+// ================== 字段配置化（Phase 1）结束 ==================
+
+function normalizeFieldKey(key) {
+  const map = { c: "code", p: "face_price", s: "special", i: "stock", r: "remark", b: "brand", n: "name", m: "mnemonic", a: "alias", price: "quote_price" };
+  return map[key] || key;
+}
+
+function getAppConfig() {
+  if (!window.ConfigCore) return window.APP_CONFIG || {};
+  if (!g_AppConfig) g_AppConfig = window.ConfigCore.normalizeConfig(window.APP_CONFIG || {});
+  return g_AppConfig;
+}
+
+function cloneConfig(config) {
+  return JSON.parse(JSON.stringify(config || {}));
+}
+
+function getRuntimeAppConfig() {
+  if (!window.ConfigCore) return getAppConfig();
+  const overrides = getDefaultDiscountConfig();
+  // 动态 fingerprint：包含所有折扣键
+  const keys = Object.keys(overrides).sort();
+  const fingerprint = keys.map(function(k) { return k + "=" + overrides[k]; }).join("|");
+  if (g_RuntimeConfigCache && fingerprint === g_RuntimeConfigDiscountFingerprint) return g_RuntimeConfigCache;
+  const cfg = cloneConfig(getAppConfig());
+  // 动态映射：从 discount_rules 的 id → percent 覆盖
+  cfg.discount_rules = (cfg.discount_rules || []).map(function(rule) {
+    var id = String(rule.id || "").toLowerCase();
+    if (overrides[id] !== undefined && Number.isFinite(Number(overrides[id]))) {
+      return Object.assign({}, rule, { percent: Number(overrides[id]) });
+    }
+    return rule;
+  });
+  delete cfg.rules;
+  g_RuntimeConfigCache = window.ConfigCore.normalizeConfig(cfg);
+  g_RuntimeConfigDiscountFingerprint = fingerprint;
+  return g_RuntimeConfigCache;
+}
+
+function invalidateRuntimeConfigCache() {
+  g_RuntimeConfigCache = null;
+  g_RuntimeConfigDiscountFingerprint = null;
+  g_SearchIndex = null;
+  if (g_DataReady) rebuildSearchIndex();
+}
+
+function deriveLegacyDiscountConfig(config) {
+  const cfg = window.ConfigCore ? window.ConfigCore.normalizeConfig(config || {}) : config || {};
+  const out = {};
+  // 动态：从 discount_rules 提取 ALL 规则的 percent，keyed by rule id
+  (cfg.discount_rules || []).forEach(function(rule) {
+    var id = String(rule.id || "").toLowerCase();
+    if (id && Number.isFinite(Number(rule.percent))) {
+      out[id] = Number(rule.percent);
+    }
+  });
+  // 兜底：确保至少有 4 个基础键
+  if (out.ex === undefined) out.ex = DiscountEngine.FALLBACK_DISCOUNT_CONFIG.ex;
+  if (out.osg === undefined) out.osg = DiscountEngine.FALLBACK_DISCOUNT_CONFIG.osg;
+  if (out.mitsubishi === undefined) out.mitsubishi = DiscountEngine.FALLBACK_DISCOUNT_CONFIG.mitsubishi;
+  if (out.other === undefined) out.other = DiscountEngine.FALLBACK_DISCOUNT_CONFIG.other;
+  return DiscountEngine.sanitizeDiscountConfig(out, out);
+}
+
+function applyAppConfig(rawConfig) {
+  if (!window.ConfigCore) {
+    window.APP_CONFIG = rawConfig || {};
+    return;
+  }
+  window.APP_CONFIG = rawConfig || {};
+  g_AppConfig = window.ConfigCore.normalizeConfig(rawConfig || {});
+  invalidateRuntimeConfigCache();
+  applyRemoteDefaultDiscountConfig(deriveLegacyDiscountConfig(g_AppConfig));
+  syncPricingControlsFromConfig();
+  syncStaticLabelsFromConfig();
+  renderConfigDrivenControls();
+}
+
+let g_DefaultDiscountConfig = DiscountEngine.sanitizeDiscountConfig(DiscountEngine.DEFAULT_DISCOUNT_CONFIG);
+let g_RemoteDiscountRules = null;
+
+const ResultSortEngine = window.ResultSort || {
+  sortResultsBySelection(results) {
+    if (!Array.isArray(results)) return[];
+    return results
+      .map((row, index) => ({
+        row,
+        checked: !!(row && row.checked),
+        orderIndex: Number.isFinite(Number(row && row.orderIndex)) ? Number(row.orderIndex) : (Number.isFinite(Number(row && row.id)) ? Number(row.id) : index)
+      }))
+      .sort((left, right) => {
+        if (left.checked !== right.checked) return left.checked ? -1 : 1;
+        return left.orderIndex - right.orderIndex;
+      })
+      .map((entry) => entry.row);
+  }
+};
+
+function getSystemDefaultDiscountConfig() {
+  // 动态合并：默认值 + 远程配置覆盖
+  var base = DiscountEngine.FALLBACK_DISCOUNT_CONFIG;
+  var remote = g_RemoteDefaultDiscountConfig || {};
+  var merged = {};
+  // 收集所有键
+  Object.keys(base).forEach(function(k) { merged[k] = base[k]; });
+  Object.keys(remote).forEach(function(k) { merged[k] = remote[k]; });
+  return DiscountEngine.sanitizeDiscountConfig(merged, base);
+}
+
+function loadLocalDefaultDiscountConfig() {
+  try {
+    const raw = window.localStorage.getItem(DEFAULT_DISCOUNT_STORAGE_KEY);
+    if (!raw) {
+      g_HasLocalDefaultDiscountConfig = false;
+      return null;
+    }
+    g_HasLocalDefaultDiscountConfig = true;
+    return DiscountEngine.sanitizeDiscountConfig(JSON.parse(raw));
+  } catch (error) {
+    g_HasLocalDefaultDiscountConfig = false;
+    return null;
+  }
+}
+
+function persistDefaultDiscountConfig(config) {
+  try {
+    window.localStorage.setItem(DEFAULT_DISCOUNT_STORAGE_KEY, JSON.stringify(DiscountEngine.sanitizeDiscountConfig(config)));
+    g_HasLocalDefaultDiscountConfig = true;
+  } catch (error) {}
+}
+
+function getDefaultDiscountConfig() {
+  var base = DiscountEngine.FALLBACK_DISCOUNT_CONFIG;
+  return DiscountEngine.sanitizeDiscountConfig(g_DefaultDiscountConfig || getSystemDefaultDiscountConfig(), base);
+}
+
+function applyRemoteDefaultDiscountConfig(config) {
+  // 动态：sanitizeDiscountConfig 保留所有规则键
+  g_RemoteDefaultDiscountConfig = DiscountEngine.sanitizeDiscountConfig(config, config);
+  var remoteRules = (g_AppConfig && g_AppConfig.discount_rules) || [];
+  g_RemoteDiscountRules = remoteRules;
+  g_DefaultDiscountConfig = getSystemDefaultDiscountConfig();
+  syncDefaultDiscountButtonSummary();
+  // 动态渲染折扣弹窗输入框
+  buildDefaultDiscountForm(g_DefaultDiscountConfig, remoteRules);
+  syncDefaultDiscountForm(g_DefaultDiscountConfig);
+  refreshRowsWithDefaultDiscounts();
+}
+
+function getDefaultDiscountConfigSummary(config) {
+  var safeConfig = DiscountEngine.sanitizeDiscountConfig(config, config);
+  var rules = (g_AppConfig && g_AppConfig.discount_rules) || [];
+  // 动态：从 discount_rules 生成摘要，按规则顺序显示标签
+  if (rules.length) {
+    return rules.map(function(rule) {
+      var id = String(rule.id || "").toLowerCase();
+      var percent = (safeConfig[id] !== undefined && Number.isFinite(Number(safeConfig[id])))
+        ? Number(safeConfig[id])
+        : (Number.isFinite(Number(rule.percent)) ? Number(rule.percent) : 55);
+      return (rule.label || rule.id) + " " + formatCompactNumber(percent) + "%";
+    }).join(" / ");
+  }
+  // 兜底
+  return [
+    "EX " + formatCompactNumber(safeConfig.ex) + "%",
+    "OSG " + formatCompactNumber(safeConfig.osg) + "%",
+    "三菱 " + formatCompactNumber(safeConfig.mitsubishi) + "%",
+    "其他 " + formatCompactNumber(safeConfig.other) + "%"
+  ].join(" / ");
+}
+
+/**
+ * 动态构建折扣弹窗输入框（根据 discount_rules 生成）
+ * 替代 index.html 中硬编码的 4 个品牌输入框
+ */
+function buildDefaultDiscountForm(config, rules) {
+  var grid = document.querySelector("#defaultDiscountModal .discount-config-grid");
+  if (!grid) return;
+  var safeConfig = DiscountEngine.sanitizeDiscountConfig(config, config);
+
+  // 清除旧内容
+  grid.innerHTML = "";
+
+  // 如果没有规则，使用兜底的 4 个品牌
+  var displayRules = (Array.isArray(rules) && rules.length) ? rules : [
+    { id: "ex", label: "EX活动", percent: safeConfig.ex || 32 },
+    { id: "osg", label: "OSG", percent: safeConfig.osg || 36 },
+    { id: "mitsubishi", label: "三菱", percent: safeConfig.mitsubishi || 55 },
+    { id: "other", label: "其他", percent: safeConfig.other || 50, default: true }
+  ];
+
+  displayRules.forEach(function(rule) {
+    var id = String(rule.id || "").toLowerCase();
+    var label = rule.label || rule.id || "规则";
+    var percent = (safeConfig[id] !== undefined && Number.isFinite(Number(safeConfig[id])))
+      ? Number(safeConfig[id])
+      : (Number.isFinite(Number(rule.percent)) ? Number(rule.percent) : 55);
+    var inputId = "defaultDiscount-" + id;
+
+    var html = '<label class="discount-config-field" for="' + inputId + '">'
+      + '<span>' + label + '</span>'
+      + '<div class="field-shell">'
+      + '<input type="number" id="' + inputId + '" min="0" max="100" step="0.1" inputmode="decimal" data-discount-id="' + id + '">'
+      + '<span class="field-unit">%</span>'
+      + '</div>'
+      + '</label>';
+    grid.insertAdjacentHTML("beforeend", html);
+  });
+}
+
+function syncDefaultDiscountForm(config) {
+  var safeConfig = DiscountEngine.sanitizeDiscountConfig(config, config);
+  // 动态：查找所有 data-discount-id 输入框并填充值
+  var inputs = document.querySelectorAll("#defaultDiscountModal .discount-config-grid input[data-discount-id]");
+  inputs.forEach(function(input) {
+    var id = input.getAttribute("data-discount-id") || "";
+    var value = (safeConfig[id] !== undefined && Number.isFinite(Number(safeConfig[id])))
+      ? Number(safeConfig[id])
+      : 55;
+    input.value = formatCompactNumber(value);
+  });
+  // 兼容旧版 4 个固定输入框（给兜底场景用）
+  var legacyMapping = { defaultDiscountEx: safeConfig.ex, defaultDiscountOsg: safeConfig.osg, defaultDiscountMitsubishi: safeConfig.mitsubishi, defaultDiscountOther: safeConfig.other };
+  Object.keys(legacyMapping).forEach(function(elId) {
+    var input = document.getElementById(elId);
+    if (input) input.value = formatCompactNumber(legacyMapping[elId]);
+  });
+}
+
+function readDefaultDiscountForm() {
+  var out = {};
+  // 动态读取
+  var inputs = document.querySelectorAll("#defaultDiscountModal .discount-config-grid input[data-discount-id]");
+  inputs.forEach(function(input) {
+    var id = input.getAttribute("data-discount-id") || "";
+    if (id) out[id] = Number(input.value) || 55;
+  });
+  // 兜底：如果动态输入框为空，回退到旧版
+  if (Object.keys(out).length === 0) {
+    out = {
+      ex: document.getElementById("defaultDiscountEx") ? document.getElementById("defaultDiscountEx").value : 32,
+      osg: document.getElementById("defaultDiscountOsg") ? document.getElementById("defaultDiscountOsg").value : 36,
+      mitsubishi: document.getElementById("defaultDiscountMitsubishi") ? document.getElementById("defaultDiscountMitsubishi").value : 55,
+      other: document.getElementById("defaultDiscountOther") ? document.getElementById("defaultDiscountOther").value : 50
+    };
+  }
+  return DiscountEngine.sanitizeDiscountConfig(out, out);
+}
+
+function syncDefaultDiscountButtonSummary() {
+  const button = document.getElementById("btnDefaultDiscounts");
+  if (!button) return;
+  const summary = getDefaultDiscountConfigSummary(g_DefaultDiscountConfig);
+  button.title = summary;
+  button.setAttribute("aria-label", "默认折扣，当前为 " + summary);
+}
+
+function setDefaultDiscountModalState(open) {
+  const modal = document.getElementById("defaultDiscountModal");
+  if (!modal) return;
+  modal.hidden = !open;
+  document.body.classList.toggle("has-overlay", open);
+}
+
+function openDefaultDiscountConfig() {
+  // 确保弹窗输入框已构建
+  var rules = (g_AppConfig && g_AppConfig.discount_rules) || g_RemoteDiscountRules || [];
+  buildDefaultDiscountForm(g_DefaultDiscountConfig, rules);
+  syncDefaultDiscountForm(g_DefaultDiscountConfig);
+  setDefaultDiscountModalState(true);
+  window.requestAnimationFrame(function() {
+    var firstInput = document.querySelector("#defaultDiscountModal .discount-config-grid input[data-discount-id]");
+    if (firstInput) firstInput.focus();
+  });
+}
+
+function closeDefaultDiscountConfig() {
+  setDefaultDiscountModalState(false);
+}
+
+function resetDefaultDiscountConfig() {
+  syncDefaultDiscountForm(getSystemDefaultDiscountConfig());
+}
+
+function applyDefaultDiscountPresetToRow(row, flash) {
+  if (!row) return;
+  const rules = (g_AppConfig && g_AppConfig.discount_rules) || g_RemoteDiscountRules || [];
+  const preset = window.ConfigCore
+    ? window.ConfigCore.getDiscountPreset(toCoreRow(row), getRuntimeAppConfig())
+    : DiscountEngine.getDefaultDiscountPreset({ spec: row.spec, special: row.special, brand: row.brand, name: row.name }, getDefaultDiscountConfig(), rules);
+  row.discountPercent = preset.percent;
+  row.discountLabel = preset.label;
+  row.discountCategory = preset.category || "";
+  refreshRowPrice(row, flash === true);
+}
+
+function refreshRowsWithDefaultDiscounts() {
+  g_Results.forEach((row) => {
+    if (!row || row.hasCustomDiscount) return;
+    applyDefaultDiscountPresetToRow(row, false);
+  });
+}
+
+function saveDefaultDiscountConfig() {
+  g_DefaultDiscountConfig = readDefaultDiscountForm();
+  persistDefaultDiscountConfig(g_DefaultDiscountConfig);
+  invalidateRuntimeConfigCache();
+  syncDefaultDiscountButtonSummary();
+  refreshRowsWithDefaultDiscounts();
+  closeDefaultDiscountConfig();
+  showToast("默认折扣已更新");
+}
+
+function syncPricingControlsFromConfig() {
+  const cfg = getAppConfig();
+  const decimalsInput = document.getElementById("decimals");
+  const thresholdInput = document.getElementById("threshold");
+  const stepInput = document.getElementById("discountStep");
+  if (decimalsInput) decimalsInput.value = String(cfg.pricing?.decimal_places ?? 1);
+  if (thresholdInput) thresholdInput.value = String(cfg.pricing?.rounding_threshold ?? 100);
+  if (stepInput) stepInput.value = formatCompactNumber(cfg.pricing?.discount_step?.default ?? DiscountEngine.DEFAULT_STEP_PERCENT);
+}
+
+function syncStaticLabelsFromConfig() {
+  const cfg = getAppConfig();
+  const labels = cfg.labels || {};
+  const title = document.querySelector(".brand-line h1");
+  if (title) title.textContent = labels.app_title || "智能询价系统";
+  const searchBtn = document.getElementById("btnSearch");
+  const stockBtn = document.getElementById("btnRegexConvert");
+  const mmcBtn = document.getElementById("btnMmc");
+  const copyBtn = document.getElementById("btnCopy");
+  if (searchBtn) { searchBtn.textContent = labels.search_button || "智能查询"; searchBtn.dataset.defaultText = searchBtn.textContent; }
+  if (stockBtn) { stockBtn.textContent = labels.stock_search_button || "库存查询"; stockBtn.dataset.defaultText = stockBtn.textContent; }
+  if (mmcBtn) mmcBtn.textContent = labels.mmc_button || "三菱库存";
+  if (copyBtn) { copyBtn.textContent = labels.copy_button || "复制勾选"; copyBtn.dataset.baseText = copyBtn.textContent; }
+  const queryInput = document.getElementById("queryInput");
+  if (queryInput) queryInput.placeholder = labels.query_placeholder || queryInput.placeholder;
+  const inputTitle = document.querySelector(".query-panel .section-head h2");
+  const resultTitle = document.querySelector(".result-panel .section-head h2");
+  if (inputTitle) inputTitle.textContent = labels.input_title || "输入";
+  if (resultTitle) resultTitle.textContent = labels.result_title || "结果";
+}
+
+function makeCopyCheckboxId(field) {
+  return "copy_" + String(field || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function renderConfigDrivenControls() {
+  const cfg = getAppConfig();
+  const stepWrap = document.getElementById("stepPresetControls");
+  if (stepWrap) {
+    const existingConfigButton = document.getElementById("btnDefaultDiscounts");
+    stepWrap.innerHTML = "";
+    (cfg.pricing?.discount_step?.presets || [0.1, 0.5, 1]).forEach((step) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "step-preset";
+      button.dataset.step = String(step);
+      button.textContent = formatCompactNumber(step);
+      stepWrap.appendChild(button);
+    });
+    const configButton = existingConfigButton || document.createElement("button");
+    configButton.id = "btnDefaultDiscounts";
+    configButton.type = "button";
+    configButton.className = "step-preset step-preset-action";
+    configButton.textContent = cfg.labels?.config_button || "配置";
+    stepWrap.appendChild(configButton);
+  }
+
+  const copyWrap = document.getElementById("copyColumnControls");
+  if (copyWrap) {
+    copyWrap.innerHTML = "";
+    getCopyColumns().forEach((column) => {
+      const label = document.createElement("label");
+      label.className = "opt-lbl" + (column.field === "remark" ? " is-accent" : "");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.id = makeCopyCheckboxId(column.field);
+      input.dataset.copyField = column.field;
+      input.checked = column.default === true;
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(column.label || getFieldLabel(column.field)));
+      copyWrap.appendChild(label);
+    });
+  }
+
+  syncDiscountStepInput(document.getElementById("discountStep")?.value || cfg.pricing?.discount_step?.default || DiscountEngine.DEFAULT_STEP_PERCENT);
+  requestLayoutMetricsSync();
+}
+
+window.onload = async function () {
+  g_DefaultDiscountConfig = loadLocalDefaultDiscountConfig() || getSystemDefaultDiscountConfig();
+  applyAppConfig(window.APP_CONFIG || {});
+  bindUiEvents();
+  syncDefaultDiscountButtonSummary();
+  syncDefaultDiscountForm(g_DefaultDiscountConfig);
+  syncDiscountStepInput(document.getElementById("discountStep").value);
+  requestLayoutMetricsSync();
+  renderLoadingState("正在极速同步远程数据");
+  updateResultCount();
+  const ready = await ensureDataLoaded();
+  if (ready) {
+    renderEmptyState("输入规格后开始查询，可在结果卡中直接调价与勾选复制。");
+  } else {
+    renderErrorState("远程数据未就绪，请重试。");
+  }
+};
+
+function setStatus(msg, type) {
+  const el = document.getElementById("status");
+  el.innerText = msg;
+  el.className = "status-badge " + (type || "info");
+}
+
+function setSearchLoading(loading) {
+  const searchBtn = document.getElementById("btnSearch");
+  const stockBtn = document.getElementById("btnRegexConvert");
+  if (!searchBtn || !stockBtn) return;
+  if (loading) {
+    if (!searchBtn.dataset.defaultText) searchBtn.dataset.defaultText = searchBtn.textContent;
+    if (!stockBtn.dataset.defaultText) stockBtn.dataset.defaultText = stockBtn.textContent;
+    searchBtn.textContent = "加速加载中...";
+    stockBtn.textContent = "同步中...";
+    searchBtn.disabled = true;
+    stockBtn.disabled = true;
+    return;
+  }
+  searchBtn.textContent = searchBtn.dataset.defaultText || "智能查询";
+  stockBtn.textContent = stockBtn.dataset.defaultText || "库存查询";
+  searchBtn.disabled = false;
+  stockBtn.disabled = false;
+  requestLayoutMetricsSync();
+}
+
+function bytesToUtf8(bytes) { return new TextDecoder().decode(bytes); }
+
+// 分块 base64 解码：避免对超大字符串调用 atob 导致浏览器内存/调用栈失败
+function base64ToBytes(base64) {
+  if (typeof base64 !== "string" || base64.length === 0) return new Uint8Array(0);
+  // 去除可能的 data: 前缀
+  const commaIdx = base64.indexOf(",");
+  if (base64.startsWith("data:") && commaIdx >= 0) base64 = base64.slice(commaIdx + 1);
+  // 去除空白
+  base64 = base64.replace(/\s+/g, "");
+  // 计算输出长度
+  const padding = (base64.endsWith("==") ? 2 : (base64.endsWith("=") ? 1 : 0));
+  const outLen = Math.floor(base64.length * 3 / 4) - padding;
+  const out = new Uint8Array(outLen);
+  // 分块解码（每块 64KB），减少 atob 调用栈压力
+  const CHUNK = 0x10000; // 65536 chars
+  let outPos = 0;
+  for (let i = 0; i < base64.length; i += CHUNK) {
+    const chunk = base64.slice(i, i + CHUNK);
+    const raw = atob(chunk);
+    const limit = Math.min(raw.length, outLen - outPos);
+    for (let j = 0; j < limit; j++) out[outPos + j] = raw.charCodeAt(j);
+    outPos += limit;
+    if (outPos >= outLen) break;
+  }
+  return out;
+}
+
+function decodePlainPayload(payload) { return bytesToUtf8(base64ToBytes(payload)); }
+
+async function decryptData(base64Data, password) {
+  const encryptedData = base64ToBytes(base64Data);
+  const salt = encryptedData.slice(0, 16);
+  const iv = encryptedData.slice(16, 28);
+  const data = encryptedData.slice(28);
+  const enc = new TextEncoder();
+  const keyMaterial = await window.crypto.subtle.importKey("raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]);
+  const key = await window.crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+    keyMaterial, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+  );
+  const decrypted = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, data);
+  return new TextDecoder().decode(decrypted);
+}
+
+// ================== 新版 Supabase 缓存加载模块开始 ==================
+const SUPABASE_BASE_URL = "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q";
+
+function normalizeBaseUrl(value) {
+  return String(value || SUPABASE_BASE_URL).replace(/\/+$/, "");
+}
+
+function getDataSourceConfig() {
+  const cfg = getAppConfig();
+  return {
+    base_url: normalizeBaseUrl(cfg.data_source?.base_url || SUPABASE_BASE_URL),
+    version_file: cfg.data_source?.version_file || "version.json",
+    config_file: cfg.data_source?.config_file || "config.json",
+    price_bundle_file: cfg.data_source?.price_bundle_file || "price.bundle.json",
+    stock_bundle_file: cfg.data_source?.stock_bundle_file || "stock.bundle.json",
+    cache_name: cfg.data_source?.cache_name || "quotation-cache-v4"
+  };
+}
+
+function buildRemoteFileUrl(source, filename, query) {
+  const name = String(filename || "");
+  const separator = name.indexOf("?") >= 0 ? "&" : "?";
+  if (/^https?:\/\//i.test(name)) return query ? name + separator + query : name;
+  return `${source.base_url}/${name.replace(/^\/+/, "")}${query ? "?" + query : ""}`;
+}
+
+function getConfigCacheVersion(config) {
+  if (window.ConfigCore && typeof window.ConfigCore.getConfigVersion === "function") {
+    return window.ConfigCore.getConfigVersion(config || getAppConfig());
+  }
+  const cfg = config || getAppConfig() || {};
+  return String(cfg.version || cfg.data_version || cfg.data_source?.cache_version || cfg.data_source?.version || "").trim();
+}
+
+async function fetchRemoteJson(url, label) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`${label} download failed (${response.status})`);
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`${label} is not valid JSON`);
+  }
+}
+
+async function loadRemoteConfig(source) {
+  const configUrl = buildRemoteFileUrl(source, source.config_file, `t=${Date.now()}`);
+  const config = await fetchRemoteJson(configUrl, source.config_file);
+  applyAppConfig(config);
+  return config;
+}
+
+async function loadLegacyVersion(source) {
+  try {
+    const versionUrl = buildRemoteFileUrl(source, source.version_file, `t=${Date.now()}`);
+    const data = await fetchRemoteJson(versionUrl, source.version_file);
+    return String(data.version || data.cache_version || "").trim();
+  } catch (err) {
+    console.warn("Legacy version file unavailable; falling back to a no-store cache key", err);
+    return "";
+  }
+}
+
+async function loadDataWithCache() {
+  console.log("开始检查版本更新...");
+  let source = getDataSourceConfig();
+
+  // 如果配置已通过后端 API 加载，跳过 Supabase config.json 加载
+  // 但仍需要加载 price/stock bundles
+  const configLoadedFromApi = g_AppConfig && g_AppConfig._loadedFromApi;
+  if (!configLoadedFromApi) {
+    try {
+      await loadRemoteConfig(source);
+    } catch (err) {
+      console.warn("远程配置加载失败，使用内置默认配置:", err);
+      applyAppConfig(window.APP_CONFIG || {});
+    }
+  } else {
+    console.log("[loadDataWithCache] 配置已从后端 API 加载，跳过 Supabase config.json");
+  }
+
+  source = getDataSourceConfig();
+  const version = getConfigCacheVersion(getAppConfig()) || await loadLegacyVersion(source) || String(Date.now());
+  await Promise.all([
+    fetchFileWithCache(source.price_bundle_file, version, "bundle", source).then(data => { window.PRICE_BUNDLE = data; }),
+    fetchFileWithCache(source.stock_bundle_file, version, "bundle", source).then(data => { window.STOCK_BUNDLE = data; })
+  ]);
+
+  console.log("✅ 数据与配置加载完毕，当前版本：", version);
+}
+
+async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
+  const source = sourceConfig || getDataSourceConfig();
+  const cacheName = source.cache_name || "quotation-cache-v4";
+  const fileUrl = buildRemoteFileUrl(source, filename, `v=${encodeURIComponent(version)}`);
+
+  // 单文件兼容：file:// 协议下 Cache API 不可用，直连 fetch
+  let response = null;
+  if (typeof caches !== 'undefined') {
+    try {
+      const cache = await caches.open(cacheName);
+      response = await cache.match(fileUrl);
+    } catch (e) {
+      response = null;
+    }
+  }
+
+  if (!response) {
+    console.log(`[${filename}] 缓存未命中或版本更新，从 Supabase 下载...`);
+    response = await fetch(fileUrl);
+    if (response.ok) {
+      if (typeof caches !== 'undefined') {
+        try {
+          const cache = await caches.open(cacheName);
+          await cache.put(fileUrl, response.clone());
+          cleanOldCache(cache, filename, fileUrl);
+        } catch (e) {}
+      }
+    } else {
+      throw new Error(`${filename} 下载失败`);
+    }
+  }
+
+  const text = await response.text();
+  try {
+    if (fileType === 'json') {
+      applyAppConfig(JSON.parse(text));
+    } else if (fileType === 'bundle') {
+      return JSON.parse(text);
+    }
+  } catch (e) {
+    console.error(`[${filename}] JSON 解析失败:`, e);
+    throw new Error(`${filename} 数据格式异常，无法解析`);
+  }
+  return null;
+}
+
+async function cleanOldCache(cache, filename, currentUrl) {
+  const keys = await cache.keys();
+  for (let request of keys) {
+    if (request.url.includes(filename) && request.url !== currentUrl) {
+      await cache.delete(request);
+    }
+  }
+}
+// ================== 新版 Supabase 缓存加载模块结束 ==================
+
+function fastExtractJson(text) {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error("数据格式异常，无法解析");
+  return JSON.parse(text.substring(start, end + 1));
+}
+
+async function parsePriceBundle(priceObj) {
+  if (!priceObj) throw new Error("未找到远程价格包");
+  let jsonText = "";
+  if (priceObj.secured) {
+    setStatus("价格包已加密，请输入密码", "lock");
+    const pwd = prompt("请输入价格包密码：");
+    if (!pwd) throw new Error("未输入价格包密码");
+    try {
+      jsonText = await decryptData(priceObj.payload, pwd);
+    } catch (err) {
+      throw new Error("价格包解密失败，请确认密码");
+    }
+  } else {
+    const t0 = performance.now();
+    const rawLen = (priceObj.payload || "").length;
+    console.log(`[parsePriceBundle] 解码 base64 长度 ${rawLen} (${(rawLen / 1024 / 1024).toFixed(2)} MB)...`);
+    jsonText = decodePlainPayload(priceObj.payload || "");
+    console.log(`[parsePriceBundle] base64 解码耗时 ${(performance.now() - t0).toFixed(0)}ms, jsonText 长度 ${jsonText.length}`);
+  }
+  if (!jsonText || jsonText.length < 10) {
+    throw new Error(`价格包解码结果异常 (长度=${jsonText ? jsonText.length : 0})`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e) {
+    console.error("[parsePriceBundle] JSON.parse 失败，前 200 字符:", jsonText.slice(0, 200));
+    throw new Error("价格包 JSON 解析失败");
+  }
+  return { payload: parsed, meta: priceObj.meta || null };
+}
+
+function parseStockBundle(stockObj) {
+  if (!stockObj) throw new Error("未找到远程库存包");
+  if (stockObj.secured) throw new Error("库存包必须保持明文");
+  const jsonText = decodePlainPayload(stockObj.payload || "");
+  if (!jsonText) throw new Error("库存包解码结果为空");
+  return { payload: JSON.parse(jsonText), meta: stockObj.meta || null };
+}
+
+// 彻底重构的 ensureDataLoaded（将旧版的 fetchWithMirrors 摘除，接入了最新的缓存机制）
+async function ensureDataLoaded() {
+  if (g_DataReady) return true;
+  if (g_DataLoadingPromise) return g_DataLoadingPromise;
+
+  g_DataLoadingPromise = (async () => {
+    setSearchLoading(true);
+    try {
+      setStatus("正连接 Supabase 极速节点...", "info");
+      
+      // 核心：强制在此处等待缓存拉取和注入完成！解决竞态崩溃问题！
+      await loadDataWithCache();
+
+      let priceObj = window.PRICE_BUNDLE;
+      let stockObj = window.STOCK_BUNDLE;
+
+      if (!priceObj || !stockObj) {
+         throw new Error("数据未能成功注入内存");
+      }
+
+      setStatus("秒级解构核心数据...", "info");
+
+      const parsedPrice = await parsePriceBundle(priceObj);
+      const parsedStock = parseStockBundle(stockObj);
+
+      PRICE_DATA = parsedPrice.payload || { bySpec: {} };
+      PRICE_META = parsedPrice.meta || null;
+      STOCK_DATA = parsedStock.payload || { byCode: {} };
+      STOCK_META = parsedStock.meta || null;
+
+      console.log("[ensureDataLoaded] PRICE_DATA keys:", Object.keys(PRICE_DATA));
+      console.log("[ensureDataLoaded] PRICE_DATA rows count:", PRICE_DATA.rows ? PRICE_DATA.rows.length : (PRICE_DATA.bySpec ? Object.keys(PRICE_DATA.bySpec).length : 0));
+      console.log("[ensureDataLoaded] STOCK_DATA keys:", Object.keys(STOCK_DATA));
+
+      updateVersionText();
+      rebuildMergedDB();
+      console.log("[ensureDataLoaded] DB size after rebuildMergedDB:", Object.keys(DB).length);
+      rebuildSearchIndex();
+      console.log("[ensureDataLoaded] g_SearchIndex size:", g_SearchIndex ? Object.keys(g_SearchIndex).length : null);
+      g_DataReady = true;
+      setStatus("数据库就绪", "ok");
+      return true;
+      
+    } catch (err) {
+      setStatus("同步失败", "error");
+      showToast(err.message || "极速节点连接失败，请检查网络");
+      console.error("加载链崩溃:", err);
+      return false;
+    } finally {
+      setSearchLoading(false);
+      g_DataLoadingPromise = null;
+    }
+  })();
+
+  return g_DataLoadingPromise;
+}
+
+function rebuildMergedDB() {
+  DB = {};
+  const cfg = getRuntimeAppConfig();
+  if (window.ConfigCore) {
+    PRICE_ROWS = window.ConfigCore.adaptPricePayload(PRICE_DATA, cfg);
+    STOCK_ROWS = window.ConfigCore.adaptStockPayload(STOCK_DATA, cfg);
+    const rows = window.ConfigCore.mergePriceAndStockRows(PRICE_ROWS, STOCK_ROWS, cfg);
+    rows.forEach((row) => {
+      const key = row.key || window.ConfigCore.getFieldValue(row, window.ConfigCore.getPrimaryField(cfg));
+      if (!key) return;
+      DB[key] = createLegacyCompatibleItem(row);
+    });
+    return;
+  }
+
+  const bySpec = PRICE_DATA.bySpec || {};
+  const byCode = STOCK_DATA.byCode || {};
+  Object.keys(bySpec).forEach((spec) => {
+    const item = bySpec[spec] || {};
+    const code = item.c || "";
+    DB[spec] = { c: code, p: Number(item.p) || 0, s: item.s || "", r: item.r || "", b: item.b || "", n: item.n || "", m: item.m || "", a: item.a || "", i: byCode[code] || "" };
+  });
+}
+
+function createLegacyCompatibleItem(row) {
+  const fields = row.fields || {};
+  return {
+    key: row.key,
+    fields: fields,
+    c: fields.code || "",
+    p: Number(fields.face_price) || 0,
+    s: fields.special || "",
+    r: fields.remark || "",
+    b: fields.brand || "",
+    n: fields.name || "",
+    m: fields.mnemonic || "",
+    a: fields.alias || "",
+    i: fields.stock || ""
+  };
+}
+
+function rebuildSearchIndex() {
+  if (!window.ConfigCore) { g_SearchIndex = null; return; }
+  g_SearchIndex = {};
+  const cfg = getRuntimeAppConfig();
+  const searchableKeys = cfg.fields.filter(f => f.searchable).map(f => f.key);
+  const allKeys = Object.keys(DB);
+  for (let i = 0; i < allKeys.length; i++) {
+    const key = allKeys[i];
+    const item = DB[key];
+    if (!item) continue;
+    const fields = item.fields || {};
+    const parts = [];
+    for (let j = 0; j < searchableKeys.length; j++) {
+      const val = String(fields[searchableKeys[j]] || "").trim();
+      if (val) parts.push(val.toUpperCase());
+    }
+    g_SearchIndex[key] = parts.join(" ");
+  }
+}
+
+function pickVersion(meta) {
+  return String(meta?.updated_at || meta?.content_updated_at || meta?.generated_at || meta?.version || "-").trim() || "-";
+}
+
+function updateVersionText() {
+  const versionsEl = document.getElementById("versions");
+  if (!versionsEl) return;
+  versionsEl.textContent = "价格版本: " + pickVersion(PRICE_META) + " | 库存版本: " + pickVersion(STOCK_META);
+  requestLayoutMetricsSync();
+}
+
+function getQueryLines() {
+  return document.getElementById("queryInput").value.split(/\r?\n/).filter((line) => line.trim());
+}
+
+function hasStockValue(text) {
+  if (!window.QueryRegex || typeof window.QueryRegex.hasStockValue !== "function") return !!String(text || "").trim();
+  return window.QueryRegex.hasStockValue(text);
+}
+
+function convertPlainLineToRegex(line) {
+  if (!window.QueryRegex || typeof window.QueryRegex.convertPlainLineToRegex !== "function") throw new Error("正则模块未加载");
+  return window.QueryRegex.convertPlainLineToRegex(line);
+}
+
+function matchRegexTarget(target, re) {
+  if (!window.QueryRegex || typeof window.QueryRegex.matchRegexTarget !== "function") throw new Error("正则模块未加载");
+  return window.QueryRegex.matchRegexTarget(target, re);
+}
+
+function toCoreRow(rowOrKey, item) {
+  if (rowOrKey && rowOrKey.fields) return { key: rowOrKey.key || rowOrKey.spec || "", fields: rowOrKey.fields };
+  if (item && item.fields) return { key: rowOrKey || item.key || "", fields: item.fields };
+  const source = item || {};
+  return {
+    key: rowOrKey || source.spec || "",
+    fields: {
+      code: source.c || source.code || "",
+      spec: rowOrKey || source.spec || "",
+      face_price: Number(source.p || source.facePrice) || 0,
+      quote_price: source.price || "",
+      special: source.s || source.special || "",
+      stock: source.i || source.stock || "",
+      remark: source.r || source.remark || "",
+      brand: source.b || source.brand || "",
+      name: source.n || source.name || "",
+      mnemonic: source.m || source.mnemonic || "",
+      alias: source.a || source.alias || ""
+    }
+  };
+}
+
+function getConfiguredValue(row, fieldKey) {
+  const key = normalizeFieldKey(fieldKey);
+  if (row && row.fields && row.fields[key] !== undefined) return row.fields[key];
+  if (row && row[key] !== undefined) return row[key];
+  return "";
+}
+
+function escapeHtml(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function formatCompactNumber(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "0";
+  return num.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function updateResultCount() {
+  document.getElementById("resultCount").textContent = String(g_Results.length);
+}
+
+function getSelectedCount() {
+  return g_Results.filter((row) => row.checked).length;
+}
+
+function syncToggleAllState() {
+  const master = document.getElementById("toggleAllResults");
+  if (!master) return;
+  const checkboxes = Array.from(document.querySelectorAll('#resultBody input[type="checkbox"][data-id]'));
+  if (!checkboxes.length) { master.checked = false; master.indeterminate = false; return; }
+  const checkedCount = checkboxes.filter((cb) => cb.checked).length;
+  master.checked = checkedCount === checkboxes.length;
+  master.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+}
+
+function updateSelectionUi() {
+  const selectedCount = getSelectedCount();
+  const selectedCountEl = document.getElementById("selectedCount");
+  if (selectedCountEl) selectedCountEl.textContent = String(selectedCount);
+
+  const copyBtn = document.getElementById("btnCopy");
+  if (copyBtn) {
+    if (!copyBtn.dataset.baseText) copyBtn.dataset.baseText = copyBtn.textContent || "复制勾选";
+    copyBtn.textContent = selectedCount > 0 ? copyBtn.dataset.baseText + " (" + selectedCount + ")" : copyBtn.dataset.baseText;
+  }
+  syncToggleAllState();
+  requestLayoutMetricsSync();
+}
+
+function renderStateCard(kind, title, message, hint) {
+  const body = document.getElementById("resultBody");
+  const skeleton = kind === "loading" ? '<div class="state-skeleton"><span class="skeleton-line skeleton-line-wide"></span><span class="skeleton-line"></span><span class="skeleton-line skeleton-line-short"></span></div>' : "";
+  body.innerHTML =[
+    '<section class="state-card state-card--', kind, '">',
+    '<span class="state-kicker">', escapeHtml(title), "</span>",
+    "<h3>", escapeHtml(message), "</h3>",
+    hint ? "<p>" + escapeHtml(hint) + "</p>" : "", skeleton,
+    "</section>"
+  ].join("");
+  updateSelectionUi();
+}
+
+function renderLoadingState(message) { renderStateCard("loading", "数据同步", message, "仅在初次进入时拉取，后续皆为0延迟的极速缓存。"); }
+function renderEmptyState(message) { renderStateCard("empty", "等待查询", message, getAppConfig().labels?.empty_hint || "支持规格、代码、助记码、别名、备注和特价关键词。"); }
+function renderErrorState(message) { renderStateCard("error", "加载失败", message, "网络或节点连接失败，请稍后重试。"); }
+
+function getCurrentPriceSettings() {
+  const decimals = parseInt(document.getElementById("decimals").value, 10);
+  const threshold = parseFloat(document.getElementById("threshold").value);
+  return { decimals: Number.isFinite(decimals) ? decimals : 0, threshold: Number.isFinite(threshold) ? threshold : 100 };
+}
+
+function getCurrentDiscountStep() { return DiscountEngine.sanitizeStepPercent(document.getElementById("discountStep").value); }
+
+function updateStepPresetState(stepValue) {
+  const normalized = DiscountEngine.sanitizeStepPercent(stepValue);
+  document.querySelectorAll(".step-preset").forEach((button) => {
+    if (!button.dataset.step) { button.classList.remove("is-active"); return; }
+    button.classList.toggle("is-active", DiscountEngine.sanitizeStepPercent(button.dataset.step) === normalized);
+  });
+}
+
+function syncDiscountStepInput(value) {
+  const normalized = DiscountEngine.sanitizeStepPercent(value);
+  document.getElementById("discountStep").value = formatCompactNumber(normalized);
+  updateStepPresetState(normalized);
+}
+
+function setDiscountStepPreset(button) {
+  if (!button) return;
+  syncDiscountStepInput(button.dataset.step || DiscountEngine.DEFAULT_STEP_PERCENT);
+}
+
+function normalizeExactText(value) { return String(value || "").trim().toUpperCase(); }
+function isExactSpecMatch(inputLine, spec) {
+  return normalizeExactText(inputLine) !== "" && normalizeExactText(inputLine) === normalizeExactText(spec);
+}
+
+function getSearchTarget(spec, item) {
+  return { spec: spec || "", code: item.c || "", mnemonic: item.m || "", remark: item.r || "", alias: item.a || "", special: item.s || "" };
+}
+
+function findMatchesByRegex(line, allKeys, onlyInStock) {
+  const re = convertPlainLineToRegex(line);
+  if (!re) return [];
+  const runtimeConfig = getRuntimeAppConfig();
+  const tokens = line.toUpperCase().split(/\s+/).filter(Boolean);
+  const useSearchIndex = window.ConfigCore && g_SearchIndex && tokens.length > 0;
+  return allKeys.filter((key) => {
+    const item = DB[key] || {};
+    if (onlyInStock) {
+      const stockVal = window.ConfigCore ? ((item.fields && item.fields.stock) || item.i) : item.i;
+      if (!hasStockValue(stockVal)) return false;
+    }
+    if (useSearchIndex) {
+      const combined = g_SearchIndex[key] || "";
+      for (let t = 0; t < tokens.length; t++) {
+        if (combined.indexOf(tokens[t]) < 0) return false;
+      }
+      return true;
+    }
+    if (window.ConfigCore) return window.ConfigCore.rowMatchesText(toCoreRow(key, item), line, runtimeConfig);
+    return matchRegexTarget(getSearchTarget(key, item), re);
+  });
+}
+
+function getRowById(id) {
+  const rowId = Number(id);
+  if (!Number.isInteger(rowId)) return null;
+  return g_Results.find((row) => row && row.id === rowId) || null;
+}
+
+function calcDiscountedPrice(facePrice, discount, decimals, threshold) {
+  const rawCalc = facePrice * discount;
+  const factor = Math.pow(10, decimals);
+  let finalPrice = Math.ceil(rawCalc * factor) / factor;
+  if (finalPrice > threshold) finalPrice = Math.ceil(rawCalc);
+  const display = (finalPrice % 1 === 0 && finalPrice > threshold) ? finalPrice.toFixed(0) : finalPrice.toFixed(decimals);
+  return { value: finalPrice, display: display };
+}
+
+function normalizeDiscountPercent(value, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return Number.isFinite(Number(fallback)) ? Number(fallback) : 53;
+  return Math.min(100, Math.max(0, Math.round(num * 100) / 100));
+}
+
+function flashPriceCell(priceCell) {
+  if (!priceCell) return;
+  if (priceCell._flashFrame) window.cancelAnimationFrame(priceCell._flashFrame);
+  priceCell.classList.remove("is-flashing");
+  priceCell._flashFrame = window.requestAnimationFrame(() => {
+    priceCell.classList.add("is-flashing");
+    priceCell._flashFrame = null;
+  });
+}
+
+function refreshRowPrice(row, flash) {
+  if (!row) return;
+  const settings = getCurrentPriceSettings();
+  const priceInfo = calcDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
+  row.price = priceInfo.display;
+  if (!row.fields) row.fields = {};
+  row.fields.quote_price = priceInfo.display;
+  row.fields.price = priceInfo.display;
+
+  const resultCard = row.cardEl || document.querySelector('.result-card[data-row-id="' + row.id + '"]');
+  if (!resultCard) return;
+  row.cardEl = resultCard;
+
+  const priceCell = row.priceEl || resultCard.querySelector(".price");
+  const discountInput = row.discountInputEl || resultCard.querySelector(".discount-manual");
+
+  if (priceCell) row.priceEl = priceCell;
+  if (discountInput) row.discountInputEl = discountInput;
+  if (discountInput) discountInput.value = formatCompactNumber(row.discountPercent);
+  if (priceCell) {
+    priceCell.textContent = priceInfo.display;
+    if (flash) flashPriceCell(priceCell);
+  }
+}
+
+function refreshRenderedPrices() { g_Results.forEach((row) => refreshRowPrice(row, false)); }
+
+function syncRowSelectionState(row) {
+  if (!row) return;
+  const resultCard = row.cardEl || document.querySelector('.result-card[data-row-id="' + row.id + '"]');
+  if (!resultCard) return;
+  row.cardEl = resultCard;
+  resultCard.classList.toggle("is-selected", !!row.checked);
+  resultCard.setAttribute("data-checked", row.checked ? "true" : "false");
+}
+
+function syncResultOrder() {
+  const resultList = document.getElementById("resultBody");
+  if (!resultList || !g_Results.length) return;
+  g_Results = ResultSortEngine.sortResultsBySelection(g_Results);
+  const fragment = document.createDocumentFragment();
+  g_Results.forEach((row) => {
+    syncRowSelectionState(row);
+    if (row && row.cardEl) fragment.appendChild(row.cardEl);
+  });
+  resultList.appendChild(fragment);
+}
+
+function applyManualDiscount(id, rawValue) {
+  const row = getRowById(id);
+  if (!row) return;
+  row.hasCustomDiscount = true;
+  row.discountPercent = normalizeDiscountPercent(rawValue, row.discountPercent);
+  refreshRowPrice(row, true);
+}
+
+function getDiscountButtonMarkup(rowId, direction) {
+  const symbol = direction < 0 ? "-" : "+";
+  const label = direction < 0 ? "降低折扣" : "提高折扣";
+  return[
+    '<button type="button" class="discount-stepper-btn"',
+    ' data-row-id="', rowId, '" data-direction="', direction, '"',
+    ' aria-label="', label, '">', symbol, "</button>"
+  ].join("");
+}
+
+function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runtimeConfig) {
+  const coreRow = toCoreRow(matchKey, item);
+  const fields = { ...(coreRow.fields || {}) };
+  if (!runtimeConfig) runtimeConfig = getRuntimeAppConfig();
+  const rules = (g_AppConfig && g_AppConfig.discount_rules) || g_RemoteDiscountRules || [];
+  const preset = window.ConfigCore
+    ? window.ConfigCore.getDiscountPreset({ key: coreRow.key, fields }, runtimeConfig)
+    : DiscountEngine.getDefaultDiscountPreset({ spec: matchKey, special: item.s || "", brand: item.b || "", name: item.n || "" }, getDefaultDiscountConfig(), rules);
+  const settings = getCurrentPriceSettings();
+  const facePrice = Number(fields.face_price !== undefined ? fields.face_price : item.p) || 0;
+  const priceInfo = calcDiscountedPrice(facePrice, preset.percent / 100, settings.decimals, settings.threshold);
+  fields.quote_price = priceInfo.display;
+  fields.price = priceInfo.display;
+  const rowData = {
+    id: g_Results.length, orderIndex: g_Results.length, key: coreRow.key || matchKey, fields,
+    code: fields.code || "", spec: fields.spec || matchKey,
+    brand: fields.brand || "", name: fields.name || "", mnemonic: fields.mnemonic || "", alias: fields.alias || "",
+    price: priceInfo.display, facePrice: facePrice, remark: fields.remark || "",
+    special: fields.special || "", stock: fields.stock || "", discountPercent: preset.percent,
+    discountLabel: preset.label, discountCategory: preset.category || "", hasCustomDiscount: false, checked: shouldCheck
+  };
+  g_Results.push(rowData);
+
+  const layout = runtimeConfig.result_layout || {};
+  const identityFields = (layout.identity || ["code", "spec"]).filter(Boolean);
+  const primaryIdentity = identityFields[0] || "code";
+  const titleIdentity = identityFields[1] || "spec";
+  const chipFields = (layout.chips || ["stock", "special"]).filter(Boolean);
+  const metricFields = (layout.metrics || ["face_price", "quote_price"]).filter(Boolean);
+  const detailFields = (layout.details || ["remark"]).filter(Boolean);
+
+  const identityLead = getConfiguredValue(rowData, primaryIdentity) || ("未设置" + getFieldLabel(primaryIdentity));
+  const identityTitle = getConfiguredValue(rowData, titleIdentity) || rowData.key;
+  const extraIdentityMarkup = identityFields.slice(2).map((field) => {
+    const value = getConfiguredValue(rowData, field);
+    return value ? '<span class="identity-code">' + escapeHtml(value) + "</span>" : "";
+  }).join("");
+  const chipMarkup = chipFields.map((field) => {
+    const value = getConfiguredValue(rowData, field);
+    if (!value) return "";
+    const label = field === "stock" ? getFieldConfig().stockPrefix : "";
+    const cls = field === "stock" ? "stock-chip" : "special-chip";
+    return '<span class="' + cls + '">' + escapeHtml(label + value) + "</span>";
+  }).join("");
+  const detailMarkup = detailFields.map((field) => {
+    const value = getConfiguredValue(rowData, field);
+    return value ? '<span class="info-note info-note-inline">' + escapeHtml(value) + "</span>" : "";
+  }).join("");
+  const metaLineMarkup = (chipMarkup || detailMarkup) ? '<div class="meta-line">' + chipMarkup + detailMarkup + "</div>" : "";
+  const metricMarkup = (function () {
+    return metricFields.map((field) => {
+      const value = field === "quote_price" ? priceInfo.display : getConfiguredValue(rowData, field);
+      const display = field === "face_price" ? formatCompactNumber(value || 0) : value;
+      const priceClass = field === "quote_price" ? " price" : "";
+      const accentClass = field === "quote_price" ? " metric-inline-accent" : "";
+      return '<div class="metric-inline' + accentClass + '"><span class="metric-label">' + escapeHtml(getFieldLabel(field)) + '</span><strong class="' + priceClass.trim() + '">' + escapeHtml(display) + '</strong></div>';
+    }).join("");
+  })();
+
+  const resultCard = document.createElement("article");
+  resultCard.className = "result-card" + (isExact ? " match-exact" : "");
+  resultCard.setAttribute("data-row-id", String(rowData.id));
+  // 公司账号视图：隐藏折扣调价按钮（成本价是固定的，不允许客户手动调折扣）
+  const discountPanelMarkup = [
+    '<div class="discount-panel"><div class="discount-stepper" data-id="', rowData.id, '">',
+    getDiscountButtonMarkup(rowData.id, -1),
+    '<label class="discount-input-shell"><input type="number" class="discount-manual" data-id="', rowData.id, '" min="0" max="100" step="0.1" inputmode="decimal" value="', escapeHtml(formatCompactNumber(rowData.discountPercent)), '"><span class="discount-unit">%</span></label>',
+    getDiscountButtonMarkup(rowData.id, 1),
+    "</div></div>"
+  ].join("");
+  resultCard.innerHTML =[
+    '<div class="result-row">',
+    '<label class="select-chip discount-select-chip"><input type="checkbox" data-id="', rowData.id, '" ', rowData.checked ? "checked" : "", '><span>', escapeHtml(runtimeConfig.labels?.selected_label || "勾选"), '</span></label>',
+    '<div class="result-summary">',
+    '<div class="identity-line"><div class="identity-code">', escapeHtml(identityLead), "</div>",
+    '<h3 class="identity-spec">', escapeHtml(identityTitle), "</h3>", extraIdentityMarkup,
+    '<div class="stock-live-placeholder" data-stock-id="', rowData.id, '" style="display:none"></div>',
+    "</div>", metaLineMarkup,
+    "</div>",
+    '<div class="result-side"><div class="result-metrics">',
+    metricMarkup,
+    "</div>",
+    discountPanelMarkup,
+    "</div></div>"
+  ].join("");
+
+  rowData.cardEl = resultCard;
+  rowData.priceEl = resultCard.querySelector(".price");
+  rowData.discountInputEl = resultCard.querySelector(".discount-manual");
+  syncRowSelectionState(rowData);
+  resultList.appendChild(resultCard);
+}
+
+function renderSearchResults(lines, onlyInStock) {
+  const resultList = document.getElementById("resultBody");
+  resultList.innerHTML = "";
+  g_Results =[];
+
+  if (!lines.length) {
+    renderEmptyState("请输入规格型号或关键字后再查询。");
+    updateResultCount();
+    return;
+  }
+
+  const allKeys = Object.keys(DB);
+  const runtimeConfig = getRuntimeAppConfig();
+  lines.forEach((line) => {
+    const matches = findMatchesByRegex(line, allKeys, onlyInStock);
+    const defaultChecked = matches.length === 1;
+    matches.forEach((matchKey) => {
+      const item = DB[matchKey];
+      if (!item) return;
+      const isExact = isExactSpecMatch(line, matchKey);
+      appendResultRow(resultList, matchKey, item, isExact || defaultChecked, isExact, runtimeConfig);
+    });
+  });
+
+  if (g_Results.length === 0) renderEmptyState("没有找到匹配项，请调整关键词或切换查询方式。");
+  syncResultOrder();
+  updateResultCount();
+  updateSelectionUi();
+}
+
+async function doSearch() {
+  const ready = await ensureDataLoaded();
+  if (!ready) { renderErrorState("数据加载失败，请稍后重试。"); return; }
+  console.log("[doSearch] DB size:", Object.keys(DB).length, "query:", getQueryLines());
+  renderSearchResults(getQueryLines(), false);
+}
+
+async function doRegexSearchConverted() {
+  const ready = await ensureDataLoaded();
+  if (!ready) { renderErrorState("数据加载失败，请稍后重试。"); return; }
+  renderSearchResults(getQueryLines(), true);
+  showToast("已按库存查询并过滤无库存项");
+}
+
+function adjustRowDiscount(id, direction, flash) {
+  const row = getRowById(id);
+  if (!row) return;
+  row.hasCustomDiscount = true;
+  row.discountPercent = DiscountEngine.shiftDiscountPercent(row.discountPercent, getCurrentDiscountStep(), direction);
+  refreshRowPrice(row, flash !== false);
+}
+
+function clearDiscountPressTimers(state) {
+  if (!state) return;
+  if (state.timeoutId) window.clearTimeout(state.timeoutId);
+  if (state.intervalId) window.clearInterval(state.intervalId);
+  state.timeoutId = null;
+  state.intervalId = null;
+}
+
+function releasePressedButton(state) {
+  if (!state || !state.button) return;
+  state.button.classList.remove("is-pressing");
+  if (typeof state.button.releasePointerCapture === "function" && state.pointerId !== null && state.pointerId !== undefined) {
+    try { state.button.releasePointerCapture(state.pointerId); } catch (err) {}
+  }
+}
+
+function stopDiscountPress(applySingleStep) {
+  const state = g_DiscountPressState;
+  if (!state) return;
+  g_DiscountPressState = null;
+  clearDiscountPressTimers(state);
+  releasePressedButton(state);
+  if (applySingleStep && !state.repeatStarted) adjustRowDiscount(state.id, state.direction);
+}
+
+function startDiscountPress(event, id, direction) {
+  if (event && typeof event.button === "number" && event.button !== 0) return;
+  stopDiscountPress(false);
+
+  const state = {
+    id: Number(id), direction: Number(direction) < 0 ? -1 : 1,
+    button: event && event.currentTarget ? event.currentTarget : null,
+    pointerId: event && event.pointerId !== undefined ? event.pointerId : null,
+    repeatStarted: false, timeoutId: null, intervalId: null
+  };
+
+  if (state.button) {
+    state.button.classList.add("is-pressing");
+    if (typeof state.button.setPointerCapture === "function" && state.pointerId !== null) {
+      try { state.button.setPointerCapture(state.pointerId); } catch (err) {}
+    }
+  }
+
+  state.timeoutId = window.setTimeout(() => {
+    if (g_DiscountPressState !== state) return;
+    state.repeatStarted = true;
+    adjustRowDiscount(state.id, state.direction, false);
+    state.intervalId = window.setInterval(() => { adjustRowDiscount(state.id, state.direction, false); }, HOLD_REPEAT_INTERVAL_MS);
+  }, HOLD_START_DELAY_MS);
+
+  g_DiscountPressState = state;
+  if (event) event.preventDefault();
+}
+
+function handleDiscountButtonClick(event, id, direction) {
+  if (event && event.detail !== 0) return;
+  adjustRowDiscount(id, direction);
+}
+
+function handleGlobalPointerUp(event) {
+  if (!g_DiscountPressState) return;
+  if (g_DiscountPressState.pointerId !== null && event && event.pointerId !== undefined && g_DiscountPressState.pointerId !== event.pointerId) return;
+  stopDiscountPress(true);
+}
+
+function handleGlobalPointerCancel(event) {
+  if (!g_DiscountPressState) return;
+  if (g_DiscountPressState.pointerId !== null && event && event.pointerId !== undefined && g_DiscountPressState.pointerId !== event.pointerId) return;
+  stopDiscountPress(false);
+}
+
+/**
+ * 将列字段 ID 映射为行对象的属性名。
+ * 注意：normalizeFieldKey 把 "price" 映射成了 "quote_price"，
+ * 但行对象上实际是 `row.price`，需要修正。
+ */
+function fieldToRowProp(colField) {
+  var normalized = normalizeFieldKey(colField);
+  if (normalized === "quote_price") normalized = "price";
+  return normalized;
+}
+
+function doCopy() {
+  const checkboxes = document.querySelectorAll("#resultBody input[type=checkbox]");
+  checkboxes.forEach((cb) => {
+    const row = getRowById(cb.getAttribute("data-id"));
+    if (row) { row.checked = cb.checked; syncRowSelectionState(row); }
+  });
+  syncResultOrder();
+
+  const selected = g_Results.filter((row) => row.checked);
+  if (selected.length === 0) { showToast("请先勾选需要复制的行"); return; }
+
+  // 读取未税金额复选框状态，决定输出含税/未税价格
+  const useUntaxed = (document.getElementById("chkUntaxedQuote")?.checked) ?? false;
+  const settings = getCurrentPriceSettings();
+  const decimals = settings.decimals;
+  const factor = Math.pow(10, decimals);
+
+  // 读取每个列的复选框状态
+  const columns = getCopyColumns();
+  const enabled = {};  // key = col.field, value = checked (boolean)
+  columns.forEach(function (col) {
+    var cbId = makeCopyCheckboxId(col.field);
+    var cb = document.getElementById(cbId);
+    enabled[col.field] = cb ? cb.checked : !!col.default;
+  });
+
+  // 找出价格列的 field ID（可能是 "price"/"c"/"p" 等）
+  var priceField = null;
+  columns.forEach(function (col) {
+    var prop = fieldToRowProp(col.field);
+    if (prop === "price" && enabled[col.field]) priceField = col.field;
+  });
+
+  const lines = selected.map(function (row) {
+    const mainParts = [];
+    const detailParts = [];
+    columns.forEach(function (col) {
+      if (!enabled[col.field]) return;
+      var prop = fieldToRowProp(col.field);
+      var lineGroup = col.line || "main";  // 默认 main
+
+      if (prop === "price") {
+        // 价格列：支持含税/未税切换
+        var rawPrice = parseFloat(row.price) || 0;
+        var displayPrice;
+        if (useUntaxed) {
+          displayPrice = Math.ceil(rawPrice / 1.13 * factor) / factor;
+        } else {
+          displayPrice = rawPrice;
+        }
+        var formatted = (decimals === 0 && displayPrice > settings.threshold)
+          ? displayPrice.toFixed(0)
+          : displayPrice.toFixed(decimals);
+        var priceStr = (useUntaxed ? "未税" : "含税") + formatted;
+        if (lineGroup === "detail") {
+          detailParts.push(priceStr);
+        } else {
+          mainParts.push(priceStr);
+        }
+      } else {
+        var val = row[prop];
+        if (val == null || val === "") return;
+        if (lineGroup === "detail") {
+          detailParts.push(val);
+        } else {
+          mainParts.push(val);
+        }
+      }
+    });
+    // 主行 + 每个 detail 各占一行
+    return [mainParts.join(" ")].concat(detailParts).join("\n");
+  });
+
+  const text = lines.join("\n") + "\n";
+  copyToClipboard(text);
+  showToast("已复制 " + selected.length + " 条");
+}
+
+function toggleAll(source) {
+  const checkboxes = document.querySelectorAll("#resultBody input[type=checkbox]");
+  checkboxes.forEach((cb) => {
+    cb.checked = source.checked;
+    const row = getRowById(cb.getAttribute("data-id"));
+    if (row) { row.checked = cb.checked; syncRowSelectionState(row); }
+  });
+  syncResultOrder();
+  updateSelectionUi();
+}
+
+
+function getApiBase() {
+  if (typeof HARDCODED_PROD_API !== "undefined" && HARDCODED_PROD_API) {
+    return HARDCODED_PROD_API.replace(/\/+$/, "");
+  }
+  var urlParam = new URLSearchParams(window.location.search).get("api");
+  if (urlParam) return urlParam.replace(/\/+$/, "");
+  if (location.protocol === "file:") return "http://127.0.0.1:8001";
+  if (location.hostname === "127.0.0.1" || location.hostname === "localhost") return window.location.origin;
+  // 生产：读取 localStorage 配置
+  return localStorage.getItem("sq_api_base") || window.location.origin;
+}
+
+function parseStockResultLine(text) {
+  // 从原始 API 的文本行中提取库存数据
+  // 格式示例："CNMG120408-MA MP7135 上海库存501 日本库存1890"
+  //          "CNMG120408-MA MP7135 无货"
+  //          "CNMG120408-MA MP7135 登录失败，请检查账号密码"
+  var result = { shanghai: 0, japan: 0, error: null };
+  if (!text) { result.error = "无响应"; return result; }
+
+  var shMatch = text.match(/上海库存(\d+)/);
+  if (shMatch) result.shanghai = parseInt(shMatch[1], 10);
+
+  var jpMatch = text.match(/日本库存(\d+)/);
+  if (jpMatch) result.japan = parseInt(jpMatch[1], 10);
+
+  // 检测错误信息（排除正常结果）
+  var hasStock = (result.shanghai > 0 || result.japan > 0);
+  if (!hasStock && !/上海库存|日本库存/.test(text) && !/无货/.test(text)) {
+    // 提取冒号后的错误信息，或整行作为错误
+    var errMatch = text.match(/[：:]\s*(.+)$/);
+    result.error = errMatch ? errMatch[1] : text;
+  }
+  return result;
+}
+
+async function doMitsubishiStockQuery() {
+  var selected = g_Results.filter(function (row) { return row.checked; });
+  if (selected.length === 0) { showToast("请先勾选需要查询库存的规格"); return; }
+  var total = selected.length;
+
+  // 构建多行查询文本（每行 = spec 原文）
+  var queryText = selected.map(function (row) {
+    return (row.spec || "").trim();
+  }).filter(Boolean).join("\n");
+
+  if (!queryText) { showToast("选中的规格为空"); return; }
+
+  var mmcBtn = document.getElementById("btnMmc");
+  var setBtnText = function (text) {
+    if (mmcBtn) { mmcBtn.textContent = text; }
+  };
+
+  if (mmcBtn) {
+    if (!mmcBtn.dataset.defaultText) mmcBtn.dataset.defaultText = mmcBtn.textContent || "三菱库存";
+    setBtnText("正在连接...");
+    mmcBtn.disabled = true;
+    mmcBtn.classList.add("btn-loading");
+  }
+
+  selected.forEach(function (row) { updateCardStock(row, 'loading'); });
+
+  try {
+    var apiBase = getApiBase();
+    setBtnText("查询 " + total + " 项...");
+    var resp = await fetch(apiBase + "/api/stock-query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ queries: queryText }),
+    });
+
+    if (!resp.ok) {
+      showToast("库存服务异常: " + resp.status);
+      selected.forEach(function (row) { updateCardStock(row, null); });
+      setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");
+      if (mmcBtn) { mmcBtn.disabled = false; mmcBtn.classList.remove("btn-loading"); }
+      return;
+    }
+
+    var data = await resp.json();
+    var rawResults = data.results || [];
+
+    // 解析每条文本结果
+    var parsed = rawResults.map(function (line) {
+      return parseStockResultLine(line);
+    });
+
+    // 逐张卡片渐进展示
+    var errorCount = 0;
+    var doneCount = 0;
+    var updateNext = function () {
+      if (doneCount >= selected.length) return;
+      var idx = doneCount;
+      doneCount++;
+      setBtnText("已完成 " + doneCount + "/" + total);
+      if (idx < parsed.length) {
+        var r = parsed[idx];
+        if (r.error) errorCount++;
+        updateCardStock(selected[idx], r.error ? "error" : "data", r);
+      }
+      if (doneCount < selected.length) {
+        setTimeout(updateNext, 80);
+      } else {
+        // 全部完成：剪贴板输出
+        var lines = [];
+        selected.forEach(function (row, i) {
+          var r = i < parsed.length ? parsed[i] : null;
+          var out = buildStockClipboardLine(row, r);
+          if (out) lines.push(out);
+        });
+        var toastMsg = "已复制 " + lines.length + " 条库存信息";
+        if (errorCount > 0) toastMsg += "（" + errorCount + " 条失败）";
+        copyToClipboard(lines.join("\n") + "\n");
+        showToast(toastMsg);
+
+        setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");
+        if (mmcBtn) { mmcBtn.disabled = false; mmcBtn.classList.remove("btn-loading"); }
+      }
+    };
+    updateNext();
+
+  } catch (err) {
+    showToast("库存查询失败，请检查服务是否运行 (127.0.0.1:8001)");
+    selected.forEach(function (row) { updateCardStock(row, null); });
+    setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");
+    if (mmcBtn) { mmcBtn.disabled = false; mmcBtn.classList.remove("btn-loading"); }
+  }
+}
+
+/**
+ * 构建三菱库存查询的多行剪贴板输出。
+ * - 第一行：line: "main" 的列（代码/规格/报价）+ 库存信息
+ * - 后续行：line: "detail" 的列（特价/位置/备注等）各占一行
+ * 列复选框逻辑与 doCopy() 一致，但库存信息始终输出且不受「库存」复选框控制。
+ * @returns {string|null} 多行文本（每行用 \n 分隔），或 null
+ */
+function buildStockClipboardLine(row, stockResult) {
+  if (!row) return null;
+
+  // 读取列复选框状态（与 doCopy 一致）
+  var columns = getCopyColumns();
+  var enabled = {};
+  columns.forEach(function (col) {
+    var cbId = makeCopyCheckboxId(col.field);
+    var cb = document.getElementById(cbId);
+    enabled[col.field] = cb ? cb.checked : !!col.default;
+  });
+
+  // 价格设置
+  var useUntaxed = (document.getElementById("chkUntaxedQuote")?.checked) ?? false;
+  var settings = getCurrentPriceSettings();
+  var decimals = settings.decimals;
+  var factor = Math.pow(10, decimals);
+
+  // 将列按 line 分组：main / detail
+  var mainParts = [];
+  var detailParts = [];
+
+  columns.forEach(function (col) {
+    if (!enabled[col.field]) return;
+    var prop = fieldToRowProp(col.field);
+    var lineGroup = col.line || "main";  // 默认 main
+
+    // 价格列特殊处理（含税/未税）
+    if (prop === "price") {
+      var rawPrice = parseFloat(row.price) || 0;
+      var displayPrice = useUntaxed
+        ? Math.ceil(rawPrice / 1.13 * factor) / factor
+        : rawPrice;
+      var formatted = (decimals === 0 && displayPrice > (settings.threshold || 100))
+        ? displayPrice.toFixed(0)
+        : displayPrice.toFixed(decimals);
+      var priceStr = (useUntaxed ? "未税" : "含税") + formatted;
+      if (lineGroup === "detail") {
+        detailParts.push((col.label || "") + " " + priceStr);
+      } else {
+        mainParts.push(priceStr);
+      }
+    } else {
+      var val = row[prop];
+      if (val == null || val === "") return;
+      if (lineGroup === "detail") {
+        detailParts.push(val);
+      } else {
+        mainParts.push(val);
+      }
+    }
+  });
+
+  // 库存信息追加到 main 行末尾
+  var stockStr = "";
+  if (!stockResult) {
+    stockStr = "查询失败(无结果)";
+  } else if (stockResult.error) {
+    stockStr = "查询失败(" + stockResult.error + ")";
+  } else {
+    var stockParts = [];
+    if (stockResult.shanghai > 0) stockParts.push("上海" + stockResult.shanghai);
+        if (stockResult.japan > 0) stockParts.push("日本" + stockResult.japan);
+    stockStr = stockParts.length > 0 ? stockParts.join(" ") : "厂家无货";
+  }
+  mainParts.push(stockStr);
+
+  // 拼接多行
+  var resultLines = [];
+  resultLines.push(mainParts.join(" "));
+  for (var i = 0; i < detailParts.length; i++) {
+    resultLines.push(detailParts[i]);
+  }
+  return resultLines.join("\n");
+}
+
+/**
+ * 更新结果卡片的库存展示区。
+ * @param {object} row - g_Results 行数据
+ * @param {string|null} state - 'loading' | 'data' | 'error' | null(清除)
+ * @param {object} result - 库存结果 { shanghai, japan, error }
+ */
+function updateCardStock(row, state, result) {
+  if (!row || row.id === undefined) return;
+  var stockEl = document.querySelector('[data-stock-id="' + row.id + '"]');
+  if (!stockEl) {
+    var card = document.querySelector('[data-row-id="' + row.id + '"]');
+    if (card) {
+      stockEl = card.querySelector('[data-stock-id="' + row.id + '"]');
+    }
+  }
+  if (!stockEl) return;
+
+  if (state === null) {
+    stockEl.innerHTML = "";
+    stockEl.style.display = "none";
+  } else if (state === "loading") {
+    stockEl.innerHTML = '<span class="stock-signal stock-loading">等待查询</span>';
+    stockEl.style.display = "";
+  } else if (state === "error") {
+    stockEl.innerHTML = '<span class="stock-signal stock-live-data stock-error">查询失败</span>';
+    stockEl.style.display = "";
+  } else if (state === "data" && result) {
+    var parts = [];
+    if (result.shanghai > 0) parts.push("上海" + result.shanghai);
+        if (result.japan > 0) parts.push("日本" + result.japan);
+    if (parts.length > 0) {
+      stockEl.innerHTML = '<span class="stock-signal stock-live-data">' + parts.join(" · ") + '</span>';
+    } else {
+      stockEl.innerHTML = '<span class="stock-signal stock-live-data stock-zero">厂家无货</span>';
+    }
+    stockEl.style.display = "";
+  }
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => showToast("已复制")).catch(() => fallbackCopy(text));
+    return;
+  }
+  fallbackCopy(text);
+}
+
+function fallbackCopy(text) {
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.style.position = "fixed"; el.style.left = "-9999px";
+  document.body.appendChild(el);
+  el.select();
+  try { document.execCommand("copy"); showToast("已复制"); } catch (err) {}
+  document.body.removeChild(el);
+}
+
+function showToast(msg) {
+  const toast = document.getElementById("toast");
+  toast.innerText = msg; toast.style.display = "block";
+  if (g_ToastTimer) window.clearTimeout(g_ToastTimer);
+  g_ToastTimer = window.setTimeout(() => { toast.style.display = "none"; g_ToastTimer = null; }, 1500);
+}
+
+function scrollToTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }
+
+function syncLayoutMetrics() {
+  const toolbar = document.querySelector(".toolbar");
+  const rootStyle = document.documentElement.style;
+  const toolbarHeight = toolbar ? Math.ceil(toolbar.getBoundingClientRect().height) : 0;
+  rootStyle.setProperty("--toolbar-stack-height", toolbarHeight + "px");
+}
+
+function requestLayoutMetricsSync() {
+  if (g_LayoutMetricsFrame) return;
+  g_LayoutMetricsFrame = window.requestAnimationFrame(() => { g_LayoutMetricsFrame = null; syncLayoutMetrics(); });
+}
+
+function syncMobileActionDockState() {
+  const backToTopButton = document.getElementById("btnBackToTop");
+  const toolbarActions = document.querySelector(".toolbar-actions");
+  if (toolbarActions) toolbarActions.classList.remove("is-stuck");
+  syncLayoutMetrics();
+  if (backToTopButton) {
+    const shouldShowBackTop = window.innerWidth <= 720 && window.scrollY > 260;
+    backToTopButton.classList.toggle("is-visible", shouldShowBackTop);
+  }
+}
+
+function bindUiEvents() {
+  const searchBtn = document.getElementById("btnSearch");
+  const stockBtn = document.getElementById("btnRegexConvert");
+  const mmcBtn = document.getElementById("btnMmc");
+  const copyBtn = document.getElementById("btnCopy");
+  const backTopBtn = document.getElementById("btnBackToTop");
+  const stepWrap = document.getElementById("stepPresetControls");
+  const toggleAllInput = document.getElementById("toggleAllResults");
+  if (searchBtn) searchBtn.addEventListener("click", doSearch);
+  if (stockBtn) stockBtn.addEventListener("click", doRegexSearchConverted);
+  if (mmcBtn) mmcBtn.addEventListener("click", doMitsubishiStockQuery);
+  if (copyBtn) copyBtn.addEventListener("click", doCopy);
+  if (backTopBtn) backTopBtn.addEventListener("click", scrollToTop);
+  if (toggleAllInput) toggleAllInput.addEventListener("change", function () { toggleAll(this); });
+  if (stepWrap) {
+    stepWrap.addEventListener("click", function (event) {
+      const button = event.target && event.target.closest ? event.target.closest("button") : null;
+      if (!button || !stepWrap.contains(button)) return;
+      if (button.id === "btnDefaultDiscounts") { openDefaultDiscountConfig(); return; }
+      if (button.classList.contains("step-preset")) setDiscountStepPreset(button);
+    });
+  }
+  const closeDefaultBtn = document.getElementById("btnCloseDefaultDiscounts");
+  const resetDefaultBtn = document.getElementById("btnResetDefaultDiscounts");
+  const cancelDefaultBtn = document.getElementById("btnCancelDefaultDiscounts");
+  const saveDefaultBtn = document.getElementById("btnSaveDefaultDiscounts");
+  const defaultBackdrop = document.getElementById("defaultDiscountBackdrop");
+  if (closeDefaultBtn) closeDefaultBtn.addEventListener("click", closeDefaultDiscountConfig);
+  if (resetDefaultBtn) resetDefaultBtn.addEventListener("click", resetDefaultDiscountConfig);
+  if (cancelDefaultBtn) cancelDefaultBtn.addEventListener("click", closeDefaultDiscountConfig);
+  if (saveDefaultBtn) saveDefaultBtn.addEventListener("click", saveDefaultDiscountConfig);
+  if (defaultBackdrop) defaultBackdrop.addEventListener("click", closeDefaultDiscountConfig);
+
+  ["defaultDiscountEx", "defaultDiscountOsg", "defaultDiscountMitsubishi", "defaultDiscountOther"].forEach((id) => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.addEventListener("blur", function () {
+      const key = id.replace("defaultDiscount", "").toLowerCase();
+      const normalized = DiscountEngine.sanitizeDiscountConfig({ [key]: this.value });
+      this.value = formatCompactNumber(normalized[key]);
+    });
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); saveDefaultDiscountConfig(); } });
+  });
+  const discountStep = document.getElementById("discountStep");
+  if (discountStep) {
+    discountStep.addEventListener("input", function () { updateStepPresetState(this.value); });
+    discountStep.addEventListener("change", function () { syncDiscountStepInput(this.value); });
+    discountStep.addEventListener("blur", function () { syncDiscountStepInput(this.value); });
+  }
+  const decimalsInput = document.getElementById("decimals");
+  const thresholdInput = document.getElementById("threshold");
+  if (decimalsInput) decimalsInput.addEventListener("change", refreshRenderedPrices);
+  if (thresholdInput) thresholdInput.addEventListener("change", refreshRenderedPrices);
+  const resultBody = document.getElementById("resultBody");
+  resultBody.addEventListener("pointerdown", function (event) {
+    const target = event.target && event.target.closest ? event.target.closest(".discount-stepper-btn") : null;
+    if (!target) return;
+    startDiscountPress(event, target.dataset.rowId, target.dataset.direction);
+  });
+  resultBody.addEventListener("click", function (event) {
+    const target = event.target && event.target.closest ? event.target.closest(".discount-stepper-btn") : null;
+    if (!target) return;
+    handleDiscountButtonClick(event, target.dataset.rowId, target.dataset.direction);
+  });
+  resultBody.addEventListener("change", function (event) {
+    const target = event.target;
+    if (!target || typeof target.matches !== "function") return;
+    if (target.matches('input[type="checkbox"][data-id]')) {
+      const row = getRowById(target.getAttribute("data-id"));
+      if (row) { row.checked = target.checked; syncRowSelectionState(row); }
+      syncResultOrder(); updateSelectionUi(); return;
+    }
+    if (target.matches(".discount-manual")) applyManualDiscount(target.getAttribute("data-id"), target.value);
+  });
+  resultBody.addEventListener("keydown", function (event) {
+    const target = event.target;
+    if (target && target.matches(".discount-manual") && event.key === "Enter") { event.preventDefault(); target.blur(); }
+  });
+  window.addEventListener("pointerup", handleGlobalPointerUp);
+  window.addEventListener("pointercancel", handleGlobalPointerCancel);
+  window.addEventListener("blur", () => stopDiscountPress(false));
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const modal = document.getElementById("defaultDiscountModal");
+    if (modal && !modal.hidden) closeDefaultDiscountConfig();
+  });
+  window.addEventListener("scroll", syncMobileActionDockState, { passive: true });
+  window.addEventListener("resize", syncMobileActionDockState);
+  window.requestAnimationFrame(syncMobileActionDockState);
+  requestLayoutMetricsSync();
+  updateSelectionUi();
+}
+
+</script>
+</body>
+</html>
