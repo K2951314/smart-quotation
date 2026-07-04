@@ -51,17 +51,22 @@
           <input type="number" id="threshold" value="100" step="1" min="0" inputmode="numeric">
         </div>
       </div>
-    </div>
+      </div>
 
-    <div class="toolbar-secondary">
-      <div class="toolbar-secondary-main">
-        <div class="toolbar-control-band">
-          <div id="stepPresetControls" class="step-presets toolbar-step-presets">
-            <button id="btnDefaultDiscounts" type="button" class="step-preset step-preset-action">配置</button>
+      <div class="toolbar-secondary">
+        <div class="toolbar-secondary-main">
+          <div class="toolbar-control-band">
+            <div id="stepPresetControls" class="step-presets toolbar-step-presets">
+              <button id="btnDefaultDiscounts" type="button" class="step-preset step-preset-action">配置</button>
+            </div>
           </div>
-        </div>
 
         <div class="result-controls-band">
+          <select id="roundingMethod" class="rounding-select">
+            <option value="ceil">向上取整</option>
+            <option value="round">四舍五入</option>
+            <option value="floor">向下取整</option>
+          </select>
           <div class="result-stat"><strong id="resultCount">0</strong>结果</div>
           <label class="select-all-toggle"><input id="toggleAllResults" type="checkbox">全选</label>
           <label class="opt-lbl"><input id="chkUntaxedQuote" type="checkbox">未税</label>
@@ -153,12 +158,10 @@
 
 <button id="btnBackToTop" class="mobile-back-top" type="button">回到顶部</button>
 
-<!-- 把绝对路径改成相对路径，确保前面有 ./ -->
 <script src="./lib/query-regex.js?v=4"></script>
 <script src="./lib/discount-utils.js?v=4"></script>
 <script src="./lib/result-sort.js?v=4"></script>
 <script src="./lib/config-core.js?v=4"></script>
-<!-- 干干净净的主程序 -->
-<script src="./app.js?v=4"></script>
+<script src="./app.js?v=5"></script>
 </body>
 </html>

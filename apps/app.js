@@ -13,7 +13,7 @@ let g_DiscountPressState = null;
 let g_RemoteDefaultDiscountConfig = null;
 let g_HasLocalDefaultDiscountConfig = false;
 let g_LayoutMetricsFrame = null;
-const APP_BUILD_TAG = "v4-2026-06-18-13:48";
+const APP_BUILD_TAG = "v5-2026-07-03-authgate";
 console.log("app.js", APP_BUILD_TAG, "loaded");
 var HARDCODED_PROD_API = "https://mitsubishi-stock.up.railway.app";
 let g_AppConfig = null;
@@ -550,7 +550,179 @@ function renderConfigDrivenControls() {
   requestLayoutMetricsSync();
 }
 
-window.onload = async function () {
+// ================== Auth Gate (Login Portal) ==================
+const AUTH_STORAGE_KEY = "sq-auth-profile";
+let g_AuthProfile = null; // null | { role: 'admin'|'company', companyName?, profitMargin?, taxRate? }
+
+function getAuthProfile() {
+  // 公司独立版：window.__COMPANY_PROFILE__ 由 build 时注入
+  if (window.__COMPANY_PROFILE__) return window.__COMPANY_PROFILE__;
+  if (g_AuthProfile) return g_AuthProfile;
+  try {
+    const raw = sessionStorage.getItem(AUTH_STORAGE_KEY);
+    if (raw) g_AuthProfile = JSON.parse(raw);
+  } catch (e) {}
+  return g_AuthProfile;
+}
+
+function saveAuthProfile(profile) {
+  g_AuthProfile = profile;
+  try { sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile)); } catch (e) {}
+}
+
+function clearAuthProfile() {
+  g_AuthProfile = null;
+  try { sessionStorage.removeItem(AUTH_STORAGE_KEY); } catch (e) {}
+}
+
+function isCompanyMode() {
+  const p = getAuthProfile();
+  return p && p.role === "company";
+}
+
+function applyCompanyMode(profile) {
+  if (profile && profile.role === "company") {
+    document.body.classList.add("is-company");
+    var badge = document.getElementById("userBadge");
+    var text = document.getElementById("userBadgeText");
+    if (badge) badge.style.display = "";
+    if (text) text.textContent = "🏢 " + (profile.companyName || "公司账号") + " | 利润率 " + (profile.profitMargin !== undefined ? profile.profitMargin : 10) + "% 税率 " + (profile.taxRate !== undefined ? profile.taxRate : 13) + "%";
+  }
+}
+
+function applyAdminMode() {
+  document.body.classList.remove("is-company");
+  // 管理员不显示 badge，完全保持原有布局
+}
+
+function initAuthGate() {
+  var existing = getAuthProfile();
+  if (existing) {
+    document.getElementById("authGate").style.display = "none";
+    if (existing.role === "company") applyCompanyMode(existing);
+    else applyAdminMode();
+    return true;
+  }
+  return false;
+}
+
+function bindAuthEvents() {
+  // ── 全局事件绑定（只绑一次）──
+  // 未税复选框
+  var untaxedChk = document.getElementById("chkUntaxedQuote");
+  if (untaxedChk) {
+    untaxedChk.addEventListener("change", function () {
+      if (isCompanyMode()) refreshAllCompanyPrices();
+      else refreshRenderedPrices();
+    });
+  }
+  // 取整方式下拉框
+  var roundingSel = document.getElementById("roundingMethod");
+  if (roundingSel) {
+    roundingSel.addEventListener("change", function () {
+      if (isCompanyMode()) refreshAllCompanyPrices();
+      else refreshRenderedPrices();
+    });
+  }
+}
+
+// Patch appendResultRow for company mode: show profit margin in discount panel position
+var _origAppendResultRow = appendResultRow;
+appendResultRow = function (resultList, matchKey, item, shouldCheck, isExact, runtimeConfig) {
+  if (isCompanyMode()) {
+    if (!runtimeConfig) runtimeConfig = getRuntimeAppConfig();
+    _origAppendResultRow(resultList, matchKey, item, shouldCheck, isExact, runtimeConfig);
+    // Modify the last card: replace discount panel with profit margin panel
+    var lastCard = resultList.lastElementChild;
+    if (lastCard) {
+      var panel = lastCard.querySelector(".discount-panel");
+      if (panel) {
+        var stepper = panel.querySelector(".discount-stepper");
+        var rowId = parseInt(stepper?.getAttribute("data-id") || "0");
+        var row = getRowById(rowId);
+        var defaultProfit = getCompanyProfitMargin();
+        if (row) {
+                  row.profitMargin = row.profitMargin !== undefined ? row.profitMargin : defaultProfit;
+                }
+        // Change input value to profit margin
+        var input = panel.querySelector(".discount-manual");
+        if (input) {
+          input.value = formatCompactNumber(row ? row.profitMargin : defaultProfit);
+          input.step = "0.5";
+          input.min = "0";
+          input.max = "100";
+          input.setAttribute("data-profit-id", String(rowId));
+        }
+      }
+    }
+    return;
+  }
+  _origAppendResultRow(resultList, matchKey, item, shouldCheck, isExact, runtimeConfig);
+};
+
+// Patch calcDiscountedPrice for company mode: add profit margin & tax
+// Company mode profit margin from profile, per-card profitMargin overrides
+function getCompanyProfitMargin(row) {
+  if (row && row.profitMargin !== undefined) return row.profitMargin;
+  var profile = getAuthProfile();
+  return (profile && profile.profitMargin !== undefined) ? profile.profitMargin : 0;
+}
+
+function getRoundingMethod() {
+  var sel = document.getElementById("roundingMethod");
+  return sel ? sel.value : 'ceil';
+}
+
+function applyRounding(value, factor, method) {
+  // 浮点数校正：28*1.1=30.80000000000004，ceil 前减极小值避免越界
+  var eps = 1e-9;
+  if (method === 'ceil') return Math.ceil(value * factor - eps) / factor;
+  if (method === 'floor') return Math.floor(value * factor + eps) / factor;
+  return Math.round(value * factor) / factor;
+}
+
+function refreshAllCompanyPrices() {
+  if (!g_Results || !g_Results.length) return;
+  g_Results.forEach(function (row) {
+    if (!row) return;
+    // If row has no per-item profit margin, update to toolbar value
+    if (row.profitMargin === undefined) {
+      row.profitMargin = getCompanyProfitMargin();
+    }
+    refreshRowPrice(row, false);
+  });
+}
+
+var _origCalcDiscountedPrice = calcDiscountedPrice;
+calcDiscountedPrice = function (facePrice, discount, decimals, threshold) {
+  if (isCompanyMode()) {
+    var profit = getCompanyProfitMargin();
+    var profile = getAuthProfile();
+    var tax = (profile && profile.taxRate) || 13;
+    var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
+    var factor = Math.pow(10, decimals);
+    var method = getRoundingMethod();
+    // 步骤1：含税折扣价
+    var base = _origCalcDiscountedPrice(facePrice, discount, decimals, threshold);
+    // 步骤2：含税折扣价 + 利润 → 取整
+    var withProfit = applyRounding(base.value * (1 + profit / 100), factor, method);
+    var finalVal;
+    if (useUntaxed) {
+      // 步骤3：含税价 / 1.13 → 取整得未税价
+      finalVal = applyRounding(withProfit / (1 + tax / 100), factor, method);
+    } else {
+      finalVal = withProfit;
+    }
+    var display = (finalVal % 1 === 0 && finalVal > threshold) ? finalVal.toFixed(0) : finalVal.toFixed(decimals);
+    return { value: finalVal, display: display };
+  }
+  var base = _origCalcDiscountedPrice(facePrice, discount, decimals, threshold);
+  return base;
+};
+
+// Boot: start app
+function startApp() {
+  // 公司模式需提前通过 window.__COMPANY_PROFILE__ 设置
   g_DefaultDiscountConfig = loadLocalDefaultDiscountConfig() || getSystemDefaultDiscountConfig();
   applyAppConfig(window.APP_CONFIG || {});
   bindUiEvents();
@@ -560,12 +732,45 @@ window.onload = async function () {
   requestLayoutMetricsSync();
   renderLoadingState("正在极速同步远程数据");
   updateResultCount();
-  const ready = await ensureDataLoaded();
-  if (ready) {
-    renderEmptyState("输入规格后开始查询，可在结果卡中直接调价与勾选复制。");
-  } else {
-    renderErrorState("远程数据未就绪，请重试。");
-  }
+  if (isCompanyMode()) {
+        // ── 公司模式：重写工具栏 ──
+        // "折扣步长" → "步进"
+        var stepLabel = document.querySelector("label[for=\"discountStep\"]");
+        if (stepLabel) stepLabel.textContent = "步进";
+        var stepUnit = document.querySelector(".field-group-large .field-unit");
+        if (stepUnit) stepUnit.textContent = "点";
+        // 步进输入框（控制 +/- 按钮的步长）
+        var stepInput = document.getElementById("discountStep");
+        if (stepInput) {
+          stepInput.value = "1";
+                    stepInput.step = "0.1";
+                    stepInput.min = "0.1";
+                    stepInput.max = "10";
+        }
+        // 隐藏折扣配置按钮
+                var configBtn = document.getElementById("btnDefaultDiscounts");
+                if (configBtn) configBtn.style.display = "none";
+              // 保留小数位和取整阈值
+            }
+            // 取整方法变更已在 bindAuthEvents 中全局绑定
+  ensureDataLoaded().then(function (ready) {
+      if (ready) {
+        renderEmptyState("输入规格后开始查询。");
+        // 初始显示含税价
+        if (isCompanyMode()) {
+          refreshAllCompanyPrices();
+        } else {
+          refreshRenderedPrices();
+        }
+      } else {
+      renderErrorState("远程数据未就绪，请重试。");
+    }
+  });
+};
+
+window.onload = async function () {
+  bindAuthEvents();
+  startApp();
 };
 
 function setStatus(msg, type) {
@@ -1128,8 +1333,11 @@ function getRowById(id) {
 function calcDiscountedPrice(facePrice, discount, decimals, threshold) {
   const rawCalc = facePrice * discount;
   const factor = Math.pow(10, decimals);
-  let finalPrice = Math.ceil(rawCalc * factor) / factor;
-  if (finalPrice > threshold) finalPrice = Math.ceil(rawCalc);
+  const method = getRoundingMethod();
+  let finalPrice = applyRounding(rawCalc * factor, 1, method) / factor;
+  if (finalPrice > threshold && decimals > 0) {
+    finalPrice = applyRounding(rawCalc, 1, method);
+  }
   const display = (finalPrice % 1 === 0 && finalPrice > threshold) ? finalPrice.toFixed(0) : finalPrice.toFixed(decimals);
   return { value: finalPrice, display: display };
 }
@@ -1153,7 +1361,41 @@ function flashPriceCell(priceCell) {
 function refreshRowPrice(row, flash) {
   if (!row) return;
   const settings = getCurrentPriceSettings();
-  const priceInfo = calcDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
+  var baseResult = _origCalcDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
+  var priceInfo;
+  if (isCompanyMode()) {
+        var profit = getCompanyProfitMargin(row);
+        var profile = getAuthProfile();
+        var tax = (profile && profile.taxRate) || 13;
+        var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
+        var factor = Math.pow(10, settings.decimals);
+        var method = getRoundingMethod();
+        // 步骤1：含税折扣价（已在 baseResult 中取整）
+        // 步骤2：含税折扣价 + 利润 → 取整
+        var withProfit = applyRounding(baseResult.value * (1 + profit / 100), factor, method);
+        var finalVal;
+        if (useUntaxed) {
+          // 步骤3：含税价 / 1.13 → 取整得未税价
+          finalVal = applyRounding(withProfit / (1 + tax / 100), factor, method);
+        } else {
+          finalVal = withProfit;
+        }
+        var display = (finalVal % 1 === 0 && finalVal > settings.threshold) ? finalVal.toFixed(0) : finalVal.toFixed(settings.decimals);
+        priceInfo = { value: finalVal, display: display };
+      } else {
+        var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
+        if (useUntaxed) {
+          var taxRate = 13;
+          var factor = Math.pow(10, settings.decimals);
+          var method = getRoundingMethod();
+          // 含税折扣价（已在 baseResult 中取整）/ 1.13 → 取整得未税价
+          var finalVal = applyRounding(baseResult.value / (1 + taxRate / 100), factor, method);
+          var display = (finalVal % 1 === 0 && finalVal > settings.threshold) ? finalVal.toFixed(0) : finalVal.toFixed(settings.decimals);
+          priceInfo = { value: finalVal, display: display };
+        } else {
+          priceInfo = baseResult;
+        }
+        }
   row.price = priceInfo.display;
   if (!row.fields) row.fields = {};
   row.fields.quote_price = priceInfo.display;
@@ -1164,11 +1406,13 @@ function refreshRowPrice(row, flash) {
   row.cardEl = resultCard;
 
   const priceCell = row.priceEl || resultCard.querySelector(".price");
-  const discountInput = row.discountInputEl || resultCard.querySelector(".discount-manual");
+  var discountInput = row.discountInputEl || resultCard.querySelector(".discount-manual");
 
   if (priceCell) row.priceEl = priceCell;
   if (discountInput) row.discountInputEl = discountInput;
-  if (discountInput) discountInput.value = formatCompactNumber(row.discountPercent);
+  if (discountInput) {
+    discountInput.value = isCompanyMode() ? formatCompactNumber(row.profitMargin !== undefined ? row.profitMargin : getCompanyProfitMargin()) : formatCompactNumber(row.discountPercent);
+  }
   if (priceCell) {
     priceCell.textContent = priceInfo.display;
     if (flash) flashPriceCell(priceCell);
@@ -1201,6 +1445,13 @@ function syncResultOrder() {
 function applyManualDiscount(id, rawValue) {
   const row = getRowById(id);
   if (!row) return;
+  if (isCompanyMode()) {
+      row.hasCustomDiscount = true;
+      var num = parseFloat(rawValue);
+      row.profitMargin = Number.isFinite(num) ? Math.round(num * 100) / 100 : 0;
+      refreshRowPrice(row, true);
+      return;
+    }
   row.hasCustomDiscount = true;
   row.discountPercent = normalizeDiscountPercent(rawValue, row.discountPercent);
   refreshRowPrice(row, true);
@@ -1356,6 +1607,17 @@ async function doRegexSearchConverted() {
 function adjustRowDiscount(id, direction, flash) {
   const row = getRowById(id);
   if (!row) return;
+  if (isCompanyMode()) {
+      row.hasCustomDiscount = true;
+      var step = getCurrentDiscountStep();
+      if (direction < 0) row.profitMargin = (row.profitMargin !== undefined ? row.profitMargin : 0) - step;
+            else row.profitMargin = (row.profitMargin !== undefined ? row.profitMargin : 0) + step;
+      row.profitMargin = Math.round(row.profitMargin * 100) / 100;
+      var input = document.querySelector('.discount-manual[data-profit-id="' + id + '"]');
+      if (input) input.value = formatCompactNumber(row.profitMargin);
+      refreshRowPrice(row, flash !== false);
+      return;
+    }
   row.hasCustomDiscount = true;
   row.discountPercent = DiscountEngine.shiftDiscountPercent(row.discountPercent, getCurrentDiscountStep(), direction);
   refreshRowPrice(row, flash !== false);
@@ -1485,18 +1747,12 @@ function doCopy() {
       var lineGroup = col.line || "main";  // 默认 main
 
       if (prop === "price") {
-        // 价格列：支持含税/未税切换
-        var rawPrice = parseFloat(row.price) || 0;
-        var displayPrice;
-        if (useUntaxed) {
-          displayPrice = Math.ceil(rawPrice / 1.13 * factor) / factor;
-        } else {
-          displayPrice = rawPrice;
-        }
-        var formatted = (decimals === 0 && displayPrice > settings.threshold)
-          ? displayPrice.toFixed(0)
-          : displayPrice.toFixed(decimals);
-        var priceStr = (useUntaxed ? "未税" : "含税") + formatted;
+              // 价格列：row.price 已由 refreshRowPrice 正确计算，直接使用
+              var rawPrice = parseFloat(row.price) || 0;
+              var formatted = (decimals === 0 && rawPrice > settings.threshold)
+                ? rawPrice.toFixed(0)
+                : rawPrice.toFixed(decimals);
+              var priceStr = (useUntaxed ? "未税" : "含税") + formatted;
         if (lineGroup === "detail") {
           detailParts.push(priceStr);
         } else {
@@ -1697,15 +1953,13 @@ function buildStockClipboardLine(row, stockResult) {
     var lineGroup = col.line || "main";  // 默认 main
 
     // 价格列特殊处理（含税/未税）
-    if (prop === "price") {
-      var rawPrice = parseFloat(row.price) || 0;
-      var displayPrice = useUntaxed
-        ? Math.ceil(rawPrice / 1.13 * factor) / factor
-        : rawPrice;
-      var formatted = (decimals === 0 && displayPrice > (settings.threshold || 100))
-        ? displayPrice.toFixed(0)
-        : displayPrice.toFixed(decimals);
-      var priceStr = (useUntaxed ? "未税" : "含税") + formatted;
+        if (prop === "price") {
+          var rawPrice = parseFloat(row.price) || 0;
+          // row.price 已由 refreshRowPrice 正确计算（含税或未税），直接使用
+          var formatted = (decimals === 0 && rawPrice > (settings.threshold || 100))
+            ? rawPrice.toFixed(0)
+            : rawPrice.toFixed(decimals);
+          var priceStr = (useUntaxed ? "未税" : "含税") + formatted;
       if (lineGroup === "detail") {
         detailParts.push((col.label || "") + " " + priceStr);
       } else {
