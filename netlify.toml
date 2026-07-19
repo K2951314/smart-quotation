@@ -1,6 +1,9 @@
-[build]
-publish = "apps"
-command = ""
+# publish 和 command 留空，由 Netlify 网页配置决定
+# 客户报价台：publish = "apps"
+# 管理后台：publish = "admin"
+# [build]
+# publish = "apps"
+# command = ""
 
 # 安全响应头。
 # CSP connect-src 使用 https: 通配以支持动态后端地址（Railway/Render 等）。
