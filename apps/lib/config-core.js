@@ -9,7 +9,8 @@
     schema_version: 2,
     version: "",
     data_source: {
-      base_url: "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q",
+      // 部署期注入：由 admin 配置中心写入 config.json，或通过 window.SQ_SUPABASE_BASE_URL 覆盖
+      base_url: (typeof window !== "undefined" && window.SQ_SUPABASE_BASE_URL) || "",
       version_file: "version.json",
       config_file: "config.json",
       price_bundle_file: "price.bundle.json",
@@ -19,6 +20,8 @@
     pricing: {
       decimal_places: 1,
       rounding_threshold: 100,
+      tax_rate: 13,
+      face_price_tax_inclusive: true,
       discount_step: {
         default: 0.1,
         min: 0.1,
@@ -56,9 +59,12 @@
       metrics: ["face_price", "quote_price"],
       details: ["remark"],
     },
+    // 安全：折扣率全部使用中性占位值 55%（与 FALLBACK_DISCOUNT_PERCENT 对齐）。
+    // 真实折扣率由服务端 config 注入，不得在前端源码中硬编码，
+    // 否则公开 JS 源码会泄露商业折扣结构。
     discount_rules: [
-      { id: "ex", label: "EX活动", percent: 32, conditions: [{ field: "special", contains: "EX活动" }] },
-      { id: "osg", label: "OSG", percent: 36, conditions: [{ field: "brand", regex: "OSG" }] },
+      { id: "ex", label: "EX活动", percent: 55, conditions: [{ field: "special", contains: "EX活动" }] },
+      { id: "osg", label: "OSG", percent: 55, conditions: [{ field: "brand", regex: "OSG" }] },
       { id: "mitsubishi", label: "三菱", percent: 55, conditions: [{ field: "name", equals: "刀具" }] },
       { id: "other", label: "其他", percent: 55, default: true, conditions: [] },
     ],
@@ -307,6 +313,11 @@
     var pricing = mergePlain(DEFAULT_CONFIG.pricing, rawPricing || {});
     pricing.decimal_places = Math.max(0, Math.round(Number(pricing.decimal_places) || 0));
     pricing.rounding_threshold = Number.isFinite(Number(pricing.rounding_threshold)) ? Number(pricing.rounding_threshold) : 100;
+    // 税率：全局配置，默认 13%（中国工业品增值税率）
+    var taxRate = Number(pricing.tax_rate);
+    pricing.tax_rate = Number.isFinite(taxRate) && taxRate >= 0 ? taxRate : 13;
+    // 面价含税属性：默认 true（面价已含增值税）
+    pricing.face_price_tax_inclusive = pricing.face_price_tax_inclusive !== false;
     pricing.discount_step = mergePlain(DEFAULT_CONFIG.pricing.discount_step, pricing.discount_step || {});
     pricing.discount_step.default = Math.max(Number(pricing.discount_step.min) || 0.1, compactNumber(pricing.discount_step.default, 0.1));
     pricing.discount_step.min = Math.max(0.01, compactNumber(pricing.discount_step.min, 0.1));

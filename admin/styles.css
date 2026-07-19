@@ -1238,6 +1238,247 @@ pre {
 .advanced { color: var(--warning); }
 .danger { color: var(--danger); }
 
+/* ─── Login Overlay ─────────────────────────────────────────────────── */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(31, 46, 56, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.login-card {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-8) var(--sp-10);
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: var(--shadow-xl);
+  text-align: center;
+}
+
+.login-logo {
+  display: inline-grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff;
+  font-weight: 800;
+  font-size: var(--text-lg);
+  margin-bottom: var(--sp-3);
+  box-shadow: 0 8px 20px -10px rgba(18, 108, 105, 0.55);
+}
+
+.login-card h2 {
+  font-size: var(--text-lg);
+  color: var(--ink);
+  margin-bottom: var(--sp-1);
+}
+
+.login-card .login-sub {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin: 0 0 var(--sp-5);
+}
+
+.login-error {
+  display: none;
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--danger-light);
+  border: 1px solid rgba(179, 88, 75, 0.2);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.login-input {
+  width: 100%;
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  box-sizing: border-box;
+  margin-bottom: var(--sp-4);
+  background: var(--field);
+}
+
+.login-btn {
+  width: 100%;
+  padding: var(--sp-3);
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 18px -10px rgba(18, 108, 105, 0.55);
+  transition: all var(--transition);
+}
+
+.login-btn:hover {
+  box-shadow: 0 12px 22px -10px rgba(18, 108, 105, 0.65);
+  transform: translateY(-1px);
+}
+
+.login-hint {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--text-xs);
+  color: var(--muted-light);
+  line-height: 1.6;
+}
+
+/* ─── Company Selector (sidebar) ────────────────────────────────────── */
+.company-selector {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.company-selector-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  display: block;
+  margin-bottom: var(--sp-1);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.company-selector-row {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+.company-selector-row select {
+  flex: 1;
+  padding: var(--sp-2) var(--sp-2);
+  font-size: var(--text-sm);
+}
+
+.company-selector-row button {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--text-xs);
+  min-height: auto;
+}
+
+/* ─── Company Management ────────────────────────────────────────────── */
+.company-layout {
+  display: flex;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.company-create-panel {
+  flex: 1;
+  min-width: 280px;
+  padding: var(--sp-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.company-create-panel h3 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--text-lg);
+}
+
+.company-create-panel .field-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-bottom: var(--sp-1);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.company-create-panel .field-block {
+  margin-bottom: var(--sp-3);
+}
+
+.company-create-panel input {
+  width: 100%;
+  padding: var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+  font-size: var(--text-sm);
+}
+
+.company-create-panel .field-hint {
+  font-size: var(--text-xs);
+  color: var(--muted-light);
+  margin: var(--sp-1) 0 0;
+  line-height: 1.5;
+}
+
+.company-create-panel .create-btn {
+  padding: var(--sp-2) var(--sp-5);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff;
+  cursor: pointer;
+  font-size: var(--text-base);
+  font-weight: 600;
+  box-shadow: 0 8px 18px -10px rgba(18, 108, 105, 0.55);
+}
+
+.company-list-panel {
+  flex: 2;
+  min-width: 320px;
+}
+
+.company-list-panel h3 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--text-lg);
+}
+
+#companyList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.company-list-hint {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* ─── Topbar Version Fields ─────────────────────────────────────────── */
+.topbar-fields {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.topbar-fields label {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+}
+
+.topbar-fields input {
+  width: 130px;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--text-sm);
+}
+
 /* ─── Responsive ────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
   .shell { grid-template-columns: 160px 1fr; }

@@ -1,3 +1,5 @@
+import base64
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -337,6 +339,33 @@ class BackendV1Test(unittest.TestCase):
         self.assertFalse(bundle["secured"])
         self.assertIn("payload", bundle)
         self.assertEqual(bundle["meta"]["rowCount"], 1)
+
+    def test_company_bundle_uses_canonical_engine(self):
+        store = self.make_store()
+        config = {
+            "schema_version": 3,
+            "revision": "r1",
+            "pricing": {
+                "decimal_places": 1,
+                "default_formula": "face_price * discount_percent / 100 * 0.9",
+            },
+            "fields": [
+                {"key": "spec", "label": "规格", "searchable": True, "required": True},
+                {"key": "face_price", "label": "面价", "type": "number"},
+            ],
+            "rules": [{"id": "default", "default": True, "actions": [{"type": "set_discount", "percent": 50}]}],
+        }
+        store.save_config(config, status="published")
+        store.replace_items("r1", [
+            {"item_key": "A", "fields": {"spec": "A", "face_price": 100}},
+        ])
+
+        canonical_price = QuotationEngine(store).quote("A")[0]["fields"]["quote_price"]
+        bundle = store.build_price_bundle(role="company")
+        bundle_price = json.loads(base64.b64decode(bundle["payload"]))["rows"][0]["fields"]["quote_price"]
+
+        self.assertEqual(canonical_price, "45.0")
+        self.assertEqual(bundle_price, "45.0")
 
     def test_build_price_bundle_with_encryption(self):
         """build_price_bundle 加密时应返回 secured=True"""

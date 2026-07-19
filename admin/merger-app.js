@@ -89,9 +89,18 @@
     var cfg = getConfigFromEditor();
     var files = await readExcelFiles(input.files);
     var allTables = files.map(function (f) { return f.rows; });
-    state.priceRows = DataUtils.mergePriceTables(allTables, cfg);
+    var merged = DataUtils.mergePriceTables(allTables, cfg);
+    // 面价含税属性转换（未税 → 含税）
+    var taxSelect = $("merger-facePriceTaxInclusive");
+    var taxOpt = taxSelect ? taxSelect.value : "";
+    var taxResult = DataUtils.applyTaxConversion(merged, cfg, taxOpt);
+    state.priceRows = taxResult.rows;
     updateCounters();
-    setStatus("已加载并合并 " + state.priceRows.length + " 行", "ok");
+    if (taxResult.applied && taxResult.converted > 0) {
+      setStatus("已加载并合并 " + state.priceRows.length + " 行（面价已从未税转为含税，转换 " + taxResult.converted + " 行，税率 " + taxResult.taxRate + "%）", "ok");
+    } else {
+      setStatus("已加载并合并 " + state.priceRows.length + " 行", "ok");
+    }
   }
 
   async function loadStockFiles() {
@@ -190,9 +199,7 @@
     $("merger-exportStockBtn").onclick = function () {
       try { exportStockBundleOnly(); } catch (err) { setStatus("导出库存包失败: " + err.message, "error"); }
     };
-    $("merger-exportAllBtn").onclick = function () {
-      exportAllBundles().catch(function (err) { setStatus("全部导出失败: " + err.message, "error"); });
-    };
+    // exportAllBtn 已移除（全量导出功能合并到一键同步）
   }
 
   async function bootstrap() {
@@ -201,6 +208,10 @@
     updateCounters();
     setStatus("就绪：上传报价文件后点击「加载并合并」", "info");
   }
+
+  // 暴露 state 到全局，供 admin/app.js 的"上传到 Supabase"按钮使用
+  // 这样上传时可以直接从 state.priceRows/stockRows 生成 bundle，不需要先"导出"
+  window._mergerState = state;
 
   bootstrap().catch(function (err) {
     setStatus("初始化失败: " + err.message, "error");

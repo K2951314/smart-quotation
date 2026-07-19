@@ -5,20 +5,14 @@
     root.DiscountUtils = factory();
   }
 })(typeof self !== "undefined" ? self : this, function () {
+  // 全部折扣参数从 config.json 的 rules 驱动，此处仅保留中立 fallback
   var FALLBACK_DISCOUNT_PERCENT = 55;
-  var OSG_DISCOUNT_PERCENT = 36;
-  var EX_ACTIVITY_DISCOUNT_PERCENT = 32;
-  var MITSUBISHI_DISCOUNT_PERCENT = 55;
   var MIN_DISCOUNT_PERCENT = 0;
   var MAX_DISCOUNT_PERCENT = 100;
   var DEFAULT_STEP_PERCENT = 0.1;
-  // 兜底默认折扣（4 个固定品牌），在没有加载到 admin 配置时使用
-  var FALLBACK_DISCOUNT_CONFIG = Object.freeze({
-    ex: EX_ACTIVITY_DISCOUNT_PERCENT,
-    osg: OSG_DISCOUNT_PERCENT,
-    mitsubishi: MITSUBISHI_DISCOUNT_PERCENT,
-    other: FALLBACK_DISCOUNT_PERCENT,
-  });
+  // 兜底默认折扣：仅含 “other”，不再硬编码任何品牌名/折扣率。
+  // 品牌识别与对应折扣完全由 config.rules 驱动。
+  var FALLBACK_DISCOUNT_CONFIG = Object.freeze({ other: FALLBACK_DISCOUNT_PERCENT });
 
   function toStringSafe(value) {
     if (value === null || value === undefined) return "";
@@ -103,13 +97,13 @@
   }
 
   /**
-   * 从 discount_rules 中匹配物品的折扣类别（动态版）
-   * 替代硬编码的 getDiscountCategory()，使用 rules conditions 来判断
+   * 从 discount_rules 中匹配物品的折扣类别（动态版）。
+   * 品牌识别完全由 rules.conditions 驱动，不再硬编码任何品牌名。
    */
   function getDiscountCategoryFromRules(item, rules) {
     if (!rules || !Array.isArray(rules) || !rules.length) {
-      // 回退到硬编码逻辑
-      return _getHardcodedCategory(item);
+      // 无 rules 时所有商品统一归到 “other”
+      return "other";
     }
 
     var source = item || {};
@@ -174,36 +168,16 @@
     return true;
   }
 
-  // 硬编码分类（无 rules 时的回退）
-  function _getHardcodedCategory(item) {
-    var source = item || {};
-    var special = toStringSafe(source.special);
-    var spec = toStringSafe(source.spec);
-    var brand = toStringSafe(source.brand || source.b);
-    var name = toStringSafe(source.name || source.n);
-    var brandAndSpec = brand + " " + spec;
-
-    if (includesNormalized(special, "\u0045\u0058\u6d3b\u52a8")) {
-      return "ex";
-    }
-    if (/OSG/i.test(brandAndSpec)) {
-      return "osg";
-    }
-    if (name === "\u5200\u5177") {
-      return "mitsubishi";
-    }
-    return "other";
-  }
-
   /**
-   * 公开的 getDiscountCategory（向后兼容 + 动态支持）
-   * 当提供 rules 参数时使用动态匹配，否则回退硬编码
+   * 公开的 getDiscountCategory（配置驱动）。
+   * 当提供 rules 时按 conditions 动态匹配，否则所有商品归到 “other”。
+   * 不再硬编码任何品牌名。
    */
   function getDiscountCategory(item, rules) {
     if (rules && Array.isArray(rules) && rules.length) {
       return getDiscountCategoryFromRules(item, rules);
     }
-    return _getHardcodedCategory(item);
+    return "other";
   }
 
   function getDiscountLabel(category, percent, rules) {
@@ -215,11 +189,8 @@
         }
       }
     }
-    // 硬编码回退
-    if (category === "ex") return "\u0045\u0058\u6d3b\u52a8 " + formatDiscountPercent(percent);
-    if (category === "osg") return "OSG " + formatDiscountPercent(percent);
-    if (category === "mitsubishi") return "\u4e09\u83f1 " + formatDiscountPercent(percent);
-    return String(category || "\u5176\u4ed6") + " " + formatDiscountPercent(percent);
+    // 无配置时仅显示类别名 + 百分比，不猜测品牌
+    return String(category || "other") + " " + formatDiscountPercent(percent);
   }
 
   function getDefaultDiscountPreset(item, config, rules) {
@@ -262,9 +233,6 @@
 
   return {
     FALLBACK_DISCOUNT_PERCENT: FALLBACK_DISCOUNT_PERCENT,
-    OSG_DISCOUNT_PERCENT: OSG_DISCOUNT_PERCENT,
-    EX_ACTIVITY_DISCOUNT_PERCENT: EX_ACTIVITY_DISCOUNT_PERCENT,
-    MITSUBISHI_DISCOUNT_PERCENT: MITSUBISHI_DISCOUNT_PERCENT,
     DEFAULT_STEP_PERCENT: DEFAULT_STEP_PERCENT,
     DEFAULT_DISCOUNT_CONFIG: FALLBACK_DISCOUNT_CONFIG,
     FALLBACK_DISCOUNT_CONFIG: FALLBACK_DISCOUNT_CONFIG,

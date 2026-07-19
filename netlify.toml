@@ -2,13 +2,17 @@
 publish = "apps"
 command = ""
 
-# 安全响应头。connect-src 使用 https: 允许连接任何 HTTPS 后端（因后端地址可动态配置）。
-# 如需更严格的 CSP，请将 https: 替换为具体的后端地址。
-#   Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://*.supabase.co https://YOUR_BACKEND.onrender.com; img-src 'self' data:; font-src 'self'"
+# 安全响应头。
+# CSP connect-src 使用 https: 通配以支持动态后端地址（Railway/Render 等）。
+# 后端 API 地址通过前端 getApiBase() 动态探测，CSP 无法在构建时确定具体域名，
+# 因此放开所有 HTTPS（仍阻止 HTTP 明文连接）。
+# Supabase Storage 的 HTTPS 地址也由此规则覆盖。
 [[headers]]
   for = "/*"
   [headers.values]
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "DENY"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https:; img-src 'self' data:; font-src 'self'"
+    Referrer-Policy = "no-referrer"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"

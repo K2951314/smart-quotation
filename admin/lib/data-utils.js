@@ -1,4 +1,4 @@
-﻿(function (root, factory) {
+﻿﻿(function (root, factory) {
   if (typeof module === "object" && module.exports) {
     module.exports = factory(require("../../apps/lib/config-core"));
   } else {
@@ -141,6 +141,53 @@
     return merged;
   }
 
+  function applyTaxConversion(rows, config, facePriceTaxInclusive) {
+    // 面价含税属性转换：未税价 → 含税价
+    // facePriceTaxInclusive: undefined/null → 跟随 config.pricing.face_price_tax_inclusive（默认 true）
+    //                        true  → 不转换
+    //                        false → ×(1+tax_rate/100) 转为含税
+    var cfg = ConfigCore ? ConfigCore.normalizeConfig(config || {}) : null;
+    var pricing = (cfg && cfg.pricing) || {};
+    var taxRate = Number(pricing.tax_rate);
+    if (!Number.isFinite(taxRate) || taxRate <= 0) taxRate = 13;
+    var inclusive = facePriceTaxInclusive;
+    if (inclusive === undefined || inclusive === null || inclusive === "") {
+      inclusive = pricing.face_price_tax_inclusive !== false;
+    }
+    inclusive = inclusive === true || inclusive === "true";
+    if (inclusive) return { rows: rows, converted: 0, taxRate: taxRate, applied: false };
+
+    var factor = 1 + taxRate / 100;
+    var list = Array.isArray(rows) ? rows : [];
+    var converted = 0;
+    var out = [];
+    // 面价可能以中文列名（如“销售单价”、“面价”）或字段 key（face_price）出现
+    var priceKeys = ["face_price", "销售单价", "面价", "目录价", "含税单价", "单价"];
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i];
+      if (!row) { out.push(row); continue; }
+      var clone = {};
+      var keys = Object.keys(row);
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        var val = row[key];
+        if (priceKeys.indexOf(key) >= 0) {
+          var num = Number(String(val).replace(/,/g, ""));
+          if (Number.isFinite(num) && num > 0) {
+            clone[key] = Math.round(num * factor * 100) / 100;
+            converted++;
+          } else {
+            clone[key] = val;
+          }
+        } else {
+          clone[key] = val;
+        }
+      }
+      out.push(clone);
+    }
+    return { rows: out, converted: converted, taxRate: taxRate, applied: true };
+  }
+
   function buildPriceDataset(rows, config) {
     if (ConfigCore) {
       var cfg = ConfigCore.normalizeConfig(config || {});
@@ -279,6 +326,7 @@
     normalizePriceRows: normalizePriceRows,
     mergePriceTables: mergePriceTables,
     buildPriceDataset: buildPriceDataset,
+    applyTaxConversion: applyTaxConversion,
     buildStockByCode: buildStockByCode,
     buildStockDataset: buildStockDataset,
     bytesToBase64: bytesToBase64,

@@ -32,10 +32,9 @@ test("normalizes config-level version and current Supabase bucket defaults", () 
   });
 
   assert.equal(config.version, "2026-06-01.1");
-  assert.equal(
-    config.data_source.base_url,
-    "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q"
-  );
+  // base_url 默认为空字符串（由部署期 window.SQ_SUPABASE_BASE_URL 或 admin 配置注入）
+  // 源码中不得硬编码真实 Supabase URL（安全规则）
+  assert.equal(config.data_source.base_url, "");
   assert.equal(ConfigCore.getConfigVersion(config), "2026-06-01.1");
 });
 

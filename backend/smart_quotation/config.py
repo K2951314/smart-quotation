@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -11,7 +12,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": 3,
     "revision": "",
     "data_source": {
-        "base_url": "https://xnnolklpjentxhosetcd.supabase.co/storage/v1/object/public/s-q",
+        # 部署期注入：通过 admin 配置中心或环境变量 SQ_SUPABASE_BASE_URL 设置
+        "base_url": os.environ.get("SQ_SUPABASE_BASE_URL", ""),
         "version_file": "version.json",
         "config_file": "config.json",
         "price_bundle_file": "price.bundle.json",
@@ -23,6 +25,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "decimal_places": 1,
         "rounding": {"mode": "ceil", "integer_above": 100},
         "default_formula": DEFAULT_FORMULA,
+        # 税率（全局，非公司级）——中国工业品增值税率几乎统一为 13%。
+        # 仅在"切换未税价"时使用：未税价 = 含税价 / (1 + tax_rate/100)。
+        "tax_rate": 13,
+        # 面价是否含税。上传价格表时若标注为未税，入库时自动 ×(1+tax_rate) 转为含税存储。
+        "face_price_tax_inclusive": True,
     },
     "fields": [
         {
@@ -158,6 +165,8 @@ def normalize_config(raw_config: dict[str, Any] | None) -> dict[str, Any]:
                 "decimal_places": decimal_places,
                 "rounding": {"mode": "ceil", "integer_above": rounding_threshold},
                 "default_formula": DEFAULT_FORMULA,
+                "tax_rate": 13,
+                "face_price_tax_inclusive": True,
             },
             "fields": [normalize_field(item or {}) for item in raw.get("fields") or DEFAULT_CONFIG["fields"]],
             "rules": [v2_rule_to_v3(item or {}, index) for index, item in enumerate(raw.get("discount_rules") or [])],

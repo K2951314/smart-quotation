@@ -5,9 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#f7f3ec">
 <title>智能询价系统</title>
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=9">
 </head>
 <body>
+<div id="authGate" class="auth-gate-overlay" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;">
+  <div class="auth-gate-card">
+    <h2>智能询价系统</h2>
+    <p class="gate-sub">请粘贴管理员发给你的访问链接</p>
+    <!-- 主模式：粘贴链接自动解析 -->
+    <div style="margin-bottom:1rem;">
+      <label class="gate-label">访问链接</label>
+      <textarea id="authGateLink" class="gate-textarea" placeholder="粘贴包含 company_id 和 token 的链接..."></textarea>
+    </div>
+    <button id="btnAuthGateEnter" type="button" class="gate-btn">进入</button>
+    <!-- 手动输入折叠区（高级） -->
+    <details style="margin-top:0.5rem;">
+      <summary>手动输入（高级）</summary>
+      <div style="margin-top:0.8rem;">
+        <div style="margin-bottom:0.8rem;">
+          <label class="gate-label">公司ID</label>
+          <input id="authGateCompanyId" class="gate-input" type="text" placeholder="留空=管理员模式">
+        </div>
+        <div style="margin-bottom:0.8rem;">
+          <label class="gate-label">访问令牌</label>
+          <input id="authGateToken" class="gate-input" type="password" placeholder="公司访问令牌">
+        </div>
+        <div style="margin-bottom:0.8rem;">
+          <label class="gate-label">库存查询密钥</label>
+          <input id="authGateStockKey" class="gate-input" type="password" placeholder="三菱库存查询专用（可选）">
+        </div>
+      </div>
+    </details>
+    <p class="gate-foot">密钥仅存在本地浏览器，不会上传</p>
+  </div>
+</div>
+
 <div id="toast" class="toast" role="status" aria-live="polite">已复制</div>
 
 <div class="shell">
@@ -158,10 +190,19 @@
 
 <button id="btnBackToTop" class="mobile-back-top" type="button">回到顶部</button>
 
-<script src="./lib/query-regex.js?v=4"></script>
-<script src="./lib/discount-utils.js?v=4"></script>
-<script src="./lib/result-sort.js?v=4"></script>
-<script src="./lib/config-core.js?v=4"></script>
-<script src="./app.js?v=5"></script>
+<script src="./lib/query-regex.js?v=9"></script>
+<script src="./lib/discount-utils.js?v=9"></script>
+<script src="./lib/result-sort.js?v=9"></script>
+<script src="./lib/config-core.js?v=9"></script>
+<script src="./lib/state.js?v=9"></script>
+<script src="./lib/ui-helpers.js?v=9"></script>
+<script src="./lib/config-helpers.js?v=9"></script>
+<script src="./lib/search-render.js?v=9"></script>
+<script src="./lib/copy-clipboard.js?v=9"></script>
+<script src="./lib/discount-config.js?v=9"></script>
+<script src="./lib/stock-query.js?v=9"></script>
+<script src="./lib/auth.js?v=9"></script>
+<script src="./lib/data-load.js?v=9"></script>
+<script src="./app.js?v=9"></script>
 </body>
 </html>

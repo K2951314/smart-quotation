@@ -6,7 +6,13 @@ class AdminGuiTest(unittest.TestCase):
     def _read(self):
         root = Path(__file__).resolve().parents[1]
         html = (root / "admin" / "index.html").read_text(encoding="utf-8")
-        js = (root / "admin" / "app.js").read_text(encoding="utf-8")
+        # 模块化后，函数分布在 app.js + lib/*.js 中，拼接为整体进行检查
+        js_parts = [(root / "admin" / "app.js").read_text(encoding="utf-8")]
+        lib_dir = root / "admin" / "lib"
+        if lib_dir.is_dir():
+            for js_file in sorted(lib_dir.glob("*.js")):
+                js_parts.append(js_file.read_text(encoding="utf-8"))
+        js = "\n".join(js_parts)
         return html, js
 
     def test_admin_gui_exposes_non_technical_configuration_flow(self):
@@ -72,8 +78,8 @@ class AdminGuiTest(unittest.TestCase):
         # 导航
         self.assertIn("数据拼接", html)
 
-        # 新 merger UI 元素
-        for elem_id in ["merger-stage1Files", "merger-stage2Files", "merger-exportPriceBtn", "merger-exportStockBtn", "merger-exportAllBtn"]:
+        # merger UI 元素（当前命名）
+        for elem_id in ["merger-priceFiles", "merger-stockFiles", "merger-exportPriceBtn", "merger-exportStockBtn"]:
             self.assertIn(elem_id, html, f"HTML 中未找到数据拼接元素: {elem_id}")
 
     def test_admin_gui_has_data_source_config(self):

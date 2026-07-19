@@ -8,6 +8,21 @@ from typing import Any
 
 
 class FormulaEvaluator(ast.NodeVisitor):
+    """安全公式求值器：严格白名单模式。
+    
+    只允许以下 AST 节点：
+    - Expression, Constant, Name, BinOp, UnaryOp, Call
+    只允许以下运算符：
+    - +, -, *, /, 一元负号
+    只允许以下函数：
+    - ceil, floor, round, min, max, abs
+    
+    任何其他节点类型（属性访问、下标、比较、布尔运算等）一律拒绝。
+    """
+
+    ALLOWED_NODES = frozenset({
+        "Expression", "Constant", "Name", "BinOp", "UnaryOp", "Call", "Load",
+    })
     operators = {
         ast.Add: operator.add,
         ast.Sub: operator.sub,
@@ -21,6 +36,7 @@ class FormulaEvaluator(ast.NodeVisitor):
         "round": round,
         "min": min,
         "max": max,
+        "abs": abs,
     }
 
     def __init__(self, variables: dict[str, Any]):
@@ -44,32 +60,40 @@ class FormulaEvaluator(ast.NodeVisitor):
     def visit_BinOp(self, node: ast.BinOp) -> float:
         op = self.operators.get(type(node.op))
         if not op:
-            raise ValueError("formula operator is not allowed")
+            raise ValueError(f"formula operator not allowed: {type(node.op).__name__}")
         return op(self.visit(node.left), self.visit(node.right))
 
     def visit_UnaryOp(self, node: ast.UnaryOp) -> float:
         op = self.operators.get(type(node.op))
         if not op:
-            raise ValueError("formula operator is not allowed")
+            raise ValueError(f"formula unary operator not allowed: {type(node.op).__name__}")
         return op(self.visit(node.operand))
 
     def visit_Call(self, node: ast.Call) -> float:
         if not isinstance(node.func, ast.Name) or node.func.id not in self.functions:
             raise ValueError("formula function is not allowed")
+        # 拒绝关键字参数（防止构造特殊调用）
+        if node.keywords:
+            raise ValueError("formula function calls cannot use keyword arguments")
         args = [self.visit(arg) for arg in node.args]
         return float(self.functions[node.func.id](*args))
 
+    def visit_Load(self, node: ast.Load) -> None:
+        """Load context node — no-op, just allow it."""
+        return None
+
     def generic_visit(self, node: ast.AST) -> float:
-        raise ValueError(f"formula node is not allowed: {type(node).__name__}")
+        node_name = type(node).__name__
+        raise ValueError(f"formula node not allowed: {node_name}")
 
 
 class QuotationEngine:
     def __init__(self, store):
         self.store = store
 
-    def quote(self, query: str) -> list[dict[str, Any]]:
-        config = self.store.get_active_config()
-        rows = self.store.search_items(query, self.searchable_fields(config))
+    def quote(self, query: str, company_id: str = None) -> list[dict[str, Any]]:
+        config = self.store.get_active_config(company_id=company_id) if company_id else self.store.get_active_config()
+        rows = self.store.search_items(query, self.searchable_fields(config), company_id=company_id) if company_id else self.store.search_items(query, self.searchable_fields(config))
         return [self.quote_row(row, config) for row in rows]
 
     def searchable_fields(self, config: dict[str, Any]) -> list[str]:

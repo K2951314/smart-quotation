@@ -1,25 +1,118 @@
 # 智能询价系统
 
-> B2B 刀具/工具行业报价工具。管理员配置价格/折扣/品牌规则，销售/客户看报价+调利润率。
-> 所有功能在独立 HTML 中可用，数据从 Supabase 加载，无需运行服务器。
+> 多租户配置驱动的 B2B 刀具/工具行业报价系统。
+> 管理员通过 GUI 配置中心管理价格/折扣/品牌规则，销售/客户看报价 + 调利润率，三菱库存实时查询。
+
+---
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────┐
+│  admin/ (浏览器端 GUI 配置中心)                     │
+│  字段配置 · 报价规则 · 数据拼接 · Bundle 生成 · 发布 │
+└────────────────────┬────────────────────────────────┘
+                     │ POST /api/companies/{id}/config
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│  backend/ (FastAPI + SQLite)                         │
+│  多租户 company_id 隔离 · CRUD · 审计 · Bundle 部署  │
+└────────────────────┬────────────────────────────────┘
+                     │ 部署 Bundle (config + price + stock)
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│  Supabase Storage (公开桶)                          │
+│  config.json · price.bundle.json · stock.bundle.json│
+└────────────────────┬────────────────────────────────┘
+                     │ fetch + Cache API
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│  apps/ (静态前端报价台)                              │
+│  模糊查询 · 折扣/利润计算 · 含税/未税切换 · 复制     │
+│  三菱库存实时查询（POST /api/stock-query）           │
+└─────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 快速开始
 
-```bash
-# 管理员版（完整功能，双击即用）
-python3 build_standalone.py
+### 1. 安装依赖
 
-# 公司版（无面价，硬编码利润率/税率）
-python3 build_standalone.py --company --name "公司名称" --profit 10 --tax 13
+```powershell
+pip install -r requirements.txt
 ```
 
-生成的文件在项目根目录：
-- `standalone.html` — **管理员版**：面价/折扣/配置全功能
-- `company.html` — **公司版**：无面价、无折扣配置、可调利润率
+### 2. 配置环境变量
 
-双击对应文件即可在浏览器中使用（数据从云端加载，需联网）。
+复制 `.env.example` 为 `.env` 并填入真实值：
+
+```powershell
+copy .env.example .env
+```
+
+关键字段：
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `ADMIN_API_KEY` | ✅ | admin 后台 API 密钥，至少 16 字符；未设置时后端拒绝启动 |
+| `SQ_DEV` | 本地开发 | 设为 `1` 可跳过 ADMIN_API_KEY 强校验（仅限本地） |
+| `STOCK_QUERY_KEY` | 生产必填 | 三菱库存查询专用密钥；**必须独立于 `ADMIN_API_KEY`**，生产环境为空时库存查询返回 503 |
+| `MMC_USERNAME` / `MMC_PASSWORD` | 可选 | 三菱官网登录凭据（仅部署在服务端） |
+| `ALLOW_ORIGINS` | 生产 | 逗号分隔的允许来源；留空则允许所有但不带凭证 |
+
+生成强随机密钥：
+
+```powershell
+py -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### 3. 启动后端
+
+```powershell
+# 本地开发（跳过强校验）
+$env:SQ_DEV = "1"
+py -m backend.smart_quotation
+```
+
+访问：
+- GUI 配置中心：<http://127.0.0.1:8001/admin/>
+- 客户报价台：<http://127.0.0.1:8001/apps/index.html>
+- API 健康检查：<http://127.0.0.1:8001/api/health>
+
+---
+
+## 核心概念
+
+### 多租户隔离
+
+系统的关键隔离单位是 `company_id`。所有业务表（`quotation_configs`、`quotation_items`、`audit_events`）都有 `company_id` 列，所有 CRUD 都按公司过滤。默认公司 ID 为 `default`（单租户兼容模式）。
+
+### 配置驱动
+
+一切由 `config.json` 驱动：
+- **fields**：字段定义（key、label、类型、Excel 别名、是否可搜索/复制）
+- **rules**：报价规则（按字段条件匹配品牌 → 应用折扣）
+- **copy**：复制模板（哪些字段、前缀、单行/多行）
+- **ui**：页面显示布局
+- **data_source**：Supabase Storage 地址
+
+前端代码不含任何业务硬编码（品牌名、折扣率等），全部从配置读取。
+
+### 定价公式
+
+| 模式 | 含税价 | 未税价 |
+|------|--------|--------|
+| admin | `rounding(面价 × 折扣%)` | `rounding(含税价 / (1 + 税率%))` |
+| company | `rounding(含税价 × (1 + 利润率%))` | `rounding(含利润含税价 / (1 + 税率%))` |
+
+每一步独立取整，取整方式（ceil / round / floor）可通过工具栏下拉框实时切换。
+
+> **税率与含税属性**：税率为全局配置（`config.pricing.tax_rate`，默认 13%），在「定价设置」中统一配置。面价含税属性由 `config.pricing.face_price_tax_inclusive` 标注（默认含税）；上传未税价格表时系统自动转为含税存储。
+
+### 三菱库存查询
+
+`POST /api/stock-query`（需 `X-Stock-Key` 请求头 + 频率限制 60s/30 次 + 单次上限 50 条）。后端通过 GWT-RPC 直连三菱官网，返回上海/日本仓库实时库存。
 
 ---
 
@@ -27,141 +120,148 @@ python3 build_standalone.py --company --name "公司名称" --profit 10 --tax 13
 
 ```
 智能询价/
-├── apps/                        # 前端源码
-│   ├── index.html               # 管理员版 HTML（免登录）
-│   ├── app.js                   # 主逻辑（管理员+公司统一代码）
-│   ├── styles.css               # 样式
-│   ├── standalone.html          # 构建产物：管理员版
-│   ├── company.html             # 构建产物：公司版
-│   └── lib/                     # 工具库
-│       ├── query-regex.js       # 模糊查询引擎
-│       ├── discount-utils.js    # 折扣计算工具
+├── apps/                        # 前端报价台（静态部署到 Netlify）
+│   ├── index.html               # 统一入口（authGate 覆盖层）
+│   ├── app.js                   # 主逻辑（bootstrap）
+│   ├── styles.css
+│   └── lib/                     # 13 个模块
+│       ├── config-core.js       # 配置核心（v2/v3 兼容）
+│       ├── discount-utils.js    # 折扣计算
+│       ├── query-regex.js       # 模糊查询
 │       ├── result-sort.js       # 结果排序
-│       └── config-core.js       # 配置核心
-├── backend/                     # FastAPI 后端（配置后台 API + SQLite）
-├── admin/                       # 配置后台（浏览器 GUI）
-│   ├── index.html               # 后台页面
-│   ├── app.js                   # 后台逻辑
-│   └── styles.css               # 后台样式
-├── build_standalone.py          # 构建脚本（管理员版+公司版）
-├── docs/                        # 文档
-│   └── promotion-plan.md        # 推广文档（含剪映剪辑指引）
-└── remotion-videos/             # 宣传视频（Remotion 项目）
+│       ├── search-render.js     # 结果渲染
+│       ├── stock-query.js       # 三菱库存查询
+│       ├── auth.js / data-load.js / state.js / ui-helpers.js ...
+├── admin/                       # 浏览器端 GUI 配置中心
+│   ├── index.html
+│   ├── app.js                   # bootstrap
+│   ├── merger-app.js            # 数据拼接
+│   └── lib/                     # 12 个模块
+│       ├── config-core.js       # 与 apps/lib/config-core.js 同步（见 scripts/sync-config-core.py）
+│       ├── bundle-utils.js      # Bundle 生成/加密
+│       ├── admin-core.js / companies.js / config-api.js ...
+├── backend/                     # FastAPI 后端
+│   └── smart_quotation/
+│       ├── api/                 # API 层（9 个模块）
+│       │   ├── factory.py       # 应用工厂（CORS、静态挂载）
+│       │   ├── auth.py          # 认证 + 频率限制
+│       │   ├── routes_public.py # 公开端点（config/data 代理）
+│       │   ├── routes_companies.py  # 公司 CRUD + 令牌管理
+│       │   ├── routes_config.py     # 配置 CRUD（save/publish/rollback）
+│       │   ├── routes_items.py      # 商品数据 CRUD
+│       │   ├── routes_merger.py     # 品牌识别 + Bundle 生成/部署
+│       │   ├── routes_stock.py      # 三菱库存查询
+│       │   ├── models.py / supabase.py
+│       ├── store/               # 存储层（9 个模块）
+│       │   ├── base.py          # Schema、索引、迁移、ConfigCache
+│       │   ├── configs.py       # 配置 CRUD
+│       │   ├── items.py         # 商品数据 CRUD
+│       │   ├── companies.py     # 公司管理
+│       │   ├── bundles.py       # AES-GCM 价格包加密
+│       │   ├── audit.py / security.py / excel.py
+│       ├── engine.py            # 报价引擎（规则匹配 + AST 安全公式求值）
+│       ├── config.py            # 配置规范化
+│       ├── license.py           # HMAC-SHA256 license 校验
+│       ├── mitsubishi_stock.py  # 三菱 GWT-RPC 查询引擎
+│       ├── observability.py     # Sentry 错误监控
+│       ├── plugins.py / erp.py
+├── scripts/
+│   └── sync-config-core.py      # config-core.js 同步脚本（apps → admin）
+├── tests/                       # 28 个 Python 测试 + 3 个 JS 测试
+├── config.example.json           # 配置示例（不含敏感值）
+├── .env.example                  # 环境变量示例
+├── requirements.txt
+├── netlify.toml                  # Netlify 部署 + 安全响应头
+├── Procfile                      # Railway/Render 后端启动
+└── docs/
+    ├── gui-admin-guide.md        # GUI 操作手册
+    ├── SECURITY-VERIFICATION.md  # 安全验证
+    ├── catpaw-optimization-plan.md # CatPaw 优化方案
+    └── catpaw-setup-guide.md     # CatPaw 配置指南
 ```
 
 ---
 
-## 构建命令
+## 部署
 
-| 命令 | 产物 | 用途 |
-|------|------|------|
-| `python3 build_standalone.py` | `apps/standalone.html` | 管理员版：面价/折扣/配置全功能 |
-| `python3 build_standalone.py --company --profit 10 --tax 13` | `apps/company.html` | 公司版：无面价、利润率预设 10% |
-| `python3 build_standalone.py --company --name "某公司" --profit 8 --tax 13` | `apps/company.html` | 公司版：自定义公司名和利润率 |
+### 本地开发
 
-管理员版特点：**免登录**、面价/折扣/品牌配置全可见、所有功能完整。
-
-公司版特点：**免登录**、面价和折扣配置**代码级隐藏**（不存在于文件中）、利润率/税率由管理员通过构建参数预设。
-
----
-
-## 核心公式
-
-**每一步独立取整，取整方式可通过工具栏下拉框切换：**
-
-| 模式 | 含税价 | 未税价 |
-|------|--------|--------|
-| 管理员 | `rounding(面价 × 折扣%)` | `rounding(含税价 / 1.13)` |
-| 公司 | `rounding(含税价 × (1 + 利润率%))` | `rounding(含利润含税价 / 1.13)` |
-
-### 取整方式选项
-- **向上取整**（默认）— `Math.ceil`
-- **四舍五入** — `Math.round`
-- **向下取整** — `Math.floor`
-
----
-
-## 角色功能对比
-
-| 功能 | 管理员 | 公司 |
-|------|--------|------|
-| 面价显示 | ✅ | ❌ CSS 隐藏 |
-| 折扣调价 | ✅（± 按钮调折扣%） | ✅（± 按钮调利润率%，同位置） |
-| 利润率调价 | ❌ | ✅ 每条卡独立+工具栏步进 |
-| 折扣配置 | ✅ | ❌ 按钮隐藏 |
-| 含税/未税切换 | ✅ | ✅ |
-| 三菱库存 | ✅ | ✅ |
-| 模糊查询 | ✅ | ✅ |
-| 一键复制 | ✅ | ✅ |
-
-### 公司版特有行为
-
-- 工具栏「折扣步长」→ **步进**（控制利润 ± 按钮每次加减量，默认 1）
-- 折扣配置按钮 → 隐藏
-- 每条结果卡的折扣面板 → **利润率面板**（无"利润"文字标签）
-- 默认利润率/税率在 `--profit`/`--tax` 参数中预设
-- 默认显示含税价；勾选「未税」后报价除 1.13
-
----
-
-## 数据流
-
-```
-Supabase Storage (config.json + price.bundle.json + stock.bundle.json)
-    ↓
-fetchFileWithCache() → Cache API 缓存（file:// 下直连 fetch）
-    ↓
-app.js 解析 → PRICE_DATA / STOCK_DATA → 构建搜索索引
-    ↓
-用户输入 → 模糊匹配 → 渲染结果卡片
-    ↓
-调价/未税/取整 → 实时重算
+```powershell
+$env:SQ_DEV = "1"
+py -m backend.smart_quotation
 ```
 
+FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
+
+### 生产部署
+
+**前端**（Netlify）：
+- `publish = "apps"`
+- 前端通过 `getApiBase()` 自动探测后端地址：`?api=URL` → `localStorage.sq_api_base` → 同源
+- 三菱库存 key 通过 URL fragment `#stockkey=xxx` 注入（不发送到服务器，防日志泄露），也可在 authGate 手动输入
+
+**后端**（Railway / Render）：
+- Procfile: `web: uvicorn backend.smart_quotation.api:create_app --host 0.0.0.0 --port $PORT --factory`
+- 必须设置 `ADMIN_API_KEY` 环境变量
+- 三菱凭据 `MMC_USERNAME` / `MMC_PASSWORD` 设置在服务端
+
+**数据源**（Supabase Storage）：
+- 通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`
+- 或通过 `window.SQ_SUPABASE_BASE_URL` 前端注入
+
 ---
 
-## 三菱库存模块
+## API 端点速览
 
-- 调用 Railway 服务端 API（`/api/stock-query`）
-- 勾选规格 → 点击「三菱库存」→ 逐卡展示上海/日本仓库库存
-- 结果自动复制到剪贴板
-- 需联网使用
+| 方法 | 路径 | 认证 | 说明 |
+|------|------|------|------|
+| GET | `/api/health` | 无 | 健康检查 |
+| GET | `/api/public/company/{company_id}` | X-Company-Token | 获取公司 profile（名称 + 利润率 + 税率） |
+| GET | `/api/config/active?company_id=X` | X-Company-Token | 公开获取指定公司的已发布配置（company 角色脱敏） |
+| GET | `/config.json?company_id=X` | X-Company-Token | 配置代理（同上，兼容旧路径） |
+| GET | `/price.bundle.json?company_id=X` | X-Company-Token | 价格包（company 角色脱敏，无面价） |
+| GET | `/stock.bundle.json?company_id=X` | X-Company-Token | 库存包 |
+| GET | `/version.json?company_id=X` | X-Company-Token | 数据版本号（用于缓存失效） |
+| * | `/api/companies/*` | Bearer (Admin) | 公司 CRUD + 令牌管理 |
+| * | `/api/config/*` | Bearer (Admin) | 配置 CRUD（list/get/save/publish/delete/export/import） |
+| * | `/api/items/*` | Bearer (Admin) | 商品数据 CRUD（stats/replace/upload/rollback） |
+| GET | `/api/quote?q=...&company_id=X` | Bearer (Admin) | 报价查询（admin 预览用） |
+| POST | `/api/merger/detect-brands` | Bearer (Admin) | 品牌识别 |
+| POST | `/api/merger/bundle/generate` | Bearer (Admin) | Bundle 生成 + 可选部署（部署时强制脱敏） |
+| POST | `/api/merger/bundle/deploy` | Bearer (Admin) | Bundle 部署到 Supabase（从数据库重建脱敏 bundle） |
+| POST | `/api/stock-query` | X-Stock-Key | 三菱库存查询（频率限制 60s/30 次，单次上限 50 条） |
+| GET | `/api/audit?company_id=X` | Bearer (Admin) | 审计日志（按公司隔离） |
 
 ---
 
-## 取整方式下拉框
+## 安全设计
 
-位于工具栏「配置」按钮旁。三种方式实时切换，所有计算步骤（含税折扣价→利润→未税除税）都用同一取整方式。
-
----
-
-## 环境要求
-
-- Python 3.12+
-- 浏览器（Chrome/Edge/Firefox 均可）
-- 网络连接（用于加载云数据 + 三菱库存查询）
-- WSL 或 Linux/macOS 开发环境
+- **ADMIN_API_KEY 强校验**：未设置或弱值拒绝启动（本地开发用 `SQ_DEV=1` 跳过）
+- **secrets.compare_digest**：所有 key 比较使用恒定时间比较，防时序攻击
+- **频率限制**：三菱库存查询 60s/30 次/IP
+- **单次条数上限**：三菱库存查询单次最多 50 条
+- **CSP 安全响应头**：`netlify.toml` 配置 X-Content-Type-Options / X-Frame-Options / Referrer-Policy / CSP
+- **多租户隔离**：所有业务表 `company_id` 过滤，删除公司级联清理
+- **源码无硬编码 URL**：Supabase/Railway 地址全部通过环境变量或 admin 配置中心注入
 
 ---
 
 ## 开发说明
 
 ### 浮点数校正
-JavaScript 浮点运算可能导致 `28 × 1.1 = 30.800000000000004`，`applyRounding()` 中 `Math.ceil` 前减 `1e-9` 避免越界。
 
-### 关于 row.price 的使用规则
+JavaScript 浮点运算可能导致 `28 × 1.1 = 30.800000000000004`，`applyRounding()` 在 `Math.ceil` 前减 `1e-9` 避免越界。
+
+### row.price 使用规则
+
 `row.price` 始终是当前显示的数值（由 `refreshRowPrice()` 维护）。所有输出路径（复制、三菱库存剪贴板）**不得对 `row.price` 再次除税**，否则未税价会被二次计算。
 
 ### 事件绑定
+
 全局侦听器（未税复选框、取整方式下拉框）绑定在 `bindAuthEvents()` 中，`window.onload` 调用一次，不会因重复调用导致叠加。
 
 ---
 
-## 推广视频
+## 许可证
 
-推广文档见 `docs/promotion-plan.md`，包含：
-- 各平台文案（微信视频号/抖音/小红书/朋友圈）
-- 剪映剪辑操作指引（配音、字幕、BGM、导出设置）
-- 视频标题建议
-
-视频 Remotion 项目在 `remotion-videos/` 目录下，29.5 秒/60fps，5 场流程。
+私有项目。未经授权不得复制、分发或商用。
