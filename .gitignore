@@ -104,6 +104,7 @@ remotion-videos/
 .cursor/
 .continue/
 .copilot/
+.catpaw/
 
 # ─── 本地开发临时 HTML 产物（由构建脚本生成）──────────────
 智能询价系统.html
@@ -142,3 +143,11 @@ tmp/
 _LOCAL-GUIDE.md
 _local-guide.md
 _local-*.md
+_DEPLOYMENT-STEPS.md
+_DEPLOYMENT-*.md
+_deployment-*.md
+
+# ─── CatPaw / Superpowers 工具产物（IDE 特定，不入库）──────
+docs/superpowers/
+docs/catpaw-*.md
+docs/admin-ui-optimization-*.md
