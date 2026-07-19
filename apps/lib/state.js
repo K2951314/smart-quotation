@@ -37,7 +37,9 @@ let g_AuthProfile = null;
 const APP_BUILD_TAG = "v6-2026-07-14-sentry";
 console.log("app.js", APP_BUILD_TAG, "loaded");
 
-var HARDCODED_PROD_API = "";
+// 构建期/运行期注入的生产后端地址。
+// 通过 window.SQ_PROD_API_BASE 注入（Netlify Snippet injection 或构建工具替换）。
+var HARDCODED_PROD_API = (typeof window !== "undefined" && window.SQ_PROD_API_BASE) || "";
 const HOLD_START_DELAY_MS = 280;
 const HOLD_REPEAT_INTERVAL_MS = 70;
 const DEFAULT_DISCOUNT_STORAGE_KEY = "v9-default-discount-config";

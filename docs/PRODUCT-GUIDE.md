@@ -167,8 +167,11 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 | 三菱库存查询 | ✅ | GWT-RPC 直连，频率限制 |
 | 含税/未税切换 | ✅ | 每步独立取整 |
 | 移动端响应式 | ✅ | 720px 以下适配 |
-| License 授权 | ✅ | HMAC-SHA256 签名 |
+| License 授权 | ✅ | HMAC-SHA256 签名 + max_companies 强制 |
 | Sentry 错误监控 | ✅ | 骨架已集成 |
+| 前端模块化 | ✅ | apps/ 13 模块 + admin/ 12 模块 |
+| 管理员公司标记 | ✅ | UI 一键设置 `meta.is_admin`，前端据角色脱敏 |
+| 后端地址动态探测 | ✅ | getApiBase() 6 级优先级（URL 参数 → storage → 构建期 → 同源） |
 
 ### 5.2 当前版本不支持
 
@@ -177,8 +180,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 | 客户服务端登录 | 路线图 P2 | 令牌认证（sessionStorage） |
 | 多租户并发写入 | SQLite 单写者 | 低并发 B2B 场景可接受 |
 | PostgreSQL | 路线图 P2 | SQLite WAL 模式 |
-| 前端模块化 | 路线图 P2 | 单文件 app.js |
-| 部署文档 | 路线图 P2 | README + gui-admin-guide |
+| 部署文档 | 路线图 P2 | README + _DEPLOYMENT-STEPS.md（本地）+ gui-admin-guide |
 
 ### 5.3 认证模式说明
 
@@ -214,7 +216,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 
 ### 6.4 传输安全
 
-- **CSP**：`connect-src https:` 通配（支持动态后端地址）
+- **CSP**：`script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com`（白名单加载 SheetJS 与 Sentry SDK）；`connect-src https:` 通配（支持动态后端地址）
 - **HSTS**：`Strict-Transport-Security` 强制 HTTPS
 - **frame-ancestors 'none'**：防点击劫持
 
@@ -251,7 +253,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 |------|--------|------|------|
 | DOC-1 | README 引用已移除的端点 | ✅ 已修复 | 移除 `/api/public/companies`，更新认证方式说明 |
 | DOC-2 | 缺少产品级说明文档 | ✅ 本文档 | 面向 PM/客户的产品说明 |
-| DOC-3 | 部署文档缺失 | 待办 | 路线图 P2，将编写 DEPLOYMENT.md |
+| DOC-3 | 部署文档缺失 | ✅ 已补 | `_DEPLOYMENT-STEPS.md`（本地） + `_LOCAL-GUIDE.md`，README 部署章节同步 |
 
 ---
 

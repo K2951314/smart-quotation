@@ -2,7 +2,7 @@
 
 > 本文档基于对抗式审查生成，逐项验证每个安全改造，列出已知风险与防护方案。
 > 审查脚本：`_adversarial_audit.py`（本地保留，不入库）
-> 审查结果：29 passed, 1 failed（唯一"失败"是 MEDIUM 级设计权衡，非 bug）
+> 审查结果：32 passed（含多租户隔离测试 3 项）；1 项 MEDIUM 级设计权衡（公开端点暴露折扣配置）已记录在案
 
 ---
 
@@ -277,12 +277,14 @@ py -c "from backend.smart_quotation.license import generate_license; print(gener
 ## 五、验证命令速查
 
 ```powershell
-# 运行对抗式审查（29 项测试）
-$env:PYTHONIOENCODING = "utf-8"
-py _adversarial_audit.py
+# Python 测试（32 项，含多租户隔离测试）
+py -m pytest tests/ -v
 
-# 语法检查
-py -c "import ast; [ast.parse(open(f,encoding='utf-8').read()) for f in ['backend/smart_quotation/api.py','backend/smart_quotation/store.py','backend/smart_quotation/license.py','backend/smart_quotation/observability.py']]"
+# JS 单元测试
+node --test tests/*.test.js
+
+# 语法检查（注意 api/ 和 store/ 已重构为包目录）
+py -c "import ast; [ast.parse(open(f,encoding='utf-8').read()) for f in ['backend/smart_quotation/api/factory.py','backend/smart_quotation/api/auth.py','backend/smart_quotation/store/base.py','backend/smart_quotation/license.py','backend/smart_quotation/observability.py']]"
 
 # 真实服务器冒烟测试
 $env:SQ_DEV = "1"
@@ -306,7 +308,8 @@ Get-Job | Stop-Job; Get-Job | Remove-Job
 | 数据隔离 | ✅ 强 | schema + 所有 CRUD 过滤 + 级联删除 |
 | 配置安全 | ✅ 强 | 无硬编码品牌/密钥/URL |
 | 错误监控 | ✅ 强 | Sentry 按需启用，优雅降级 |
-| License | ✅ 强 | HMAC-SHA256 + 过期 + 功能授权 |
+| License | ✅ 强 | HMAC-SHA256 + 过期 + 功能授权 + max_companies 强制 |
 | 代码注入 | ✅ 强 | SQL注入/key注入均被拒 |
+| CSP | ✅ 强 | script-src 白名单（self + sheetjs + sentry CDN） |
 
-**总结**：P0+P1 改造的安全属性经对抗式审查验证有效。唯一中危项（公开端点暴露折扣配置）是设计权衡，建议在 P2 阶段用 UUID company_id 或 public_config_token 缓解。系统已具备商业化部署的安全基础。
+**总结**：P0+P1 改造的安全属性经对抗式审查验证有效。本轮额外修复：CSP 放宽 sheetjs/sentry CDN 白名单、ALLOW_ORIGINS 启动失败诊断输出、License max_companies 强制校验。唯一中危项（公开端点暴露折扣配置）是设计权衡，建议在 P2 阶段用 UUID company_id 或 public_config_token 缓解。系统已具备商业化部署的安全基础。

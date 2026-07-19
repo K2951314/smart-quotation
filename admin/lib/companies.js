@@ -63,6 +63,7 @@ async function loadCompanies() {
           var nameLine = '<div style="display:flex;align-items:center;gap:6px;">' +
             '<strong style="font-size:13px;">' + safeId + '</strong>' +
             (safeName ? '<span style="color:#666;font-size:12px;">' + safeName + '</span>' : '') +
+            (meta.is_admin ? '<span style="padding:1px 6px;background:#8e44ad;color:#fff;border-radius:3px;font-size:10px;line-height:1.4;">管理员</span>' : '') +
             (isCurrent
               ? '<span style="margin-left:auto;padding:1px 6px;background:#2c5282;color:#fff;border-radius:3px;font-size:10px;line-height:1.4;">✓ 当前</span>'
               : '<span class="switch-hint" style="margin-left:auto;color:#2c5282;font-size:10px;opacity:0;transition:opacity .15s;">切换 →</span>') +
@@ -114,6 +115,14 @@ async function loadCompanies() {
           editDsBtn.title = "编辑 Supabase 数据源地址";
           editDsBtn.onclick = function (e) { e.stopPropagation(); editCompanyDatasource(c.id, meta); };
           actions.appendChild(editDsBtn);
+          if (c.id !== "default") {
+            var adminBtn = document.createElement("button");
+            adminBtn.textContent = meta.is_admin ? "取消管理员" : "设为管理员";
+            adminBtn.style.cssText = btnBase + (meta.is_admin ? "color:#8e44ad;border-color:#8e44ad;" : "color:#8e44ad;border-color:#8e44ad;");
+            adminBtn.title = meta.is_admin ? "取消管理员标记（变为普通公司）" : "标记为管理员公司（看完整数据）";
+            adminBtn.onclick = function (e) { e.stopPropagation(); toggleAdminFlag(c.id, meta); };
+            actions.appendChild(adminBtn);
+          }
           if (c.id !== "default" && !isCurrent) {
             var delBtn = document.createElement("button");
             delBtn.textContent = "删除";
@@ -176,25 +185,54 @@ async function createCompany() {
   var name = document.getElementById("newCompanyName").value.trim();
   var profitMargin = parseFloat(document.getElementById("newCompanyProfitMargin").value) || 0;
   var supabaseUrl = (document.getElementById("newCompanySupabaseUrl").value || "").trim();
+  var isAdmin = document.getElementById("newCompanyIsAdmin").checked;
   if (!id) { setStatus("请输入公司ID", true); return; }
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) { setStatus("公司ID只能用英文/数字/下划线/连字符", true); return; }
+  if (id === "default") { setStatus("default 是系统保留ID，请换一个", true); return; }
   var meta = { profit_margin: profitMargin };
   if (supabaseUrl) meta.supabase_base_url = supabaseUrl;
+  if (isAdmin) meta.is_admin = true;
   try {
     await request("/api/companies", {
       method: "POST",
       body: JSON.stringify({ id: id, name: name, meta: meta }),
     });
-    setStatus("公司 " + id + " 创建成功（利润率 " + profitMargin + "%" + (supabaseUrl ? "，已绑定独立数据源" : "") + "）");
+    setStatus("公司 " + id + " 创建成功" + (isAdmin ? "（管理员公司，看完整数据）" : "（利润率 " + profitMargin + "%）") + (supabaseUrl ? "，已绑定独立数据源" : ""));
     document.getElementById("newCompanyId").value = "";
     document.getElementById("newCompanyName").value = "";
     document.getElementById("newCompanySupabaseUrl").value = "";
+    document.getElementById("newCompanyIsAdmin").checked = false;
     await loadCompanies();
     setCurrentCompanyId(id);
     document.getElementById("companySelect").value = id;
     run(loadConfigFromBackend);
   } catch (err) {
     setStatus("创建失败: " + err.message, true);
+  }
+}
+
+// 切换公司的管理员标记（meta.is_admin）
+async function toggleAdminFlag(companyId, currentMeta) {
+  var newMeta = Object.assign({}, currentMeta);
+  var willBeAdmin = !newMeta.is_admin;
+  var msg = willBeAdmin
+    ? "确认将「" + companyId + "」标记为管理员公司？\n\n该公司通过令牌访问客户前端时，将显示完整数据（面价/折扣/配置入口）。"
+    : "确认取消「" + companyId + "」的管理员标记？\n\n该公司将变为普通公司，访问时显示脱敏数据（无面价/折扣）。";
+  if (!confirm(msg)) return;
+  if (willBeAdmin) {
+    newMeta.is_admin = true;
+  } else {
+    delete newMeta.is_admin;
+  }
+  try {
+    await request("/api/companies/" + encodeURIComponent(companyId), {
+      method: "PATCH",
+      body: JSON.stringify({ meta: newMeta }),
+    });
+    setStatus("「" + companyId + "」" + (willBeAdmin ? "已标记为管理员公司" : "已取消管理员标记"));
+    await loadCompanies();
+  } catch (err) {
+    setStatus("切换管理员标记失败: " + err.message, true);
   }
 }
 

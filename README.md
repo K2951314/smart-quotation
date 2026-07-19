@@ -88,6 +88,8 @@ py -m backend.smart_quotation
 
 系统的关键隔离单位是 `company_id`。所有业务表（`quotation_configs`、`quotation_items`、`audit_events`）都有 `company_id` 列，所有 CRUD 都按公司过滤。默认公司 ID 为 `default`（单租户兼容模式）。
 
+**管理员公司**：通过 `meta.is_admin=true` 标记的公司，通过令牌访问客户前端时看完整数据（面价/折扣/配置入口）；普通公司看脱敏数据。在 admin UI 一键设置。
+
 ### 配置驱动
 
 一切由 `config.json` 驱动：
@@ -167,17 +169,16 @@ py -m backend.smart_quotation
 │       ├── plugins.py / erp.py
 ├── scripts/
 │   └── sync-config-core.py      # config-core.js 同步脚本（apps → admin）
-├── tests/                       # 28 个 Python 测试 + 3 个 JS 测试
+├── tests/                       # 32 个 Python 测试 + 3 个 JS 测试文件
 ├── config.example.json           # 配置示例（不含敏感值）
 ├── .env.example                  # 环境变量示例
 ├── requirements.txt
-├── netlify.toml                  # Netlify 部署 + 安全响应头
+├── netlify.toml                  # Netlify 部署 + 安全响应头（CSP 白名单）
 ├── Procfile                      # Railway/Render 后端启动
 └── docs/
-    ├── gui-admin-guide.md        # GUI 操作手册
-    ├── SECURITY-VERIFICATION.md  # 安全验证
-    ├── catpaw-optimization-plan.md # CatPaw 优化方案
-    └── catpaw-setup-guide.md     # CatPaw 配置指南
+    ├── gui-admin-guide.md        # GUI 操作手册（面向非技术人员）
+    ├── SECURITY-VERIFICATION.md  # 安全验证（对抗式审查）
+    └── PRODUCT-GUIDE.md          # 产品说明（面向 PM/客户）
 ```
 
 ---
@@ -195,15 +196,23 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 
 ### 生产部署
 
-**前端**（Netlify）：
-- `publish = "apps"`
-- 前端通过 `getApiBase()` 自动探测后端地址：`?api=URL` → `localStorage.sq_api_base` → 同源
-- 三菱库存 key 通过 URL fragment `#stockkey=xxx` 注入（不发送到服务器，防日志泄露），也可在 authGate 手动输入
-
 **后端**（Railway / Render）：
 - Procfile: `web: uvicorn backend.smart_quotation.api:create_app --host 0.0.0.0 --port $PORT --factory`
-- 必须设置 `ADMIN_API_KEY` 环境变量
+- 必须设置 `ADMIN_API_KEY`（≥ 16 字符）、`STOCK_QUERY_KEY`（独立于 admin key）
 - 三菱凭据 `MMC_USERNAME` / `MMC_PASSWORD` 设置在服务端
+- 生产模式（`SQ_DEV` 未设）**必须设置 `ALLOW_ORIGINS`**，否则启动报错并输出诊断信息
+- 后端同源挂载 `/admin` 和 `/apps`，可直接通过 `https://<后端域名>/admin/` 访问管理后台
+
+**前端**（Netlify 或后端同源）：
+- `apps/` 部署 Netlify：客户报价台
+- `admin/` 可部署 Netlify（独立站点）或用后端同源 `/admin/`
+- 前端通过 `getApiBase()` 自动探测后端地址，优先级：
+  1. URL 参数 `?api=URL`
+  2. `localStorage.sq_api_base`
+  3. 构建期注入 `window.SQ_PROD_API_BASE`
+  4. 同源（后端同源部署时默认）
+- 三菱库存 key 通过 URL fragment `#stockkey=xxx` 注入（不发送到服务器，防日志泄露），也可在 authGate 手动输入
+- CSP `script-src` 白名单：`'self'` + `https://cdn.sheetjs.com`（SheetJS）+ `https://browser.sentry-cdn.com`（Sentry SDK）
 
 **数据源**（Supabase Storage）：
 - 通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`
@@ -240,7 +249,7 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 - **secrets.compare_digest**：所有 key 比较使用恒定时间比较，防时序攻击
 - **频率限制**：三菱库存查询 60s/30 次/IP
 - **单次条数上限**：三菱库存查询单次最多 50 条
-- **CSP 安全响应头**：`netlify.toml` 配置 X-Content-Type-Options / X-Frame-Options / Referrer-Policy / CSP
+- **CSP 安全响应头**：`netlify.toml` 配置 X-Content-Type-Options / X-Frame-Options / Referrer-Policy / CSP（`script-src` 白名单：self + SheetJS + Sentry CDN）
 - **多租户隔离**：所有业务表 `company_id` 过滤，删除公司级联清理
 - **源码无硬编码 URL**：Supabase/Railway 地址全部通过环境变量或 admin 配置中心注入
 

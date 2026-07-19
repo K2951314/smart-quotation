@@ -12,7 +12,7 @@
  * 后端 API 地址动态探测。
  *
  * 优先级（从高到低）：
- *   1. 构建期注入的 HARDCODED_ADMIN_API（window 全局变量，生产环境用）
+ *   1. window.SQ_PROD_API_BASE（Netlify Snippet injection 或构建期注入）
  *   2. URL 参数 ?api=URL（临时切换/测试用）
  *   3. localStorage.sq_admin_api_base（管理员手动持久化）
  *   4. file:// 协议 → 本地开发默认 http://127.0.0.1:8001
@@ -24,9 +24,9 @@
  *   - 不硬编码任何真实后端域名，地址必须由部署方注入
  */
 function getApiBase() {
-  // 1. 构建期注入（CI/CD 时写入 window.HARDCODED_ADMIN_API）
-  if (typeof HARDCODED_ADMIN_API !== "undefined" && HARDCODED_ADMIN_API) {
-    return String(HARDCODED_ADMIN_API).replace(/\/+$/, "");
+  // 1. 构建期/运行期注入（window.SQ_PROD_API_BASE，Netlify Snippet injection 或构建工具替换）
+  if (typeof window !== "undefined" && window.SQ_PROD_API_BASE) {
+    return String(window.SQ_PROD_API_BASE).replace(/\/+$/, "");
   }
   // 2. URL 参数 ?api=URL（临时切换，便于测试多环境）
   var urlParam = new URLSearchParams(window.location.search).get("api");

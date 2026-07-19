@@ -36,12 +36,18 @@
 
 ## 部署架构
 
-- **本地开发**：`py -m backend.smart_quotation` → FastAPI 同源代理 `apps/`
-- **Netlify 生产**：`apps/` 部署 Netlify，FastAPI 后端独立部署到 Railway / Render 等平台
-  - 前端 `getApiBase()` 自动探测：URL 参数 `?api=URL` → `localStorage.sq_api_base` → 同源
-  - 后端地址不再硬编码到源码，部署方通过环境变量 `SQ_PROD_API_BASE` 或前端 URL 参数注入
-  - Supabase 项目地址通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
-  - CSP `connect-src` 已设为 `https:` 通配以支持动态后端地址（`netlify.toml`）
+- **本地开发**：`py -m backend.smart_quotation` → FastAPI 同源代理 `apps/` 和 `admin/`
+- **生产部署**（两套可选）：
+  - **后端同源**（推荐）：Railway/Render 部署后端，通过 `https://<后端域名>/admin/` 和 `/apps/` 直接访问，无需 CORS
+  - **Netlify 独立**：`apps/` 和 `admin/` 分别部署 Netlify，通过 `?api=URL` 指向后端
+- **后端地址探测**（前端 `getApiBase()` 6 级优先级）：
+  1. URL 参数 `?api=URL`
+  2. `localStorage.sq_api_base`
+  3. 构建期注入 `window.SQ_PROD_API_BASE`
+  4. 同源（默认）
+- **Supabase 项目地址**通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
+- **CSP**：`script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com`（SheetJS + Sentry SDK 白名单）；`connect-src https:` 通配支持动态后端地址（`netlify.toml`）
+- **生产环境必填**：`ADMIN_API_KEY`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）
 
 ## 运行与验证
 
@@ -56,7 +62,7 @@ py -m backend.smart_quotation
 测试命令：
 
 ```powershell
-# Python 测试（主力，当前 28/28 全绿）
+# Python 测试（主力，当前 32/32 全绿）
 py -m pytest tests/ -v
 
 # 兼容旧命令
@@ -70,6 +76,10 @@ node --test tests/*.test.js
 
 - `README.md`：项目概览、快速启动、功能列表、架构目录。
 - `docs/gui-admin-guide.md`：用户操作手册，面向非技术人员。
+- `docs/SECURITY-VERIFICATION.md`：安全验证与技术说明（对抗式审查）。
+- `docs/PRODUCT-GUIDE.md`：产品说明文档，面向 PM/客户。
+- `_DEPLOYMENT-STEPS.md`（本地）：部署步骤详记。
+- `_LOCAL-GUIDE.md`（本地）：本地开发指南。
 
 ## 记忆原则
 
@@ -96,11 +106,12 @@ node --test tests/*.test.js
 ### P2（后续）
 
 - [x] 前端模块化重构（app.js 拆分）— apps/ 拆为 13 模块，admin/ 拆为 12 模块
-- [ ] 部署文档（DEPLOYMENT.md）
+- [x] 部署文档（本地 `_DEPLOYMENT-STEPS.md` + `_LOCAL-GUIDE.md`，README 部署章节同步）
 - [ ] 产品官网 + 文档站
 - [ ] 多租户客户登录（customers / customer_sessions 表 + API）
 - [ ] PostgreSQL 迁移（多租户并发写入场景）
 - [x] 合并双份 config-core.js（apps/ 与 admin/ 内容已统一，以 apps 版为基准 + scripts/sync-config-core.py 同步）
 - [x] 消除 admin 源码真实折扣泄露（admin/lib/config-core.js 硬编码 32/36 → 改为中性 55）
 - [x] 日志规范化（6 处 print() 改 logging）
+- [x] 管理员公司 UI 标记（admin/lib/companies.js toggleAdminFlag + 前端 role 脱敏）
 - [ ] 三菱 GWT-RPC 常量外置 + 并发查询

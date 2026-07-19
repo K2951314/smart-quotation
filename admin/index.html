@@ -99,6 +99,13 @@
       <input id="newCompanySupabaseUrl" type="text" placeholder="https://xxx.supabase.co/storage/v1/object/public/...">
       <p class="field-hint">为该公司绑定独立的远程数据地址，留空则使用 .env 中的全局地址</p>
     </div>
+    <div class="field-block">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input id="newCompanyIsAdmin" type="checkbox" style="width:auto;margin:0;">
+        <span class="field-label" style="margin:0;">标记为管理员公司（看完整数据：面价/折扣/配置）</span>
+      </label>
+      <p class="field-hint">管理员公司通过令牌访问客户前端时，显示完整数据而非脱敏数据。通常只给内部人员使用。</p>
+    </div>
     <button id="createCompanyBtn" type="button" class="create-btn">创建公司</button>
     <p class="field-hint" style="margin-top:var(--sp-2);">公司客户看不到面价/折扣，只能看到含利润率的报价。税率请在「页面显示 → 定价设置」中统一配置。</p>
   </div>
@@ -410,7 +417,7 @@
 <script src="./lib/export-utils.js?v=9"></script>
 <script src="./merger-app.js?v=9"></script>
 <script src="./lib/admin-core.js?v=9"></script>
-<script src="./lib/companies.js?v=9"></script>
+<script src="./lib/companies.js?v=10"></script>
 <script src="./lib/supabase-deploy.js?v=9"></script>
 <script src="./lib/standalone-html.js?v=9"></script>
 <script src="./lib/config-collect.js?v=9"></script>
