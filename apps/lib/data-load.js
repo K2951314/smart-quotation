@@ -53,8 +53,11 @@ function normalizeBaseUrl(value) {
 
 function getDataSourceConfig() {
   const cfg = getAppConfig();
+  // 优先用配置中的 Supabase 地址；为空时回退到后端 API 地址（后端代理 bundle）
+  var baseUrl = normalizeBaseUrl(cfg.data_source?.base_url || SUPABASE_BASE_URL);
+  if (!baseUrl) baseUrl = (getApiBase() || "").replace(/\/+$/, "");
   return {
-    base_url: normalizeBaseUrl(cfg.data_source?.base_url || SUPABASE_BASE_URL),
+    base_url: baseUrl,
     version_file: cfg.data_source?.version_file || "version.json",
     config_file: cfg.data_source?.config_file || "config.json",
     price_bundle_file: cfg.data_source?.price_bundle_file || "price.bundle.json",

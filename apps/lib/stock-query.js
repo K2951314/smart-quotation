@@ -213,7 +213,8 @@ async function doMitsubishiStockQuery() {
   try {
     var apiBase = getApiBase();
     setBtnText("查询 " + total + " 项...");
-    var reqHeaders = { "Content-Type": "application/json" };
+    // 带上公司令牌：后端接受 X-Company-Token 作为库存查询认证（已登录用户无需单独 stock-key）
+    var reqHeaders = Object.assign({ "Content-Type": "application/json" }, withAuthHeaders());
     var stockKey = getStockQueryKey();
     if (stockKey) reqHeaders["X-Stock-Key"] = stockKey;
     var resp = await fetch(apiBase + "/api/stock-query", {
@@ -223,7 +224,7 @@ async function doMitsubishiStockQuery() {
     });
 
     if (!resp.ok) {
-      var errHint = resp.status === 401 ? "（未授权：请在设置中填写库存查询密钥）" : "";
+      var errHint = resp.status === 401 ? "（未授权：请登录或填写库存查询密钥）" : "";
       showToast("库存服务异常: " + resp.status + errHint);
       selected.forEach(function (row) { updateCardStock(row, null); });
       setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");

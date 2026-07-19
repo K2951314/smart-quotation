@@ -206,7 +206,12 @@ def require_company_access(
 
 
 def verify_stock_key(request: Request) -> None:
-    """校验三菱库存查询 key（独立的 STOCK_QUERY_KEY）。
+    """校验三菱库存查询 key。
+
+    认证优先级：
+    1. X-Stock-Key 头（专用库存查询 key）
+    2. Authorization: Bearer 头（兼容前端旧实现）
+    3. X-Company-Token 头（已登录的公司用户直接放行，无需单独输入 stock-key）
 
     安全策略：
     - 使用独立的 STOCK_QUERY_KEY，不复用 ADMIN_API_KEY。
@@ -225,6 +230,14 @@ def verify_stock_key(request: Request) -> None:
         auth_header = request.headers.get("authorization", "").lower()
         if auth_header.startswith("bearer "):
             provided = auth_header[7:].strip()
+    # 回退：已登录的公司用户（有效 X-Company-Token）直接放行
+    if not provided:
+        company_token = request.headers.get("x-company-token", "").strip()
+        if company_token:
+            company_id = request.query_params.get("company_id", DEFAULT_COMPANY_ID)
+            if auth.store.verify_company_token(company_id, company_token):
+                return
+            raise HTTPException(status_code=403, detail="authentication failed")
     if not provided:
         raise HTTPException(status_code=401, detail="missing stock query key (X-Stock-Key)")
 
