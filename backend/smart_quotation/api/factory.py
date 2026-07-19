@@ -56,10 +56,31 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
         origins = ["*"]
         allow_credentials = False
     else:
+        # 诊断信息：列出当前进程能读到的相关环境变量键名（不打印值，脱敏）
+        # 帮助定位 Railway/Render 等平台变量未生效的问题
+        related_keys = sorted(
+            k for k in os.environ
+            if k.startswith(("SQ_", "ALLOW_", "MMC_", "ADMIN_", "STOCK_", "SENTRY_"))
+        )
+        # 检查常见的拼写错误
+        common_typos = [
+            "ALLOW_ORIGIN", "ALLOW_ORIGINS", "ALLOW_ORIGINS ",
+            "Allow_Origins", "allow_origins", "CORS_ORIGINS", "ALLOWED_ORIGINS",
+        ]
+        detected_typos = [k for k in common_typos if k in os.environ and k != "ALLOW_ORIGINS"]
         raise RuntimeError(
             "生产环境必须设置 ALLOW_ORIGINS 环境变量（逗号分隔的前端域名列表）。\n"
             "例如：ALLOW_ORIGINS=https://your-app.netlify.app\n"
-            "本地开发可设 SQ_DEV=1 跳过此校验。"
+            "本地开发可设 SQ_DEV=1 跳过此校验。\n\n"
+            "─── 诊断信息 ───\n"
+            f"当前进程读到的相关环境变量键名（共 {len(related_keys)} 个）：\n"
+            + ("\n".join(f"  - {k}" for k in related_keys) if related_keys else "  （无，没有任何 SQ_/ALLOW_/MMC_ 等变量被读取到）")
+            + (f"\n检测到可能的拼写错误变量：{detected_typos}\n请检查是否应为 ALLOW_ORIGINS" if detected_typos else "")
+            + "\n\n常见原因：\n"
+            "  1. Railway/Render 设置变量后服务未重新部署（去 Deployments 手动 Redeploy）\n"
+            "  2. 变量设在错误的 Service 或 Environment 上（检查是否在当前部署的 service 下）\n"
+            "  3. 变量名拼写错误（必须是 ALLOW_ORIGINS，全大写，下划线）\n"
+            "  4. 变量值为空或只有空白字符"
         )
 
     app.add_middleware(
