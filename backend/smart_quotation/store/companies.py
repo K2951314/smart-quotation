@@ -107,6 +107,33 @@ class CompaniesMixin:
                 pass
         return True
 
+    def find_company_by_token(self, token: str) -> str | None:
+        """用 token 反查公司 ID（遍历所有公司，compare_digest 匹配）。
+
+        用于前端请求 bundle/version.json 时漏传 company_id 的兜底场景：
+        后端收到 X-Company-Token 但 company_id=default，用 token 找出真实公司。
+        公司数量受 license 限制（通常 ≤5），遍历开销可接受。
+        """
+        if not token:
+            return None
+        for company in self.list_companies():
+            meta = company.get("meta") or {}
+            stored_token = meta.get("access_token", "")
+            if stored_token and secrets.compare_digest(token, stored_token):
+                # 复用过期检查逻辑
+                token_created_at = meta.get("token_created_at", "")
+                if token_created_at:
+                    try:
+                        created = datetime.fromisoformat(token_created_at.replace("Z", "+00:00"))
+                        expires_days = int(meta.get("token_expires_days", self.DEFAULT_TOKEN_EXPIRES_DAYS))
+                        age = datetime.now(timezone.utc) - created
+                        if age.days > expires_days:
+                            return None
+                    except (ValueError, TypeError):
+                        pass
+                return company["id"]
+        return None
+
     def regenerate_company_token(self, company_id: str) -> dict[str, Any]:
         """重新生成公司访问令牌（旧令牌立即失效）。"""
         company = self.get_company(company_id)

@@ -199,11 +199,18 @@ def require_company_access(
     # 检查公司访问令牌
     provided_token = request.headers.get("x-company-token", "").strip()
     if provided_token:
-        if auth.store.verify_company_token(company_id, provided_token):
+        # 兜底：前端请求 bundle/version.json 时可能漏传 company_id（默认 default），
+        # 用 token 反查真实公司，避免非 default 公司的 token 用 default 校验失败 → 403
+        effective_company_id = company_id
+        if company_id == DEFAULT_COMPANY_ID:
+            found = auth.store.find_company_by_token(provided_token)
+            if found:
+                effective_company_id = found
+        if auth.store.verify_company_token(effective_company_id, provided_token):
             # 管理员公司（meta.is_admin=true）通过令牌访问时也返回 admin 角色，
             # 这样前端能看到完整数据（面价、折扣规则）。
             try:
-                company = auth.store.get_company(company_id)
+                company = auth.store.get_company(effective_company_id)
                 if (company.get("meta") or {}).get("is_admin"):
                     auth.check_rate_limit(auth.get_client_id(request))
                     return "admin"
@@ -260,6 +267,11 @@ def verify_stock_key(request: Request) -> str:
         company_token = request.headers.get("x-company-token", "").strip()
         if company_token:
             company_id = request.query_params.get("company_id", DEFAULT_COMPANY_ID)
+            # 兜底：前端可能漏传 company_id，用 token 反查真实公司
+            if company_id == DEFAULT_COMPANY_ID:
+                found = auth.store.find_company_by_token(company_token)
+                if found:
+                    company_id = found
             if auth.store.verify_company_token(company_id, company_token):
                 return company_id
             _handle_auth_failure(auth, client_ip, 403, "authentication failed")
