@@ -22,14 +22,13 @@ def register(app) -> None:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/api/settings/datasource")
-    def get_datasource_settings(request: Request) -> dict[str, Any]:
+    @app.get("/api/settings/datasource", dependencies=[Depends(require_admin_api)])
+    def get_datasource_settings() -> dict[str, Any]:
         """返回全局数据源配置（供 admin 自动填充 Supabase Base URL）。
 
         安全策略：仅返回 Supabase public storage URL（非敏感），不返回 anon_key。
         不返回 is_dev 标志（避免泄露运行模式，攻击者可据此调整攻击策略）。
         """
-        require_admin_api(request)
         return {
             "supabase_base_url": os.environ.get("SQ_SUPABASE_BASE_URL", "").strip(),
         }
@@ -41,8 +40,8 @@ def register(app) -> None:
     # ─── 静态文件代理：模拟 Supabase Storage ──────────────────────
     @app.get("/config.json", include_in_schema=False)
     def proxy_config_json(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ):
         """代理到 get_active_config(company_id)。
 
@@ -89,8 +88,8 @@ def register(app) -> None:
 
     @app.get("/version.json", include_in_schema=False)
     def proxy_version_json(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ):
         """返回数据版本号（data_revision），用于前端 bundle 缓存失效。"""
         require_company_access(request, company_id=company_id)
@@ -103,8 +102,8 @@ def register(app) -> None:
 
     @app.get("/price.bundle.json", include_in_schema=False)
     def proxy_price_bundle(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ):
         """生成价格 Bundle。company 角色返回脱敏 Bundle。"""
         role = require_company_access(request, company_id=company_id)
@@ -118,8 +117,8 @@ def register(app) -> None:
 
     @app.get("/stock.bundle.json", include_in_schema=False)
     def proxy_stock_bundle(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ):
         """生成库存 Bundle。"""
         require_company_access(request, company_id=company_id)
@@ -143,8 +142,8 @@ def register(app) -> None:
 
     @app.get("/api/config/active")
     def get_active_config_public(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ) -> dict[str, Any]:
         """获取指定公司的已发布配置。company 角色返回脱敏配置。"""
         role = require_company_access(request, company_id=company_id)
@@ -159,7 +158,7 @@ def register(app) -> None:
     @app.get("/api/public/company/{company_id}")
     def get_public_company(
         company_id: str,
-        request: Request = None,
+        request: Request,
     ) -> dict[str, Any]:
         """获取公司 profile（name + role + profit_margin），用于客户前端 authGate。
 

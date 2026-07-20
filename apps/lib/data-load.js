@@ -53,8 +53,11 @@ function normalizeBaseUrl(value) {
 
 function getDataSourceConfig() {
   const cfg = getAppConfig();
+  // 优先用配置中的 Supabase 地址；为空时回退到后端 API 地址（后端代理 bundle）
+  var baseUrl = normalizeBaseUrl(cfg.data_source?.base_url || SUPABASE_BASE_URL);
+  if (!baseUrl) baseUrl = (getApiBase() || "").replace(/\/+$/, "");
   return {
-    base_url: normalizeBaseUrl(cfg.data_source?.base_url || SUPABASE_BASE_URL),
+    base_url: baseUrl,
     version_file: cfg.data_source?.version_file || "version.json",
     config_file: cfg.data_source?.config_file || "config.json",
     price_bundle_file: cfg.data_source?.price_bundle_file || "price.bundle.json",
@@ -187,13 +190,17 @@ async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
   const cache = await caches.open(cacheName);
   let response = await cache.match(fileUrl);
   if (!response) {
-    console.log(`[${filename}] 缓存未命中或版本更新，从 Supabase 下载...`);
-    response = await fetch(fileUrl);
+    console.log(`[${filename}] 缓存未命中或版本更新，从 ${isBackendUrl(fileUrl) ? "后端" : "Supabase"} 下载...`);
+    // 走后端时必须带 X-Company-Token 头（公开端点需要认证）
+    var fetchOpts = isBackendUrl(fileUrl)
+      ? { cache: "no-store", headers: withAuthHeaders() }
+      : { cache: "no-store" };
+    response = await fetch(fileUrl, fetchOpts);
     if (response.ok) {
       await cache.put(fileUrl, response.clone());
       cleanOldCache(cache, filename, fileUrl);
     } else {
-      throw new Error(`${filename} 下载失败`);
+      throw new Error(`${filename} 下载失败 (${response.status})`);
     }
   }
   const text = await response.text();

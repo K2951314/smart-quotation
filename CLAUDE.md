@@ -39,14 +39,14 @@
 - **本地开发**：`py -m backend.smart_quotation` → FastAPI 同源代理 `apps/` 和 `admin/`
 - **生产部署**（两套可选）：
   - **后端同源**（推荐）：Railway/Render 部署后端，通过 `https://<后端域名>/admin/` 和 `/apps/` 直接访问，无需 CORS
-  - **Netlify 独立**：`apps/` 和 `admin/` 分别部署 Netlify，通过 `?api=URL` 指向后端
-- **后端地址探测**（前端 `getApiBase()` 6 级优先级）：
-  1. URL 参数 `?api=URL`
-  2. `localStorage.sq_api_base`
-  3. 构建期注入 `window.SQ_PROD_API_BASE`
+  - **Netlify 独立**：`apps/` 和 `admin/` 分别部署 Netlify，通过 Netlify Snippet injection 注入 `window.SQ_PROD_API_BASE` 指向后端（`?api=URL` 仅本地开发生效，生产环境已禁用防 API 劫持）
+- **后端地址探测**（前端 `getApiBase()` 优先级）：
+  1. 构建期/运行期注入 `window.SQ_PROD_API_BASE`（生产环境首选，Netlify Snippet injection）
+  2. URL 参数 `?api=URL`（**仅本地开发**：localhost/127.0.0.1/file: 协议生效）
+  3. `localStorage.sq_api_base` / `localStorage.sq_admin_api_base`
   4. 同源（默认）
 - **Supabase 项目地址**通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
-- **CSP**：`script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com`（SheetJS + Sentry SDK 白名单）；`connect-src https:` 通配支持动态后端地址（`netlify.toml`）
+- **CSP**：`script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com`（SheetJS + Sentry SDK 白名单）；`connect-src` 白名单：`*.supabase.co`/`.in`/`.net` + `*.sentry.io` + `*.railway.app` + `*.render.com`（`netlify.toml`，已移除 `https:` 通配防 XSS 外泄）
 - **生产环境必填**：`ADMIN_API_KEY`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）
 
 ## 运行与验证

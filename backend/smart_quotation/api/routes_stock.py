@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
@@ -13,24 +15,46 @@ from .auth import verify_stock_key
 def register(app) -> None:
     """注册三菱库存查询端点。"""
     auth = app.state.auth
+    store = app.state.store
     STOCK_QUERY_MAX_LINES = 50
+    # 每日配额（24h 滚动窗口）：默认 500 次/天/公司
+    # 通过环境变量 STOCK_QUERY_DAILY_LIMIT 配置
+    try:
+        STOCK_QUERY_DAILY_LIMIT = int(os.environ.get("STOCK_QUERY_DAILY_LIMIT", "500"))
+    except ValueError:
+        STOCK_QUERY_DAILY_LIMIT = 500
 
     @app.post("/api/stock-query")
     async def stock_query(request: Request):
         """查询三菱官网实时库存。
 
-        请求头：X-Stock-Key: <key>
+        请求头：X-Stock-Key: <key>  或  X-Company-Token: <token>
         请求体：{"queries": "型号1 材质1\\n型号2 材质2\\n..."}
         响应：{"results": ["型号 材质 上海库存N 日本库存M", ...], "count": N}
 
         性能策略：
         - GWT-RPC 是同步阻塞调用（单次 1-5 秒），用 run_in_threadpool 避免阻塞事件循环。
         - 否则三菱官网慢响应时，整个后端的所有其他请求都会被卡住。
+
+        安全策略：
+        - 公司级日配额：每个 company_id 每天最多 STOCK_QUERY_DAILY_LIMIT 次查询，
+          防止令牌泄露后被刷爆三菱账号配额。
+        - admin/stock-key 共享配额，防止 admin key 滥用。
         """
-        # 1. 认证
-        verify_stock_key(request)
-        # 2. 频率限制
+        # 1. 认证 + 获取配额键
+        quota_key = verify_stock_key(request)
+        # 2. 频率限制（短窗口：60s/30 次）
         auth.check_rate_limit(auth.get_client_id(request))
+        # 3. 日配额检查（长窗口：24h 滚动，SQLite 持久化，跨 Worker 共享）
+        try:
+            today_count = store.count_stock_queries_today(quota_key)
+        except Exception:
+            today_count = 0  # DB 异常不阻塞查询，仅记录 warning
+        if today_count >= STOCK_QUERY_DAILY_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=f"今日库存查询次数已达上限（{STOCK_QUERY_DAILY_LIMIT} 次），请明天再试或联系管理员",
+            )
 
         try:
             body = await request.json()
@@ -78,5 +102,11 @@ def register(app) -> None:
                 results.append(f"{model}{tag} {error}")
             else:
                 results.append(f"{model}{tag} {inv}")
+
+        # 4. 查询成功后记录（用于日配额统计）
+        try:
+            store.record_stock_query(quota_key)
+        except Exception:
+            pass  # DB 写入失败不阻塞返回结果
 
         return {"results": results, "count": len(results)}

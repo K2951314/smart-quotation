@@ -7,6 +7,8 @@
 import io
 import os
 import re
+import time
+import threading
 import configparser
 
 import requests
@@ -119,7 +121,14 @@ def _extract_stock(strings):
 
 
 class QueryEngine:
-    """三菱官网 GWT-RPC 查询引擎，线程安全（串行调用即可）。"""
+    """三菱官网 GWT-RPC 查询引擎，线程安全（串行调用即可）。
+
+    内置 5 分钟短期缓存：相同 (model, material) 的查询从缓存返回，
+    减少三菱 RPC 调用次数（降本 + 降频）。只缓存成功结果，不缓存错误。
+    """
+
+    _CACHE_TTL = 300   # 缓存有效期 5 分钟（库存是实时数据，不能太久）
+    _CACHE_MAX = 1000  # 最大缓存条目（防内存无限增长）
 
     def __init__(self):
         self.session = requests.Session()
@@ -128,6 +137,35 @@ class QueryEngine:
             "Accept-Language": "zh-CN,zh;q=0.9",
         })
         self._ready = False
+        # 短期缓存：key -> (shanghai, japan, error, timestamp)
+        self._cache = {}
+        self._cache_lock = threading.Lock()
+
+    @staticmethod
+    def _cache_key(model_val, material_val):
+        return f"{(model_val or '').strip().lower()}|{(material_val or '').strip().lower()}"
+
+    def _cache_get(self, model_val, material_val):
+        key = self._cache_key(model_val, material_val)
+        now = time.time()
+        with self._cache_lock:
+            entry = self._cache.get(key)
+            if entry and now - entry[3] < self._CACHE_TTL:
+                return (entry[0], entry[1], entry[2])
+        return None
+
+    def _cache_put(self, model_val, material_val, shanghai, japan, error):
+        # 只缓存成功结果（error is None）——错误可能是临时的，不应缓存
+        if error is not None:
+            return
+        key = self._cache_key(model_val, material_val)
+        now = time.time()
+        with self._cache_lock:
+            # 简单淘汰：超过上限时删最早的条目
+            if len(self._cache) >= self._CACHE_MAX:
+                oldest_key = min(self._cache, key=lambda k: self._cache[k][3])
+                del self._cache[oldest_key]
+            self._cache[key] = (shanghai, japan, error, now)
 
     def _login(self, username, password):
         self.session.get(BASE_URL + "/login.jsp", timeout=30)
@@ -162,6 +200,15 @@ class QueryEngine:
         return self._ready
 
     def search(self, model_val, material_val):
+        """查询库存，优先走 5 分钟短期缓存，未命中再调 GWT-RPC。"""
+        cached = self._cache_get(model_val, material_val)
+        if cached is not None:
+            return cached
+        result = self._search_rpc(model_val, material_val)
+        self._cache_put(model_val, material_val, *result)
+        return result
+
+    def _search_rpc(self, model_val, material_val):
         payload = _gwt_payload(model_val, material_val)
         try:
             r = self.session.post(

@@ -9,12 +9,23 @@
 
 // ─── 后端地址探测 ──────────────────────────────────────────
 
+function _isDevOrigin() {
+  return location.protocol === "file:" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname === "localhost";
+}
+
 function getApiBase() {
-  if (typeof HARDCODED_PROD_API !== "undefined" && HARDCODED_PROD_API) {
-    return HARDCODED_PROD_API.replace(/\/+$/, "");
+  var hardcoded = (typeof _readHardcodedProdApi === "function") ? _readHardcodedProdApi() : "";
+  if (hardcoded) {
+    return hardcoded.replace(/\/+$/, "");
   }
-  var urlParam = new URLSearchParams(window.location.search).get("api");
-  if (urlParam) return urlParam.replace(/\/+$/, "");
+  // ?api= URL 参数仅在本地开发环境生效，防止生产环境被 ?api=https://evil.com 劫持
+  // 生产环境（Netlify 独立部署）应通过 Netlify Snippet injection 注入 window.SQ_PROD_API_BASE
+  if (_isDevOrigin()) {
+    var urlParam = new URLSearchParams(window.location.search).get("api");
+    if (urlParam) return urlParam.replace(/\/+$/, "");
+  }
   if (location.protocol === "file:") return "http://127.0.0.1:8001";
   if (location.hostname === "127.0.0.1" || location.hostname === "localhost") return window.location.origin;
   return localStorage.getItem("sq_api_base") || window.location.origin;
@@ -213,7 +224,8 @@ async function doMitsubishiStockQuery() {
   try {
     var apiBase = getApiBase();
     setBtnText("查询 " + total + " 项...");
-    var reqHeaders = { "Content-Type": "application/json" };
+    // 带上公司令牌：后端接受 X-Company-Token 作为库存查询认证（已登录用户无需单独 stock-key）
+    var reqHeaders = Object.assign({ "Content-Type": "application/json" }, withAuthHeaders());
     var stockKey = getStockQueryKey();
     if (stockKey) reqHeaders["X-Stock-Key"] = stockKey;
     var resp = await fetch(apiBase + "/api/stock-query", {
@@ -223,7 +235,7 @@ async function doMitsubishiStockQuery() {
     });
 
     if (!resp.ok) {
-      var errHint = resp.status === 401 ? "（未授权：请在设置中填写库存查询密钥）" : "";
+      var errHint = resp.status === 401 ? "（未授权：请登录或填写库存查询密钥）" : "";
       showToast("库存服务异常: " + resp.status + errHint);
       selected.forEach(function (row) { updateCardStock(row, null); });
       setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");

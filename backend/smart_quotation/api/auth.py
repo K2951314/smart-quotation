@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import secrets
@@ -86,6 +87,9 @@ class AuthContext:
     def check_rate_limit(self, client_id: str) -> None:
         """检查 60 秒窗口内请求次数，超过 RATE_MAX_HITS 则拒绝。"""
         now = time.monotonic()
+        # 防内存无界增长：极端情况下（攻击者伪造大量不同 key 头）直接清空重建
+        if len(self.rate_limiter) > 100_000:
+            self.rate_limiter.clear()
         dq = self.rate_limiter[client_id]
         while dq and now - dq[0] > self.RATE_WINDOW_SEC:
             dq.popleft()
@@ -114,18 +118,36 @@ class AuthContext:
             pass
 
     def get_client_id(self, request: Request) -> str:
-        """提取客户端标识：优先 X-Stock-Key，回退到直连 IP。
+        """提取客户端标识：优先凭据哈希，回退到直连 IP。
 
-        安全策略：不信任 X-Forwarded-For（可伪造），用直连 IP。
+        安全策略：
+        - 不信任 X-Forwarded-For（可伪造），用直连 IP。
+          生产部署需在 uvicorn 启动参数加 --forwarded-allow-ips，
+          由平台边缘代理写入真实客户端 IP（见 Procfile）。
+        - 凭据取 SHA-256 哈希前缀而非原始前缀：防止攻击者用任意伪造的
+          X-Stock-Key 头制造无界限流桶条目，也避免在内存中保留凭据片段。
         """
         stock_key = (request.headers.get("x-stock-key", "") or
                      request.headers.get("authorization", "").replace("Bearer ", "", 1)).strip()
         if stock_key:
-            return f"key:{stock_key[:8]}"
+            digest = hashlib.sha256(stock_key.encode("utf-8")).hexdigest()[:12]
+            return f"key:{digest}"
         return f"ip:{request.client.host if request.client else 'unknown'}"
 
 
 # ─── FastAPI 依赖函数 ──────────────────────────────────────────
+
+def _handle_auth_failure(auth: AuthContext, client_ip: str, status_code: int, detail: str) -> None:
+    """认证失败的统一处理：先查持久化失败计数（超限 429），再记录本次失败。
+
+    关键顺序：只有凭证校验失败才会走到这里。持有有效凭证的合法用户
+    永远不会被他人的失败计数锁定（防"共享代理 IP 被锁 → 全站 DoS"）。
+    """
+    if not auth.is_dev:
+        auth.check_auth_rate_limit(client_ip)
+        auth.record_auth_failure(client_ip)
+    raise HTTPException(status_code=status_code, detail=detail)
+
 
 def require_admin_api(
     request: Request,
@@ -134,16 +156,12 @@ def require_admin_api(
     """验证 admin 后台 API key。使用 compare_digest 防时序攻击。"""
     auth: AuthContext = request.app.state.auth
     client_ip = request.client.host if request.client else "unknown"
-    if not auth.is_dev:
-        auth.check_auth_rate_limit(client_ip)
+    # 内存级 IP 限流先于认证检查——挡住无凭证洪水请求，避免每次都查 DB
+    auth.check_rate_limit(f"ip:{client_ip}")
     if not credentials or not credentials.credentials:
-        if not auth.is_dev:
-            auth.record_auth_failure(client_ip)
-        raise HTTPException(status_code=401, detail="authentication required")
+        _handle_auth_failure(auth, client_ip, 401, "authentication required")
     if not secrets.compare_digest(credentials.credentials, auth.admin_api_key):
-        if not auth.is_dev:
-            auth.record_auth_failure(client_ip)
-        raise HTTPException(status_code=401, detail="authentication required")
+        _handle_auth_failure(auth, client_ip, 401, "authentication required")
 
 
 def require_company_access(
@@ -158,12 +176,15 @@ def require_company_access(
 
     安全策略：
     - 对所有调用方（含 admin）执行频率限制，防止公开端点被暴力请求或 DoS
-    - 限流粒度：按 client_id（IP 或 token 前缀），60s/30 次
+    - 限流粒度：按 client_id（IP 或凭据哈希前缀），60s/30 次
+    - 持久化失败计数只在凭证校验失败后检查/记录，合法用户不被他人锁定
     """
     auth: AuthContext = request.app.state.auth
     client_ip = request.client.host if request.client else "unknown"
-    if not auth.is_dev:
-        auth.check_auth_rate_limit(client_ip)
+    # 内存级 IP 限流先于认证检查——挡住无凭证洪水请求，避免每次都查 DB
+    auth.check_rate_limit(f"ip:{client_ip}")
+
+    credential_failed = False
 
     # 优先检查 Admin API Key
     auth_header = request.headers.get("authorization", "")
@@ -173,8 +194,7 @@ def require_company_access(
             # admin 角色也限流（防 Admin API Key 泄露后被刷）
             auth.check_rate_limit(auth.get_client_id(request))
             return "admin"
-        if not auth.is_dev:
-            auth.record_auth_failure(client_ip)
+        credential_failed = True
 
     # 检查公司访问令牌
     provided_token = request.headers.get("x-company-token", "").strip()
@@ -192,10 +212,10 @@ def require_company_access(
             # company 角色限流（防令牌泄露后被刷）
             auth.check_rate_limit(auth.get_client_id(request))
             return "company"
-        else:
-            if not auth.is_dev:
-                auth.record_auth_failure(client_ip)
-            raise HTTPException(status_code=403, detail="authentication failed")
+        credential_failed = True
+
+    if credential_failed:
+        _handle_auth_failure(auth, client_ip, 403, "authentication failed")
 
     # 无任何凭证
     if auth.is_dev:
@@ -205,8 +225,15 @@ def require_company_access(
     raise HTTPException(status_code=401, detail="authentication required")
 
 
-def verify_stock_key(request: Request) -> None:
-    """校验三菱库存查询 key（独立的 STOCK_QUERY_KEY）。
+def verify_stock_key(request: Request) -> str:
+    """校验三菱库存查询 key，返回配额归属键（quota_key）。
+
+    认证优先级：
+    1. X-Stock-Key 头（专用库存查询 key）→ quota_key = 'stock-key'
+    2. Authorization: Bearer 头（admin key）→ quota_key = 'admin'
+    3. X-Company-Token 头（已登录公司用户）→ quota_key = company_id
+
+    返回的 quota_key 用于日配额统计（routes_stock.py 检查 count_stock_queries_today）。
 
     安全策略：
     - 使用独立的 STOCK_QUERY_KEY，不复用 ADMIN_API_KEY。
@@ -214,6 +241,9 @@ def verify_stock_key(request: Request) -> None:
     - 本地开发（SQ_DEV=1）时回退到 admin key，但打印警告。
     """
     auth: AuthContext = request.app.state.auth
+    client_ip = request.client.host if request.client else "unknown"
+    # 入口先做内存级 IP 限流（与其他端点策略一致），挡住无凭证洪水请求
+    auth.check_rate_limit(f"ip:{client_ip}")
     if not auth.stock_query_key:
         if not auth.is_dev:
             raise HTTPException(
@@ -225,9 +255,19 @@ def verify_stock_key(request: Request) -> None:
         auth_header = request.headers.get("authorization", "").lower()
         if auth_header.startswith("bearer "):
             provided = auth_header[7:].strip()
+    # 回退：已登录的公司用户（有效 X-Company-Token）→ 返回 company_id 用于公司级配额
+    if not provided:
+        company_token = request.headers.get("x-company-token", "").strip()
+        if company_token:
+            company_id = request.query_params.get("company_id", DEFAULT_COMPANY_ID)
+            if auth.store.verify_company_token(company_id, company_token):
+                return company_id
+            _handle_auth_failure(auth, client_ip, 403, "authentication failed")
     if not provided:
         raise HTTPException(status_code=401, detail="missing stock query key (X-Stock-Key)")
 
     expected = auth.stock_query_key if auth.stock_query_key else (auth.admin_api_key if auth.is_dev else "")
     if not expected or not secrets.compare_digest(provided, expected):
-        raise HTTPException(status_code=401, detail="invalid stock query key")
+        _handle_auth_failure(auth, client_ip, 401, "invalid stock query key")
+    # admin key 与 stock-key 共享 'stock-key' 配额（避免 admin key 滥用）
+    return "stock-key"

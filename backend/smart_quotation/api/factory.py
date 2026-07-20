@@ -97,11 +97,32 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
     )
 
     # 初始化共享状态
-    store = store or QuotationStore()
+    # DB_PATH 环境变量：生产环境指向持久化 Volume 挂载点（如 Railway Volume /data/quotation.db）
+    # 未设置时回退到默认 quotation.db（本地开发行为不变）
+    db_path = os.environ.get("DB_PATH") or "quotation.db"
+
+    # 注册数据库备份：事件驱动 + 防抖 + 每日上限（免费额度保护）
+    # 防止 Railway 重新部署时 SQLite 数据丢失
+    # 不使用定时轮询线程——原方案每 60s 检查 mtime 会在高频写入时
+    # 打爆 Supabase 免费版 2GB/月带宽额度
+    from ..store.db_backup import BackupManager, download_db
+    import atexit
+
+    if not os.path.exists(db_path):
+        download_db(db_path)  # 失败不阻塞，继续用空数据库启动
+
+    store = store or QuotationStore(db_path=db_path)
     store.init_schema()
+
+    # 创建备份管理器并注入 store（admin 写操作后触发 mark_dirty）
+    backup_mgr = BackupManager(db_path)
+    store.set_backup_manager(backup_mgr)
+    # 退出时备份（uvicorn 收到 SIGTERM 优雅关闭后会触发 atexit）
+    atexit.register(backup_mgr.shutdown)
     app.state.store = store
     app.state.engine = QuotationEngine(store)
     app.state.is_dev = is_dev
+    app.state.backup_manager = backup_mgr
 
     # 启动期加载并校验 ADMIN_API_KEY（失败直接抛异常，拒绝启动）
     admin_api_key = load_admin_api_key()
