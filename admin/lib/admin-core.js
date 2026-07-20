@@ -28,9 +28,15 @@ function getApiBase() {
   if (typeof window !== "undefined" && window.SQ_PROD_API_BASE) {
     return String(window.SQ_PROD_API_BASE).replace(/\/+$/, "");
   }
-  // 2. URL 参数 ?api=URL（临时切换，便于测试多环境）
-  var urlParam = new URLSearchParams(window.location.search).get("api");
-  if (urlParam) return urlParam.replace(/\/+$/, "");
+  // 2. URL 参数 ?api=URL 仅在本地开发环境生效，防止生产环境被 ?api=https://evil.com 劫持
+  //    生产环境（Netlify 独立部署）应通过 Netlify Snippet injection 注入 window.SQ_PROD_API_BASE
+  var isDev = location.protocol === "file:" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname === "localhost";
+  if (isDev) {
+    var urlParam = new URLSearchParams(window.location.search).get("api");
+    if (urlParam) return urlParam.replace(/\/+$/, "");
+  }
   // 3. localStorage 持久化（管理员手动设置，跨会话生效）
   try {
     var stored = localStorage.getItem("sq_admin_api_base");

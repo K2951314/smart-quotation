@@ -1,11 +1,22 @@
 """SQLite 数据库备份到 Supabase Storage。
 
 解决 Railway 免费版无持久化 Volume 的问题：每次重新部署容器文件系统重置，
-SQLite 文件丢失。本模块在启动时从 Supabase Storage 下载备份，运行期间定期上传。
+SQLite 文件丢失。本模块在启动时从 Supabase Storage 下载备份，运行期间按需上传。
 
-安全：SQLite 含公司令牌、客户密码哈希等敏感数据，必须用 private bucket +
-service role key（不是 anon key）。service role key 拥有完整存储访问权限，
-只能放在后端环境变量，绝不能暴露给前端。
+备份策略（免费额度友好）：
+  - 事件驱动 + 防抖：admin 数据变更后标记 dirty，延迟 DEBOUNCE_SECONDS
+    后上传一次（多次写合并为一次上传）。
+  - 最小间隔：两次上传至少间隔 MIN_INTERVAL_SECONDS，防止短时间内频繁上传。
+  - 每日上限：每天最多 MAX_UPLOADS_PER_DAY 次上传，即使持续写入也不会失控。
+  - 退出时备份：atexit 触发最后一次上传（如有未提交的 dirty）。
+  - WAL 检查点：上传前合并 WAL，确保一致性。
+
+安全：SQLite 含公司令牌等敏感数据，必须用 private bucket + service role key
+（不是 anon key）。service role key 只能放在后端环境变量，绝不能暴露给前端。
+
+不使用定时轮询线程（原方案每 60s 检查 mtime 会在高频写入时打爆 Supabase
+免费版 2GB/月带宽额度——攻击者发错误请求触发 security_events 写入即可
+每分钟触发一次全量上传，几天内耗尽额度）。
 """
 
 from __future__ import annotations
@@ -13,12 +24,22 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# ─── 备份频率参数（免费额度保护）────────────────────────────
+# 防抖：标记 dirty 后等待 N 秒再上传，期间多次写合并为一次
+DEBOUNCE_SECONDS = 600  # 10 分钟
+# 最小上传间隔：即使持续有写入，两次上传至少间隔 N 秒
+MIN_INTERVAL_SECONDS = 600  # 10 分钟
+# 每日上传上限：绝对硬上限，防止任何意外导致失控
+MAX_UPLOADS_PER_DAY = 24  # 最快每 60 分钟一次（理论极限 144，保守设 24）
 
 
 def _get_backup_config() -> Optional[tuple[str, str, str, str]]:
@@ -156,19 +177,117 @@ def upload_db(local_path: str) -> bool:
         return False
 
 
-def _latest_mtime(db_path: str) -> float:
-    """返回 SQLite 主文件 + -wal + -shm 中最新的 mtime，用于检测是否有新写入。
+class BackupManager:
+    """事件驱动的 SQLite 备份管理器。
 
-    关键：在 WAL 模式下，写入先落到 -wal 文件，主文件 mtime 不随每次写入更新。
-    若只监控主文件 mtime 会漏掉写入、导致备份线程永不触发、重新部署丢数据。
-    因此必须同时监控 -wal / -shm 文件。DELETE 模式下无 -wal/-shm，自动退化为主文件。
+    替代原定时轮询方案。admin 数据变更后调用 mark_dirty()，由防抖定时器
+    延迟合并上传。security_events 等高频低价值写入不应调用 mark_dirty。
+
+    线程安全：内部用 Lock 保护计数器和定时器。
     """
-    best = 0.0
-    for candidate in (db_path, db_path + "-wal", db_path + "-shm"):
-        try:
-            m = os.path.getmtime(candidate)
-        except OSError:
-            continue
-        if m > best:
-            best = m
-    return best
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        self._lock = threading.Lock()
+        self._dirty = False
+        self._timer: Optional[threading.Timer] = None
+        self._last_upload_ts: float = 0.0
+        self._upload_count_today = 0
+        self._day_reset_ts = self._today_start()
+
+    @staticmethod
+    def _today_start() -> float:
+        """返回今天 UTC 0 点的 timestamp（用于每日计数重置）。"""
+        now = time.time()
+        return now - (now % 86400)
+
+    def mark_dirty(self) -> None:
+        """标记数据库有变更，需要备份。
+
+        防抖：标记后延迟 DEBOUNCE_SECONDS 上传。期间多次标记只保留一次延迟上传。
+        如果已达到每日上限，跳过并记录 warning。
+        """
+        if not _get_backup_config():
+            return  # 未配置备份，零开销
+        with self._lock:
+            if not self._dirty:
+                self._dirty = True
+                logger.debug("DB marked dirty, scheduling backup in %ds", DEBOUNCE_SECONDS)
+            # 取消旧定时器，重新计时（防抖：最后一次写之后 DEBOUNCE_SECONDS 才真正上传）
+            if self._timer is not None:
+                self._timer.cancel()
+            self._timer = threading.Timer(DEBOUNCE_SECONDS, self._do_upload)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def _do_upload(self) -> None:
+        """实际执行上传（由防抖定时器触发）。"""
+        with self._lock:
+            if not self._dirty:
+                return
+            # 每日计数重置
+            now = time.time()
+            today_start = now - (now % 86400)
+            if today_start > self._day_reset_ts:
+                self._day_reset_ts = today_start
+                self._upload_count_today = 0
+            # 每日上限检查
+            if self._upload_count_today >= MAX_UPLOADS_PER_DAY:
+                logger.warning(
+                    "DB backup skipped: daily limit reached (%d/%d uploads today)",
+                    self._upload_count_today, MAX_UPLOADS_PER_DAY,
+                )
+                # 保留 dirty 标记，明天重置计数后下次 mark_dirty 会重新调度
+                self._timer = None
+                return
+            # 最小间隔检查
+            if now - self._last_upload_ts < MIN_INTERVAL_SECONDS:
+                # 间隔不足，延迟到满足间隔后再上传
+                wait = MIN_INTERVAL_SECONDS - (now - self._last_upload_ts)
+                logger.debug("DB backup deferred %.0fs (min interval)", wait)
+                self._timer = threading.Timer(wait, self._do_upload)
+                self._timer.daemon = True
+                self._timer.start()
+                return
+            # 清除 dirty 标记和定时器引用
+            self._dirty = False
+            self._timer = None
+            self._last_upload_ts = now
+            self._upload_count_today += 1
+
+        # 在锁外执行上传（避免网络 IO 阻塞锁）
+        success = upload_db(self._db_path)
+        if not success:
+            # 上传失败，重新标记 dirty，下次写操作会重新调度
+            with self._lock:
+                self._dirty = True
+            logger.warning("DB backup failed, will retry on next write")
+
+    def flush(self) -> None:
+        """立即上传（如有 dirty）。用于 atexit 退出时备份。
+
+        跳过防抖和最小间隔检查（退出时必须立即上传），但仍受每日上限约束。
+        """
+        with self._lock:
+            if not self._dirty:
+                return
+            # 取消待执行的定时器
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            self._dirty = False
+        # 退出时同步上传（atexit 上下文，线程可能已被杀，直接同步调用）
+        success = upload_db(self._db_path)
+        if success:
+            with self._lock:
+                self._last_upload_ts = time.time()
+        else:
+            logger.warning("DB backup on exit failed (data since last backup may be lost)")
+
+    def shutdown(self) -> None:
+        """关闭备份管理器：取消定时器 + 尝试最后一次上传。"""
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+        self.flush()

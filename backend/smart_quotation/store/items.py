@@ -34,6 +34,7 @@ class ItemsMixin:
             )
             self.audit(conn, None, "items.replace", "quotation_items", data_revision, {"count": len(rows)}, company_id=company_id)
             conn.commit()
+        self._mark_db_dirty()
 
     def delete_items_revision(self, data_revision: str, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
         """删除指定 data_revision 的所有商品行（回滚）。"""
@@ -45,6 +46,7 @@ class ItemsMixin:
             count = result.rowcount
             self.audit(conn, None, "items.rollback", "quotation_items", data_revision, {"deleted": count}, company_id=company_id)
             conn.commit()
+        self._mark_db_dirty()
         return {"data_revision": data_revision, "deleted": count}
 
     def search_items(self, query: str, searchable_fields: list[str], company_id: str = DEFAULT_COMPANY_ID, limit: int = 500) -> list[dict[str, Any]]:

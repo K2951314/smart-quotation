@@ -36,3 +36,15 @@ class SecurityMixin:
             cursor = conn.execute("delete from security_events where created_at < ?", (cutoff,))
             conn.commit()
             return cursor.rowcount
+
+    def count_stock_queries_today(self, quota_key: str) -> int:
+        """统计 quota_key 今日（最近 24 小时滚动窗口）的库存查询次数。
+
+        复用 security_events 表（event_type='stock_query'），无需新建表。
+        quota_key 通常是 company_id（公司级配额）或 'stock-key'/'admin'。
+        """
+        return self.count_security_events("stock_query", quota_key, 86400)
+
+    def record_stock_query(self, quota_key: str) -> None:
+        """记录一次库存查询（用于日配额统计）。"""
+        self.record_security_event("stock_query", quota_key)

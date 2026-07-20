@@ -179,14 +179,14 @@
   ],
   "rules": [
     {
-      "id": "ex",
-      "label": "EX活动",
+      "id": "brand-a",
+      "label": "品牌A活动",
       "priority": 10,
       "default": false,
       "actions": [
         {
           "type": "set_discount",
-          "percent": 32.5
+          "percent": 55
         }
       ],
       "when": {
@@ -194,20 +194,20 @@
           {
             "field": "special",
             "op": "contains",
-            "value": "EX活动"
+            "value": "活动A"
           }
         ]
       }
     },
     {
-      "id": "osg",
-      "label": "OSG",
+      "id": "brand-b",
+      "label": "品牌B",
       "priority": 20,
       "default": false,
       "actions": [
         {
           "type": "set_discount",
-          "percent": 37
+          "percent": 55
         }
       ],
       "when": {
@@ -215,20 +215,20 @@
           {
             "field": "name",
             "op": "contains",
-            "value": "OSG"
+            "value": "品牌B"
           }
         ]
       }
     },
     {
-      "id": "mitsubishi",
-      "label": "三菱",
+      "id": "brand-c",
+      "label": "品牌C",
       "priority": 30,
       "default": false,
       "actions": [
         {
           "type": "set_discount",
-          "percent": 56
+          "percent": 55
         }
       ],
       "when": {
@@ -236,7 +236,7 @@
           {
             "field": "name",
             "op": "contains",
-            "value": "刀具"
+            "value": "品牌C"
           }
         ]
       }
@@ -249,7 +249,7 @@
       "actions": [
         {
           "type": "set_discount",
-          "percent": 56
+          "percent": 55
         }
       ]
     }

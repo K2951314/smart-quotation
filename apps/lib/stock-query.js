@@ -9,13 +9,23 @@
 
 // ─── 后端地址探测 ──────────────────────────────────────────
 
+function _isDevOrigin() {
+  return location.protocol === "file:" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname === "localhost";
+}
+
 function getApiBase() {
   var hardcoded = (typeof _readHardcodedProdApi === "function") ? _readHardcodedProdApi() : "";
   if (hardcoded) {
     return hardcoded.replace(/\/+$/, "");
   }
-  var urlParam = new URLSearchParams(window.location.search).get("api");
-  if (urlParam) return urlParam.replace(/\/+$/, "");
+  // ?api= URL 参数仅在本地开发环境生效，防止生产环境被 ?api=https://evil.com 劫持
+  // 生产环境（Netlify 独立部署）应通过 Netlify Snippet injection 注入 window.SQ_PROD_API_BASE
+  if (_isDevOrigin()) {
+    var urlParam = new URLSearchParams(window.location.search).get("api");
+    if (urlParam) return urlParam.replace(/\/+$/, "");
+  }
   if (location.protocol === "file:") return "http://127.0.0.1:8001";
   if (location.hostname === "127.0.0.1" || location.hostname === "localhost") return window.location.origin;
   return localStorage.getItem("sq_api_base") || window.location.origin;

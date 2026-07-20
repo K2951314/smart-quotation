@@ -59,6 +59,7 @@ class ConfigsMixin:
             conn.commit()
         if status == "published":
             self.cache.invalidate()
+        self._mark_db_dirty()
         return normalized
 
     def get_active_config(self, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
@@ -154,4 +155,5 @@ class ConfigsMixin:
                 raise LookupError(f"config {revision} not found in company {company_id}")
             self.audit(conn, None, "config.delete", "quotation_configs", revision, {}, company_id=company_id)
             conn.commit()
+        self._mark_db_dirty()
         return {"revision": revision, "status": "deleted"}

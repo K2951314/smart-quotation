@@ -8,10 +8,10 @@
 # 安全响应头。
 # CSP 说明：
 # - script-src 允许 'self' + sheetjs CDN（Excel 解析库）+ sentry CDN（错误监控，按需加载）
-# - connect-src 使用 https: 通配以支持动态后端地址（Railway/Render 等）
-# - 后端 API 地址通过前端 getApiBase() 动态探测，CSP 无法在构建时确定具体域名，
-#   因此放开所有 HTTPS（仍阻止 HTTP 明文连接）
-# - Supabase Storage 的 HTTPS 地址也由此规则覆盖
+# - connect-src 白名单：仅允许同源 + Supabase Storage + Sentry + 常见后端平台域名
+#   不再使用 https: 通配——防止 XSS 向任意 HTTPS 域名外发数据
+# - 后端若部署在其他平台，需在此添加对应域名后缀
+# - Supabase Storage 的 HTTPS 地址由 *.supabase.co 覆盖
 [[headers]]
   for = "/*"
   [headers.values]
@@ -20,4 +20,4 @@
     Referrer-Policy = "no-referrer"
     Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://*.supabase.in https://*.supabase.net https://*.sentry.io https://*.railway.app https://*.render.com; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"

@@ -56,6 +56,19 @@ class StoreBase:
     def __init__(self, db_path: str = "quotation.db") -> None:
         self.db_path = db_path
         self.cache = ConfigCache()
+        # 备份管理器（可选）：admin 数据变更后调用 mark_dirty() 触发按需备份。
+        # 由 factory.create_app 在启动时注入。未注入时为 None，写操作零开销。
+        self._backup_manager = None
+
+    def set_backup_manager(self, manager) -> None:
+        """注入备份管理器。factory.create_app 在创建 store 后调用。"""
+        self._backup_manager = manager
+
+    def _mark_db_dirty(self) -> None:
+        """通知备份管理器数据库有变更。未注入时为空操作（零开销）。"""
+        mgr = self._backup_manager
+        if mgr is not None:
+            mgr.mark_dirty()
 
     def connect(self) -> sqlite3.Connection:
         """创建 SQLite 连接。

@@ -41,8 +41,8 @@ def register(app) -> None:
     # ─── 静态文件代理：模拟 Supabase Storage ──────────────────────
     @app.get("/config.json", include_in_schema=False)
     def proxy_config_json(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ):
         """代理到 get_active_config(company_id)。
 
@@ -89,8 +89,8 @@ def register(app) -> None:
 
     @app.get("/version.json", include_in_schema=False)
     def proxy_version_json(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ):
         """返回数据版本号（data_revision），用于前端 bundle 缓存失效。"""
         require_company_access(request, company_id=company_id)
@@ -103,8 +103,8 @@ def register(app) -> None:
 
     @app.get("/price.bundle.json", include_in_schema=False)
     def proxy_price_bundle(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ):
         """生成价格 Bundle。company 角色返回脱敏 Bundle。"""
         role = require_company_access(request, company_id=company_id)
@@ -118,8 +118,8 @@ def register(app) -> None:
 
     @app.get("/stock.bundle.json", include_in_schema=False)
     def proxy_stock_bundle(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ):
         """生成库存 Bundle。"""
         require_company_access(request, company_id=company_id)
@@ -143,8 +143,8 @@ def register(app) -> None:
 
     @app.get("/api/config/active")
     def get_active_config_public(
+        request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
-        request: Request = None,
     ) -> dict[str, Any]:
         """获取指定公司的已发布配置。company 角色返回脱敏配置。"""
         role = require_company_access(request, company_id=company_id)
@@ -159,7 +159,7 @@ def register(app) -> None:
     @app.get("/api/public/company/{company_id}")
     def get_public_company(
         company_id: str,
-        request: Request = None,
+        request: Request,
     ) -> dict[str, Any]:
         """获取公司 profile（name + role + profit_margin），用于客户前端 authGate。
 
