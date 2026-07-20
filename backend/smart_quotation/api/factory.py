@@ -97,8 +97,49 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
     )
 
     # 初始化共享状态
-    store = store or QuotationStore()
+    # DB_PATH 环境变量：生产环境指向持久化 Volume 挂载点（如 Railway Volume /data/quotation.db）
+    # 未设置时回退到默认 quotation.db（本地开发行为不变）
+    db_path = os.environ.get("DB_PATH") or "quotation.db"
+
+    # Railway 免费版无持久化 Volume：启动时从 Supabase Storage 恢复 SQLite 备份
+    # 配置 SQ_SUPABASE_BASE_URL + SQ_SUPABASE_SERVICE_KEY 后生效（详见 db_backup.py）
+    if not os.path.exists(db_path):
+        from ..store.db_backup import download_db
+        download_db(db_path)  # 失败不阻塞，继续用空数据库启动
+
+    store = store or QuotationStore(db_path=db_path)
     store.init_schema()
+
+    # 注册数据库备份：按需上传 + 退出时上传到 Supabase Storage
+    # 防止 Railway 重新部署时 SQLite 数据丢失
+    # 不注册 SIGTERM handler——uvicorn 自己有优雅关闭逻辑，会触发 atexit
+    from ..store.db_backup import upload_db, _get_backup_config, _latest_mtime
+    import atexit
+    import threading
+
+    def _backup_now() -> None:
+        upload_db(db_path)
+
+    # 仅当配置了 Supabase 备份时才启动备份线程（本地开发/未配置时零开销，不浪费资源）
+    if _get_backup_config():
+        # 退出时备份（uvicorn 收到 SIGTERM 优雅关闭后会触发 atexit）
+        atexit.register(_backup_now)
+
+        # 按需备份：每 1 分钟检查 SQLite 主文件 + -wal + -shm 的 mtime，变了才上传
+        # WAL 模式下写入只改 -wal，必须监控 -wal 才能可靠检测写入（否则漏备份丢数据）
+        # 避免高频全量上传消耗 Supabase 带宽（免费版 2GB/月）
+        _STOP = threading.Event()
+
+        def _on_demand_backup() -> None:
+            last = _latest_mtime(db_path)
+            while not _STOP.wait(60):  # 每 1 分钟检查
+                current = _latest_mtime(db_path)
+                if current != last:
+                    if _backup_now():
+                        last = current
+
+        _backup_thread = threading.Thread(target=_on_demand_backup, daemon=True)
+        _backup_thread.start()
     app.state.store = store
     app.state.engine = QuotationEngine(store)
     app.state.is_dev = is_dev

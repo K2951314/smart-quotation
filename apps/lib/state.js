@@ -39,7 +39,11 @@ console.log("app.js", APP_BUILD_TAG, "loaded");
 
 // 构建期/运行期注入的生产后端地址。
 // 通过 window.SQ_PROD_API_BASE 注入（Netlify Snippet injection 或构建工具替换）。
-var HARDCODED_PROD_API = (typeof window !== "undefined" && window.SQ_PROD_API_BASE) || "";
+// 注意：不在顶层立即求值，改为函数延迟读取，避免 Snippet injection 在 state.js 之后执行时读到 undefined。
+// getApiBase() 每次调用时读取 window.SQ_PROD_API_BASE，保证拿到注入后的值。
+function _readHardcodedProdApi() {
+  return (typeof window !== "undefined" && window.SQ_PROD_API_BASE) || "";
+}
 const HOLD_START_DELAY_MS = 280;
 const HOLD_REPEAT_INTERVAL_MS = 70;
 const DEFAULT_DISCOUNT_STORAGE_KEY = "v9-default-discount-config";
