@@ -15,7 +15,7 @@ async function loadConfigFromBackend() {
     var config = await request("/api/config");
     if (!config.schema_version) config.schema_version = 3;
     config.status = "draft";
-    state.config = config;
+    state.config = normalizeAdminConfig(config);
     renderAll();
     setStatus("已加载「" + cid + "」的配置");
     autoFillSupabaseUrl();
@@ -57,10 +57,10 @@ async function loadConfig() {
   try {
     const resp = await fetch(configUrl + "?t=" + Date.now());
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const raw = await resp.json();
-    if (!raw.schema_version) raw.schema_version = 2;
-    raw.status = "draft";
-    state.config = raw;
+      const raw = await resp.json();
+      if (!raw.schema_version) raw.schema_version = 2;
+      raw.status = "draft";
+      state.config = normalizeAdminConfig(raw);
     renderAll();
     setStatus("✅ 已从 Supabase 恢复 config.json");
   } catch (err) {
@@ -70,10 +70,11 @@ async function loadConfig() {
 
 async function saveConfig(status) {
   const config = collectConfig();
-  state.config = await request("/api/config", {
+  const saved = await request("/api/config", {
     method: "POST",
     body: JSON.stringify({ config, status }),
   });
+  state.config = normalizeAdminConfig(saved);
   renderAll();
 
   // 发布时自动部署到 Supabase
@@ -162,7 +163,7 @@ async function loadHistory() {
 async function rollbackToRevision(revision) {
   if (!confirm(`确认将版本 ${revision} 设为当前发布配置？`)) return;
   const config = await request(`/api/config/${encodeURIComponent(revision)}/publish`, { method: "POST" });
-  state.config = config;
+  state.config = normalizeAdminConfig(config);
   renderAll();
   setStatus(`已回滚到版本 ${revision}`);
 
@@ -244,10 +245,10 @@ async function importJson() {
   const content = $("advancedJson").value.trim();
   if (!content) { setStatus("请在高级 JSON 文本框中粘贴配置内容", true); return; }
   try {
-    state.config = await request("/api/config/import", {
+    state.config = normalizeAdminConfig(await request("/api/config/import", {
       method: "POST",
       body: JSON.stringify({ content, fmt: "json" }),
-    });
+    }));
     renderAll();
     setStatus("配置已导入为草稿");
   } catch (err) {

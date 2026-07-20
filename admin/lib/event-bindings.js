@@ -25,23 +25,27 @@ function bind() {
   if (createCompanyBtn) createCompanyBtn.addEventListener("click", function () { run(createCompany); });
 
   // ── 实时回填 state.config ──
+  // 重要：input 事件只同步数据到 state.config，绝不重建 DOM。
+  // 重建 DOM（innerHTML）会打断 IME 输入法组合，导致中文无法输入。
+  // 联动更新（如字段名改动后刷新规则行下拉框）改到 change 事件，
+  // change 事件在失焦时触发，不会打断输入。
   document.body.addEventListener("input", (event) => {
     if (!event.target.closest(".workspace")) return;
+    try {
+      // 仅同步数据，不触发任何 render* 函数
+      state.config = collectConfig();
+    } catch { /* ignore */ }
+  });
 
-    const fieldRow = event.target.closest("[data-field-row]");
-    const ruleRow = event.target.closest("[data-rule-row]");
-    const copyRow = event.target.closest("[data-copy-row]");
-    const uiFieldRow = event.target.closest("[data-ui-field-row]");
-
-    if (fieldRow || ruleRow || copyRow || uiFieldRow) {
-      try {
-        const config = collectConfig();
-        state.config = config;
-        renderRuleRows();
-        renderCopyRows();
-        renderUiConfig();
-      } catch { /* ignore render errors */ }
-    }
+  // ── 失焦时联动更新（重建 DOM 刷新下拉框等）──
+  document.body.addEventListener("change", (event) => {
+    if (!event.target.closest(".workspace")) return;
+    try {
+      state.config = collectConfig();
+      renderRuleRows();
+      renderCopyRows();
+      renderUiConfig();
+    } catch { /* ignore */ }
   });
 
   // ── 删除/回滚/删除版本 按钮委托 ──
@@ -65,14 +69,18 @@ function bind() {
 
   // ── 字段/规则/复制列 添加 ──
   $("addFieldBtn").addEventListener("click", () => {
+    if (!Array.isArray(state.config.fields)) state.config.fields = [];
     state.config.fields.push({ key: "", label: "", type: "text", source: "price", excel_aliases: [], searchable: false, copyable: false, required: false, result_area: "detail" });
     renderAll();
   });
   $("addRuleBtn").addEventListener("click", () => {
+    if (!Array.isArray(state.config.rules)) state.config.rules = [];
     state.config.rules.push({ id: "new_rule", label: "新规则", priority: 100, when: { all: [{ field: "spec", op: "contains", value: "" }] }, actions: [{ type: "set_discount", percent: 55 }] });
     renderAll();
   });
   $("addCopyColumnBtn").addEventListener("click", () => {
+    if (!state.config.copy || typeof state.config.copy !== "object") state.config.copy = {};
+    if (!Array.isArray(state.config.copy.columns)) state.config.copy.columns = [];
     state.config.copy.columns.push({ field: "spec", label: "规格", default: true, line: "main" });
     renderAll();
   });

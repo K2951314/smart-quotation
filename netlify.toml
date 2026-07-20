@@ -22,46 +22,13 @@
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://*.supabase.in https://*.supabase.net https://*.sentry.io https://*.railway.app https://*.render.com; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"
 
-# ─── Rewrite 代理：把后端路由代理到 Railway，解决 Netlify 静态站点 404 ───
-# 背景：前端 getApiBase() 在 Snippet injection 失效时会回退到 window.location.origin
-#       （Netlify 域名），导致 /price.bundle.json 等请求发到 Netlify 静态站点返回 404。
-#       后端路由 /config.json /version.json /price.bundle.json /stock.bundle.json /api/*
-#       只在 Railway 注册（routes_public.py:42,90,104,119），Netlify 静态站点不存在这些文件。
-# 策略：
-#   - status = 200 表示 rewrite（透明代理），浏览器地址栏不变，不触发 CORS
-#   - force = true 覆盖 Netlify 静态文件（即使根目录有同名文件也走代理）
-#   - 自定义请求头（X-Company-Token / X-Stock-Key / Authorization）由 Netlify 透传
-# 双保险：与 apps/lib/state.js 的 _readHardcodedProdApi() 延迟读取配合，
-#         即使 Snippet injection 完全失效，rewrite 代理也能让 bundle 请求到达后端。
-#
+# ─── Rewrite 代理：只代理后端动态 API ───
+# 架构：前端 bundle（config.json / price.bundle.json / stock.bundle.json / version.json）
+#       直接从 Supabase Storage 拉（CDN 分发），不走后端代理。
+#       只有动态 API（/api/*）走 Netlify rewrite 到 Railway 后端。
 # 配置步骤：在 Netlify 后台 → Site settings → Environment variables 添加：
 #   Key: BACKEND_URL
 #   Value: https://你的后端域名.up.railway.app
-# 详见 _DEPLOYMENT-STEPS.md 步骤 4.5
-
-[[redirects]]
-  from = "/config.json"
-  to = "${BACKEND_URL}/config.json"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/version.json"
-  to = "${BACKEND_URL}/version.json"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/price.bundle.json"
-  to = "${BACKEND_URL}/price.bundle.json"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/stock.bundle.json"
-  to = "${BACKEND_URL}/stock.bundle.json"
-  status = 200
-  force = true
 
 [[redirects]]
   from = "/api/*"

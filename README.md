@@ -207,10 +207,11 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 - `apps/` 部署 Netlify：客户报价台
 - `admin/` 可部署 Netlify（独立站点）或用后端同源 `/admin/`
 - 前端通过 `getApiBase()` 自动探测后端地址，优先级：
-  1. URL 参数 `?api=URL`
-  2. `localStorage.sq_api_base`
-  3. 构建期注入 `window.SQ_PROD_API_BASE`
+  1. 构建期/运行期注入 `window.SQ_PROD_API_BASE`（生产首选，Netlify Snippet injection）
+  2. URL 参数 `?api=URL`（**仅本地开发**：localhost/127.0.0.1/file: 生效，防生产 API 劫持）
+  3. `localStorage.sq_api_base`
   4. 同源（后端同源部署时默认）
+- Netlify 独立部署时还需配置 `BACKEND_URL` 环境变量（被 `netlify.toml` rewrite 规则引用，把 `/api/*`、`/config.json`、`/price.bundle.json` 等透明代理到后端，作为 Snippet injection 的双保险）
 - 三菱库存 key 通过 URL fragment `#stockkey=xxx` 注入（不发送到服务器，防日志泄露），也可在 authGate 手动输入
 - CSP `script-src` 白名单：`'self'` + `https://cdn.sheetjs.com`（SheetJS）+ `https://browser.sentry-cdn.com`（Sentry SDK）
 

@@ -332,3 +332,23 @@ function defaultConfig() {
     integrations: {},
   };
 }
+
+// 规范化从后端/Supabase/导入加载的 config，确保 admin 需要的数组/对象字段存在。
+// 注意：不使用 ConfigCore.normalizeConfig，因为它面向前端报价台（discount_rules），
+// admin 用的是 rules（when/actions 结构）。
+function normalizeAdminConfig(raw) {
+  var cfg = raw || {};
+  // 确保数组字段存在
+  if (!Array.isArray(cfg.fields)) cfg.fields = [];
+  if (!Array.isArray(cfg.rules)) cfg.rules = [];
+  // 确保 copy 对象及其 columns 数组存在
+  if (!cfg.copy || typeof cfg.copy !== "object") cfg.copy = {};
+  if (!Array.isArray(cfg.copy.columns)) cfg.copy.columns = [];
+  // 确保其他对象字段存在
+  if (!cfg.data_source || typeof cfg.data_source !== "object") cfg.data_source = {};
+  if (!cfg.pricing || typeof cfg.pricing !== "object") cfg.pricing = {};
+  if (!cfg.labels || typeof cfg.labels !== "object") cfg.labels = {};
+  if (!cfg.result_layout || typeof cfg.result_layout !== "object") cfg.result_layout = {};
+  if (!cfg.ui || typeof cfg.ui !== "object") cfg.ui = {};
+  return cfg;
+}

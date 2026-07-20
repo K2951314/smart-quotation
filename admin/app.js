@@ -4,7 +4,7 @@
  * 此文件是 admin 前端的编排层，仅包含：
  *   - 全局错误捕获
  *   - DOMContentLoaded：认证检查 + 登录表单绑定
- *   - 初始渲染 + 键盘快捷键
+ *   - 初始渲染
  *
  * 所有业务逻辑已拆分到 lib/ 目录下的模块中：
  *   admin-core.js        — 全局状态、认证、API 请求、工具函数、默认配置
@@ -67,11 +67,3 @@ window.addEventListener("DOMContentLoaded", function () {
 // ─── 初始渲染 ──────────────────────────────────────────────
 setJsStatus("已就绪");
 renderAll();
-
-// Ctrl+Shift+S 保存快捷键（避免与浏览器 Ctrl+S 冲突）
-document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "s") {
-    e.preventDefault();
-    run(() => saveConfig("draft"));
-  }
-});

@@ -76,6 +76,7 @@ function collectConfig() {
   }).filter((rule) => rule.id);
 
   // Copy columns
+  if (!config.copy || typeof config.copy !== "object") config.copy = {};
   config.copy.empty_value = $("copyEmptyValue").value;
   config.copy.price_prefix = $("copyPricePrefix").value.trim();
   config.copy.columns = Array.from(document.querySelectorAll("[data-copy-row]")).map((row) => {

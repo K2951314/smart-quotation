@@ -18,6 +18,30 @@ def register(app) -> None:
     """注册公开端点到 FastAPI app。"""
     store = app.state.store
 
+    def _resolve_supabase_url(company_id: str) -> str:
+        """获取有效 Supabase Storage 地址。
+
+        优先级：
+        1. 公司级 meta.supabase_base_url
+        2. 环境变量 SQ_SUPABASE_BASE_URL
+        """
+        company_supabase_url = ""
+        try:
+            company = store.get_company(company_id)
+            company_supabase_url = ((company.get("meta") or {}).get("supabase_base_url") or "").strip()
+        except Exception:
+            pass
+        env_supabase_url = os.environ.get("SQ_SUPABASE_BASE_URL", "").strip()
+        return company_supabase_url or env_supabase_url
+
+    def _inject_supabase_url(config: dict, company_id: str) -> None:
+        """向 config.data_source 注入 Supabase 地址（若尚未设置）。"""
+        effective = _resolve_supabase_url(company_id)
+        if effective:
+            ds = config.setdefault("data_source", {})
+            if not ds.get("base_url"):
+                ds["base_url"] = effective
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -51,22 +75,12 @@ def register(app) -> None:
         3. 配置中已有的 data_source.base_url
         """
         role = require_company_access(request, company_id=company_id)
-        company_supabase_url = ""
-        try:
-            company = store.get_company(company_id)
-            company_supabase_url = ((company.get("meta") or {}).get("supabase_base_url") or "").strip()
-        except Exception:
-            pass
-        env_supabase_url = os.environ.get("SQ_SUPABASE_BASE_URL", "").strip()
-        effective_supabase_url = company_supabase_url or env_supabase_url
+        effective_supabase_url = _resolve_supabase_url(company_id)
         try:
             config = store.get_active_config(company_id=company_id)
             if role == "company":
                 config = store.desensitize_config(config)
-            if effective_supabase_url:
-                ds = config.setdefault("data_source", {})
-                if not ds.get("base_url"):
-                    ds["base_url"] = effective_supabase_url
+            _inject_supabase_url(config, company_id)
             return config
         except LookupError:
             if effective_supabase_url:
@@ -145,7 +159,11 @@ def register(app) -> None:
         request: Request,
         company_id: str = Query(DEFAULT_COMPANY_ID),
     ) -> dict[str, Any]:
-        """获取指定公司的已发布配置。company 角色返回脱敏配置。"""
+        """获取指定公司的已发布配置。company 角色返回脱敏配置。
+
+        与 /config.json 代理一致：注入 Supabase 地址到 data_source.base_url，
+        让前端直接从 Supabase 拉取 bundle（不走后端代理）。
+        """
         role = require_company_access(request, company_id=company_id)
         try:
             config = store.get_active_config(company_id=company_id)
@@ -153,6 +171,7 @@ def register(app) -> None:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         if role == "company":
             config = store.desensitize_config(config)
+        _inject_supabase_url(config, company_id)
         return config
 
     @app.get("/api/public/company/{company_id}")
