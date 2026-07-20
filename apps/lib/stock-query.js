@@ -10,8 +10,9 @@
 // ─── 后端地址探测 ──────────────────────────────────────────
 
 function getApiBase() {
-  if (typeof HARDCODED_PROD_API !== "undefined" && HARDCODED_PROD_API) {
-    return HARDCODED_PROD_API.replace(/\/+$/, "");
+  var hardcoded = (typeof _readHardcodedProdApi === "function") ? _readHardcodedProdApi() : "";
+  if (hardcoded) {
+    return hardcoded.replace(/\/+$/, "");
   }
   var urlParam = new URLSearchParams(window.location.search).get("api");
   if (urlParam) return urlParam.replace(/\/+$/, "");
