@@ -265,16 +265,9 @@ calcDiscountedPrice = function (facePrice, discount, decimals, threshold) {
     var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
     var factor = Math.pow(10, decimals);
     var method = getRoundingMethod();
-    var base = _origCalcDiscountedPrice(facePrice, discount, decimals, threshold);
+    var base = calculateBaseDiscountedPrice(facePrice, discount, decimals, threshold);
     var withProfit = applyRounding(base.value * (1 + profit / 100), factor, method);
-    var finalVal;
-    if (useUntaxed) {
-      finalVal = applyRounding(withProfit / (1 + tax / 100), factor, method);
-    } else {
-      finalVal = withProfit;
-    }
-    var display = (finalVal % 1 === 0 && finalVal > threshold) ? finalVal.toFixed(0) : finalVal.toFixed(decimals);
-    return { value: finalVal, display: display };
+    return calculateDisplayedPrice(withProfit, { decimals: decimals, threshold: threshold }, useUntaxed, tax);
   }
   var base = _origCalcDiscountedPrice(facePrice, discount, decimals, threshold);
   return base;

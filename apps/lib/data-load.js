@@ -103,8 +103,8 @@ async function fetchRemoteJson(url, label) {
 }
 
 async function loadRemoteConfig(source) {
-  var companyId = getCompanyId();
-  if (companyId && companyId !== "default") {
+  var companyId = getCompanyId() || "default";
+  if (getApiBase()) {
     try {
       var apiBase = getApiBase();
       var apiConfigUrl = apiBase + "/api/config/active?company_id=" + encodeURIComponent(companyId);

@@ -47,7 +47,7 @@ def _get_backup_config() -> Optional[tuple[str, str, str, str]]:
 
     返回 (supabase_url, service_key, bucket, remote_path) 或 None（未配置时）。
     """
-    url = os.environ.get("SQ_SUPABASE_BASE_URL", "").strip().rstrip("/")
+    url = os.environ.get("SQ_SUPABASE_PROJECT_URL", "").strip().rstrip("/")
     key = os.environ.get("SQ_SUPABASE_SERVICE_KEY", "").strip()
     bucket = os.environ.get("DB_BACKUP_BUCKET", "sq-db-backup")
     path = os.environ.get("DB_BACKUP_PATH", "quotation.db")
@@ -66,7 +66,7 @@ def download_db(local_path: str) -> bool:
     """
     cfg = _get_backup_config()
     if not cfg:
-        logger.info("DB backup skipped: SQ_SUPABASE_BASE_URL or SQ_SUPABASE_SERVICE_KEY not set")
+        logger.info("DB backup skipped: SQ_SUPABASE_PROJECT_URL or SQ_SUPABASE_SERVICE_KEY not set")
         return False
 
     url, key, bucket, remote_path = cfg
@@ -219,6 +219,25 @@ class BackupManager:
             self._timer = threading.Timer(DEBOUNCE_SECONDS, self._do_upload)
             self._timer.daemon = True
             self._timer.start()
+
+    def mark_critical_dirty(self) -> None:
+        """立即备份关键管理数据，避免紧接重部署丢失公司或完整配置。"""
+        if not _get_backup_config():
+            return
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            self._dirty = False
+        success = upload_db(self._db_path)
+        if success:
+            with self._lock:
+                self._last_upload_ts = time.time()
+                self._upload_count_today += 1
+            return
+        with self._lock:
+            self._dirty = True
+        logger.warning("Critical DB backup failed, will retry on next write")
 
     def _do_upload(self) -> None:
         """实际执行上传（由防抖定时器触发）。"""

@@ -73,7 +73,7 @@ class CompaniesMixin:
             except sqlite3.IntegrityError as exc:
                 raise ValueError(f"company {company_id} 已存在") from exc
             conn.commit()
-        self._mark_db_dirty()
+        self._mark_db_dirty(immediate=True)
         return {"id": company_id, "name": name, "meta": meta}
 
     @staticmethod
@@ -155,7 +155,7 @@ class CompaniesMixin:
             if conn.total_changes == 0:
                 raise LookupError(f"company {company_id} not found")
             conn.commit()
-        self._mark_db_dirty()
+        self._mark_db_dirty(immediate=True)
         return self.get_company(company_id)
 
     def delete_company(self, company_id: str) -> dict[str, str]:
@@ -175,5 +175,5 @@ class CompaniesMixin:
             conn.execute("delete from companies where id = ?", (company_id,))
             conn.commit()
         self.cache.invalidate()
-        self._mark_db_dirty()
+        self._mark_db_dirty(immediate=True)
         return {"company_id": company_id, "status": "deleted"}

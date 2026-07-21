@@ -64,11 +64,14 @@ class StoreBase:
         """注入备份管理器。factory.create_app 在创建 store 后调用。"""
         self._backup_manager = manager
 
-    def _mark_db_dirty(self) -> None:
+    def _mark_db_dirty(self, immediate: bool = False) -> None:
         """通知备份管理器数据库有变更。未注入时为空操作（零开销）。"""
         mgr = self._backup_manager
         if mgr is not None:
-            mgr.mark_dirty()
+            if immediate:
+                mgr.mark_critical_dirty()
+            else:
+                mgr.mark_dirty()
 
     def connect(self) -> sqlite3.Connection:
         """创建 SQLite 连接。

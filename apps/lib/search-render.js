@@ -234,7 +234,7 @@ function getRowById(id) {
   return g_Results.find((row) => row && row.id === rowId) || null;
 }
 
-function calcDiscountedPrice(facePrice, discount, decimals, threshold) {
+function calculateBaseDiscountedPrice(facePrice, discount, decimals, threshold) {
   const rawCalc = facePrice * discount;
   const factor = Math.pow(10, decimals);
   const method = getRoundingMethod();
@@ -244,6 +244,27 @@ function calcDiscountedPrice(facePrice, discount, decimals, threshold) {
   }
   const display = (finalPrice % 1 === 0 && finalPrice > threshold) ? finalPrice.toFixed(0) : finalPrice.toFixed(decimals);
   return { value: finalPrice, display: display };
+}
+
+function calculateDisplayedPrice(baseValue, settings, useUntaxed, taxRate) {
+  const decimals = settings.decimals;
+  const threshold = settings.threshold;
+  let finalValue = Number(baseValue) || 0;
+  if (useUntaxed) {
+    const rate = Number(taxRate);
+    const divisor = 1 + (Number.isFinite(rate) && rate >= 0 ? rate : 13) / 100;
+    finalValue = applyRounding(finalValue / divisor, Math.pow(10, decimals), getRoundingMethod());
+  }
+  const display = (finalValue % 1 === 0 && finalValue > threshold)
+    ? finalValue.toFixed(0)
+    : finalValue.toFixed(decimals);
+  return { value: finalValue, display: display };
+}
+
+function calcDiscountedPrice(facePrice, discount, decimals, threshold) {
+  const base = calculateBaseDiscountedPrice(facePrice, discount, decimals, threshold);
+  const useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
+  return calculateDisplayedPrice(base.value, { decimals: decimals, threshold: threshold }, useUntaxed, getTaxRate());
 }
 
 function normalizeDiscountPercent(value, fallback) {
@@ -265,7 +286,7 @@ function flashPriceCell(priceCell) {
 function refreshRowPrice(row, flash) {
   if (!row) return;
   const settings = getCurrentPriceSettings();
-  var baseResult = _origCalcDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
+  var baseResult = calculateBaseDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
   var priceInfo;
   if (isCompanyMode()) {
     var profit = getCompanyProfitMargin(row);
@@ -274,26 +295,10 @@ function refreshRowPrice(row, flash) {
     var factor = Math.pow(10, settings.decimals);
     var method = getRoundingMethod();
     var withProfit = applyRounding(baseResult.value * (1 + profit / 100), factor, method);
-    var finalVal;
-    if (useUntaxed) {
-      finalVal = applyRounding(withProfit / (1 + tax / 100), factor, method);
-    } else {
-      finalVal = withProfit;
-    }
-    var display = (finalVal % 1 === 0 && finalVal > settings.threshold) ? finalVal.toFixed(0) : finalVal.toFixed(settings.decimals);
-    priceInfo = { value: finalVal, display: display };
+    priceInfo = calculateDisplayedPrice(withProfit, settings, useUntaxed, tax);
   } else {
     var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
-    if (useUntaxed) {
-      var taxRate = getTaxRate();
-      var factor = Math.pow(10, settings.decimals);
-      var method = getRoundingMethod();
-      var finalVal = applyRounding(baseResult.value / (1 + taxRate / 100), factor, method);
-      var display = (finalVal % 1 === 0 && finalVal > settings.threshold) ? finalVal.toFixed(0) : finalVal.toFixed(settings.decimals);
-      priceInfo = { value: finalVal, display: display };
-    } else {
-      priceInfo = baseResult;
-    }
+    priceInfo = calculateDisplayedPrice(baseResult.value, settings, useUntaxed, getTaxRate());
   }
   row.price = priceInfo.display;
   if (!row.fields) row.fields = {};
