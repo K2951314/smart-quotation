@@ -226,13 +226,6 @@ async function cleanOldCache(cache, filename, currentUrl) {
   }
 }
 
-function fastExtractJson(text) {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error("数据格式异常，无法解析");
-  return JSON.parse(text.substring(start, end + 1));
-}
-
 async function parsePriceBundle(priceObj) {
   if (!priceObj) throw new Error("未找到远程价格包");
   let jsonText = "";

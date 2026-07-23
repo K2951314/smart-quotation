@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, HTTPException, Query, Request
+from fastapi import Depends, HTTPException
 
 from ..store import DEFAULT_COMPANY_ID
 from .auth import require_admin_api

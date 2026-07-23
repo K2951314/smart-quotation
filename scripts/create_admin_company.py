@@ -91,7 +91,6 @@ def main() -> int:
     if stats.get("data_revision"):
         src_revision = stats["data_revision"]
         # 读取 default 公司的全部商品
-        import sqlite3
         from contextlib import closing
         with closing(store.connect()) as conn:
             rows = conn.execute(

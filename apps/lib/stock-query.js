@@ -141,11 +141,6 @@ function _stripTokenFromUrl() {
   }
 }
 
-function clearCompanyToken() {
-  try { sessionStorage.removeItem("sq_company_token"); } catch (e) {}
-  try { localStorage.removeItem("sq_company_token"); } catch (e) {}
-}
-
 // withToken 已废弃。token 统一通过 X-Company-Token 头传输。
 // 保留函数签名仅为向后兼容，不再向 URL 追加 token。
 function withToken(url) {

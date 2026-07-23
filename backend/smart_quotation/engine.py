@@ -9,14 +9,14 @@ from typing import Any
 
 class FormulaEvaluator(ast.NodeVisitor):
     """安全公式求值器：严格白名单模式。
-    
+
     只允许以下 AST 节点：
     - Expression, Constant, Name, BinOp, UnaryOp, Call
     只允许以下运算符：
     - +, -, *, /, 一元负号
     只允许以下函数：
     - ceil, floor, round, min, max, abs
-    
+
     任何其他节点类型（属性访问、下标、比较、布尔运算等）一律拒绝。
     """
 

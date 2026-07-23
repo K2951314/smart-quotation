@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.smart_quotation.config import normalize_config, validate_config
+from backend.smart_quotation.config import validate_config
 from backend.smart_quotation.engine import QuotationEngine
 from backend.smart_quotation.store import QuotationStore
 

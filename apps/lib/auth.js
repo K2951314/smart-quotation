@@ -24,11 +24,6 @@ function saveAuthProfile(profile) {
   try { _authWrite(AUTH_STORAGE_KEY, JSON.stringify(profile)); } catch (e) {}
 }
 
-function clearAuthProfile() {
-  g_AuthProfile = null;
-  _authClear(AUTH_STORAGE_KEY);
-}
-
 function isCompanyMode() {
   const p = getAuthProfile();
   return p && (p.role === "company" || p.role === "stock_only");

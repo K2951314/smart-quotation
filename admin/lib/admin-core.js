@@ -52,20 +52,6 @@ function getApiBase() {
   return window.location.origin;
 }
 
-/**
- * 设置后端地址（持久化到 localStorage，跨会话生效）。
- * 传入空字符串或 null 清除自定义地址，回退到同源。
- */
-function setApiBase(url) {
-  try {
-    if (url && url.trim()) {
-      localStorage.setItem("sq_admin_api_base", url.trim().replace(/\/+$/, ""));
-    } else {
-      localStorage.removeItem("sq_admin_api_base");
-    }
-  } catch (e) {}
-}
-
 const apiBase = getApiBase();
 let g_AdminEventsBound = false;
 let sbAnonKeyInput = null;    // Supabase anon key input（在 bind() 中赋值）
@@ -206,10 +192,6 @@ function setJsStatus(text) {
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
-}
-
-function parseListInput(str) {
-  return (str || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 async function request(path, options) {

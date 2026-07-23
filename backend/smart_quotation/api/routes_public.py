@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from ..store import DEFAULT_COMPANY_ID
 from .auth import require_admin_api, require_company_access

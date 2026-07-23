@@ -4,7 +4,6 @@
 凭据三级降级：环境变量 → config.ini（本地）→ Railway 等平台。
 """
 
-import io
 import os
 import re
 import time

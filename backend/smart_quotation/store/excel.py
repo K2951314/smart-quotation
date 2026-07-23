@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-from contextlib import closing
 from typing import Any
 
 from .base import DEFAULT_COMPANY_ID
