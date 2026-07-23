@@ -60,6 +60,9 @@ copy .env.example .env
 | `STOCK_QUERY_KEY` | 生产必填 | 三菱库存查询专用密钥；**必须独立于 `ADMIN_API_KEY`**，生产环境为空时库存查询返回 503 |
 | `MMC_USERNAME` / `MMC_PASSWORD` | 可选 | 三菱官网登录凭据（仅部署在服务端） |
 | `ALLOW_ORIGINS` | 生产 | 逗号分隔的允许来源；留空则允许所有但不带凭证 |
+| `SQ_SUPABASE_PROJECT_URL` | 持久化必填 | Supabase 项目根地址（`https://<ref>.supabase.co`），用于私有 bucket 备份 SQLite；缺失时备份安全降级仅告警 |
+| `SQ_SUPABASE_SERVICE_KEY` | 持久化必填 | service role key（非 anon key），私有 bucket 读写凭证，严禁进前端 |
+| `DB_BACKUP_BUCKET` / `DB_BACKUP_PATH` | 可选 | 备份目标，默认 `sq-db-backup` / `quotation.db` |
 
 生成强随机密钥：
 

@@ -23,7 +23,7 @@
 
 - 入口：`apps/index.html`（统一入口，authGate 覆盖层）
 - 依赖 FastAPI 后端（配置/数据/库存查询）+ Supabase Storage（config.json + price/stock bundles）
-- **认证模式**（当前）：前端本地模式，profile 存于 sessionStorage 或由 `window.__COMPANY_PROFILE__` 构建期注入；后端不提供 customer 登录端点
+- **认证模式**（当前）：前端本地模式，凭证默认存 localStorage（「保持登录」默认勾选，可取消退回 sessionStorage；admin 令牌永不持久），页头「退出」按钮调 clearAllAuth()，401 自动清凭证；后端不提供 customer 登录端点
 - **产品边界说明**：如需真正的多租户客户登录（服务端校验、密码哈希、会话令牌），需在 backend 中补全 `customers` / `customer_sessions` 表与相关 API 端点（见路线图）
 - 角色：admin 看完整数据（面价/折扣/报价），company 看脱敏数据（无面价/折扣）
 - 定价：品牌折扣规则定价（config rules），base = 面价 × 品牌折扣%，再叠加利润/税务
@@ -47,7 +47,7 @@
   4. 同源（默认）
 - **Supabase 项目地址**通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
 - **CSP**：`script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com`（SheetJS + Sentry SDK 白名单）；`connect-src` 白名单：`*.supabase.co`/`.in`/`.net` + `*.sentry.io` + `*.railway.app` + `*.render.com`（`netlify.toml`，已移除 `https:` 通配防 XSS 外泄）
-- **生产环境必填**：`ADMIN_API_KEY`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）
+- **生产环境必填**：`ADMIN_API_KEY`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份安全降级并打 warning（静默丢数据风险，需看日志确认）
 
 ## 运行与验证
 
@@ -62,7 +62,7 @@ py -m backend.smart_quotation
 测试命令：
 
 ```powershell
-# Python 测试（主力，当前 32/32 全绿）
+# Python 测试（主力，当前 40/40 全绿）
 py -m pytest tests/ -v
 
 # 兼容旧命令

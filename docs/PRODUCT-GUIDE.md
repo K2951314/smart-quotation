@@ -140,7 +140,7 @@
 https://你的域名/#company_id=acme&token=xxxxxxxx
 ```
 
-> 令牌通过 URL fragment（`#` 后）传递，不会发送到服务器，不会出现在访问日志中。读取后自动从地址栏清除，存入 `sessionStorage`（页签关闭即失效）。
+> 令牌通过 URL fragment（`#` 后）传递，不会发送到服务器，不会出现在访问日志中。读取后自动从地址栏清除；默认存入 `localStorage` 保持登录（关闭浏览器再打开免输链接），公用电脑可在登录页取消「保持登录」勾选退回 `sessionStorage`。页头「退出」按钮可一键清除全部本地凭证。
 
 ### 4.4 客户流程：日常使用
 
@@ -177,14 +177,14 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 
 | 功能 | 原因 | 替代方案 |
 |------|------|----------|
-| 客户服务端登录 | 路线图 P2 | 令牌认证（sessionStorage） |
+| 客户服务端登录 | 路线图 P2 | 令牌认证（默认 localStorage 持久，可切 session） |
 | 多租户并发写入 | SQLite 单写者 | 低并发 B2B 场景可接受 |
 | PostgreSQL | 路线图 P2 | SQLite WAL 模式 |
 | 部署文档 | 路线图 P2 | README + _DEPLOYMENT-STEPS.md（本地）+ gui-admin-guide |
 
 ### 5.3 认证模式说明
 
-> **产品边界**：当前认证为前端本地模式，profile 存于 `sessionStorage`。
+> **产品边界**：当前认证为前端本地模式，profile 随「保持登录」偏好存于 `localStorage`（默认）或 `sessionStorage`。
 >
 > 如需真正的多租户客户登录（服务端校验、密码哈希、会话令牌），需在 backend 补全 `customers` / `customer_sessions` 表与相关 API 端点（见路线图 P2）。
 >
@@ -200,7 +200,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 - **公司访问令牌**：256 位熵（`secrets.token_urlsafe(32)`），90 天过期
 - **库存查询密钥**：独立于 Admin Key，防提权
 - **令牌传输**：仅通过 HTTP 头（`X-Company-Token`），不走 URL query
-- **令牌存储**：`sessionStorage`（页签关闭即失效），不用 `localStorage`
+- **令牌存储**：默认 `localStorage` 持久化（保持登录），登录页可取消勾选退回 `sessionStorage`；admin 令牌（无 company_id）始终仅存 `sessionStorage`；401 时自动清除全部凭证并提示重新索取链接
 
 ### 6.2 数据安全
 
@@ -231,7 +231,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 
 | 编号 | 优化项 | 优先级 | 说明 |
 |------|--------|--------|------|
-| UX-1 | authGate 输入框无「记住我」选项 | 低 | 当前 sessionStorage 页签关闭即失效，客户每次打开链接需重新输入（有链接则自动填充，无感） |
+| UX-1 | ~~authGate 无「记住我」选项~~ ✅ 已实现（2026-07-23） | — | 登录页新增「保持登录」复选框（默认勾选）+ 页头「退出」按钮 + 401 自动清凭证 |
 | UX-2 | 查询结果无分页/虚拟滚动 | 中 | 大数据量（>1000 条匹配）时可能卡顿，当前场景（B2B 精确查询）一般不超过 50 条 |
 | UX-3 | 无查询历史记录 | 低 | 销售可能需要回溯之前查过的型号，当前需手动复制保存 |
 | UX-4 | 复制格式不可自定义 | 低 | 当前由管理员配置复制模板，客户无法临时调整 |
@@ -337,7 +337,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 - [ ] company 角色 price.bundle.json 不含 face_price
 - [ ] Supabase 公开桶中的 config.json 不含折扣规则
 - [ ] 令牌不出现在 URL query 参数中（仅 fragment + header）
-- [ ] 令牌存储在 sessionStorage（非 localStorage）
+- [ ] 令牌按「保持登录」偏好存储（默认 localStorage；取消勾选为 sessionStorage；admin 令牌始终 sessionStorage）
 - [ ] 库存查询有频率限制（60s/30 次）
 - [ ] 库存查询单次上限 50 条
 
@@ -347,7 +347,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 - [ ] Safari 可用（需测试 Cache API）
 - [ ] 移动端 Chrome / Safari 可用（720px 以下布局正常）
 - [ ] 旧链接（`?token=`）向后兼容（自动迁移到 fragment）
-- [ ] 旧 localStorage 中的 stockkey 自动迁移到 sessionStorage
+- [ ] 旧 sessionStorage 中的凭证自动兼容读取（无需重新输入链接）
 
 ---
 
