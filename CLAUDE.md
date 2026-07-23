@@ -46,7 +46,7 @@
   3. `localStorage.sq_api_base` / `localStorage.sq_admin_api_base`
   4. 同源（默认）
 - **Supabase 项目地址**通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
-- **CSP**：`script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com`（SheetJS + Sentry SDK 白名单）；`connect-src` 白名单：`*.supabase.co`/`.in`/`.net` + `*.sentry.io` + `*.railway.app` + `*.render.com`（`netlify.toml`，已移除 `https:` 通配防 XSS 外泄）
+- **CSP**：`script-src 'self' https://browser.sentry-cdn.com`（SheetJS 已自托管至 `admin/lib/`，仅保留 Sentry SDK CDN 白名单）；`connect-src` 白名单：`*.supabase.co`/`.in`/`.net` + `*.sentry.io` + `*.railway.app` + `*.render.com`（`netlify.toml`，已移除 `https:` 通配防 XSS 外泄）
 - **生产环境必填**：`ADMIN_API_KEY`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份安全降级并打 warning（静默丢数据风险，需看日志确认）
 
 ## 运行与验证
@@ -94,7 +94,7 @@ node --test tests/*.test.js
 - [x] Admin API Key 强校验：未设置或弱值拒绝启动，用 `secrets.compare_digest` 防时序攻击
 - [x] `/api/stock-query` 加认证（`X-Stock-Key`）+ 频率限制（60s/30 次）+ 单次条数上限（50 条）
 - [x] 清理文档中不存在的 customer 端点引用，明确产品边界
-- [x] 多租户 `company_id` 真隔离：schema 加 `company_id` 列 + 所有 CRUD 过滤 + 隔离性测试 21/21 通过
+- [x] 多租户 `company_id` 真隔离：schema 加 `company_id` 列 + 所有 CRUD 过滤 + 隔离性测试通过
 
 ### P1（已完成）
 

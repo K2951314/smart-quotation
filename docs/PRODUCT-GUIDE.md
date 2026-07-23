@@ -216,7 +216,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 
 ### 6.4 传输安全
 
-- **CSP**：`script-src 'self' https://cdn.sheetjs.com https://browser.sentry-cdn.com`（白名单加载 SheetJS 与 Sentry SDK）；`connect-src https:` 通配（支持动态后端地址）
+- **CSP**：`script-src 'self' https://browser.sentry-cdn.com`（SheetJS 已自托管，仅保留 Sentry SDK CDN 白名单）；`connect-src` 白名单限定 Supabase/Sentry/Railway/Render 域名（已移除 `https:` 通配防 XSS 外泄）
 - **HSTS**：`Strict-Transport-Security` 强制 HTTPS
 - **frame-ancestors 'none'**：防点击劫持
 

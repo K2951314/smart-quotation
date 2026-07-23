@@ -2,7 +2,7 @@
 
 > 本文档基于对抗式审查生成，逐项验证每个安全改造，列出已知风险与防护方案。
 > 审查脚本：`_adversarial_audit.py`（本地保留，不入库）
-> 审查结果：32 passed（含多租户隔离测试 3 项）；1 项 MEDIUM 级设计权衡（公开端点暴露折扣配置）已记录在案
+> 审查结果：40 passed（含多租户隔离测试）；第二轮对抗式审查（20 项发现）批 1+2 已修复
 
 ---
 
@@ -277,7 +277,7 @@ py -c "from backend.smart_quotation.license import generate_license; print(gener
 ## 五、验证命令速查
 
 ```powershell
-# Python 测试（32 项，含多租户隔离测试）
+# Python 测试（40 项，含多租户隔离测试）
 py -m pytest tests/ -v
 
 # JS 单元测试
@@ -310,6 +310,42 @@ Get-Job | Stop-Job; Get-Job | Remove-Job
 | 错误监控 | ✅ 强 | Sentry 按需启用，优雅降级 |
 | License | ✅ 强 | HMAC-SHA256 + 过期 + 功能授权 + max_companies 强制 |
 | 代码注入 | ✅ 强 | SQL注入/key注入均被拒 |
-| CSP | ✅ 强 | script-src 白名单（self + sheetjs + sentry CDN） |
+| CSP | ✅ 强 | script-src 白名单（self + sentry CDN）；SheetJS 已自托管消除供应链风险 |
 
-**总结**：P0+P1 改造的安全属性经对抗式审查验证有效。本轮额外修复：CSP 放宽 sheetjs/sentry CDN 白名单、ALLOW_ORIGINS 启动失败诊断输出、License max_companies 强制校验。唯一中危项（公开端点暴露折扣配置）是设计权衡，建议在 P2 阶段用 UUID company_id 或 public_config_token 缓解。系统已具备商业化部署的安全基础。
+**总结**：P0+P1 改造的安全属性经对抗式审查验证有效。唯一中危项（公开端点暴露折扣配置）是设计权衡，建议在 P2 阶段用 UUID company_id 或 public_config_token 缓解。系统已具备商业化部署的安全基础。
+
+---
+
+## 七、第二轮对抗式审查（2026-07-23，20 项发现）
+
+> 审查报告：`radiant-beacon-curie.md`（本地 `.workbuddy/plans/`，不入库）
+> 范围：backend 31 个 .py 全部通读 + admin/apps 28 个前端文件交叉验证 + 依赖配置 + git 历史 + Supabase 配置
+
+### 批 1（P0，已修复）
+
+| # | 问题 | 状态 |
+|---|---|---|
+| 1 | git 历史含真实密钥（MMC_PASSWORD/ADMIN_API_KEY/STOCK_QUERY_KEY） | ✅ 密钥全量轮换 + git filter-repo 历史清洗 |
+| 2 | `_DEPLOYMENT-STEPS.md` 全部生产密钥明文 | ✅ 去密钥化（本地文件，不入库） |
+| 3 | 供应链存储型 XSS：anon key 写公开桶 → 投毒 config.json → discount-config.js 未转义 | ✅ discount-config.js escapeHtml；桶写权限待批 3 改后端代理 |
+
+### 批 2（P1 代码修复，commit 37787fb）
+
+| # | 问题 | 修复 |
+|---|---|---|
+| 5 | 配置可控正则 ReDoS（无长度/嵌套量词校验） | config.py 新增 `validate_regex_pattern`（长度上限+编译+嵌套量词拦截） |
+| 6 | 异常 `str(exc)` 原样回显客户端（泄露内部拓扑） | routes_merger/routes_stock/mitsubishi_stock 错误文案泛化 + 日志记详情 |
+| 8 | 生产暴露 /docs 与 /openapi.json | factory.py 生产 `docs_url=None, openapi_url=None` |
+| 9 | SheetJS CDN 无 SRI（供应链风险） | admin/index.html 改自托管 `admin/lib/xlsx.full.min.js` |
+| 10 | 依赖下界过宽（CVE-2024-53981/35195/43870） | requirements.txt 收紧下界 + requirements-lock.txt 锁文件 |
+| 13 | 文件数/行数无上限 + workbook 未 close | routes_merger 限 20 文件 + excel.py 限 50000 行 + `wb.close()` |
+| 14 | 503 文案提示 config.ini 存在 | routes_stock.py 文案去文件名 |
+
+### 批 3（P2，待定）
+
+- License RSA 非对称验签（#7，架构变更）
+- auth.py IP 限流改造（#12）
+- CSP 补 `base-uri 'none'`/`form-action 'self'`（#18）
+- config.ini 凭据环境变量化（#14 部分残留）
+- 公开桶写权限改后端 service_key 代理上传（#3 架构变更）
+- create_admin_company.py 脱敏输出（#19）

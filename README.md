@@ -172,7 +172,7 @@ py -m backend.smart_quotation
 │       ├── plugins.py / erp.py
 ├── scripts/
 │   └── sync-config-core.py      # config-core.js 同步脚本（apps → admin）
-├── tests/                       # 32 个 Python 测试 + 3 个 JS 测试文件
+├── tests/                       # 40 个 Python 测试 + 3 个 JS 测试文件
 ├── config.example.json           # 配置示例（不含敏感值）
 ├── .env.example                  # 环境变量示例
 ├── requirements.txt
@@ -214,9 +214,9 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
   2. URL 参数 `?api=URL`（**仅本地开发**：localhost/127.0.0.1/file: 生效，防生产 API 劫持）
   3. `localStorage.sq_api_base`
   4. 同源（后端同源部署时默认）
-- Netlify 独立部署时还需配置 `BACKEND_URL` 环境变量（被 `netlify.toml` rewrite 规则引用，把 `/api/*`、`/config.json`、`/price.bundle.json` 等透明代理到后端，作为 Snippet injection 的双保险）
+- Netlify 独立部署时还需配置 `BACKEND_URL` 环境变量（被 `netlify.toml` rewrite 规则引用，把 `/api/*` 透明代理到后端；bundle 文件直接从 Supabase Storage 拉，不走后端代理）
 - 三菱库存 key 通过 URL fragment `#stockkey=xxx` 注入（不发送到服务器，防日志泄露），也可在 authGate 手动输入
-- CSP `script-src` 白名单：`'self'` + `https://cdn.sheetjs.com`（SheetJS）+ `https://browser.sentry-cdn.com`（Sentry SDK）
+- CSP `script-src` 白名单：`'self'` + `https://browser.sentry-cdn.com`（Sentry SDK，按需加载）；SheetJS 已自托管至 `admin/lib/`（消除第三方 CDN 供应链风险）
 
 **数据源**（Supabase Storage）：
 - 通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`
