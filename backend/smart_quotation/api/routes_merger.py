@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import Depends, File, HTTPException, Query, UploadFile
 
+from ..observability import capture_exception
 from ..store import DEFAULT_COMPANY_ID
 from .auth import require_admin_api
 from .models import BundleDeploy, BundleGenerate
 from .supabase import deploy_bundles_to_supabase
 
+logger = logging.getLogger(__name__)
+
 # 单文件上传上限：10MB
 _MAX_FILE_SIZE = 10 * 1024 * 1024
+# 单次上传文件个数上限：防止多文件全量读入内存导致 OOM
+_MAX_FILE_COUNT = 20
 
 
 def register(app) -> None:
@@ -26,6 +32,8 @@ def register(app) -> None:
         company_id: str = Query(DEFAULT_COMPANY_ID),
     ) -> dict[str, Any]:
         """上传多个 Excel 文件，按文件名识别品牌，返回检测结果。"""
+        if len(files) > _MAX_FILE_COUNT:
+            raise HTTPException(status_code=413, detail=f"文件个数超限（{len(files)} 个），单次上限 {_MAX_FILE_COUNT} 个")
         file_tuples = []
         for f in files:
             content = await f.read()
@@ -69,7 +77,9 @@ def register(app) -> None:
                 )
                 result["deploy"] = deploy_results
             except Exception as exc:
-                raise HTTPException(status_code=500, detail=f"部署失败: {exc}") from exc
+                logger.exception("bundle 生成+部署失败 (company_id=%s)", company_id)
+                capture_exception(exc, endpoint="merger/bundle/generate", company_id=company_id)
+                raise HTTPException(status_code=500, detail="部署失败，请检查数据源配置与网络后重试") from exc
 
         return result
 
@@ -98,5 +108,7 @@ def register(app) -> None:
                 safe_config, safe_price_bundle, safe_stock_bundle, payload.anon_key, is_dev
             )
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"部署失败: {exc}") from exc
+            logger.exception("bundle 部署失败 (company_id=%s)", company_id)
+            capture_exception(exc, endpoint="merger/bundle/deploy", company_id=company_id)
+            raise HTTPException(status_code=500, detail="部署失败，请检查数据源配置与网络后重试") from exc
         return {"deploy": results}

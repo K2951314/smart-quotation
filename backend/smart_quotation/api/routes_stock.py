@@ -72,7 +72,7 @@ def register(app) -> None:
         # ensure_ready 含登录请求（同步阻塞），放线程池执行
         if not await run_in_threadpool(engine.ensure_ready):
             capture_event("stock_query.login_failed", company_id=auth.get_client_id(request))
-            raise HTTPException(status_code=503, detail="三菱官网登录失败，请检查 config.ini 中的账号密码")
+            raise HTTPException(status_code=503, detail="三菱官网登录失败，请联系管理员检查库存查询账号配置")
 
         results = []
         for line in lines:

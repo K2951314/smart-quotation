@@ -1,11 +1,11 @@
 fastapi>=0.128
 uvicorn>=0.38
 pydantic>=2.12
-PyYAML>=6.0
-openpyxl>=3.1       # Excel 文件上传解析（数据导入功能必须）
-python-multipart>=0.0.9  # FastAPI 文件上传依赖
+PyYAML>=6.0.1      # 6.0 有 sdist 构建缺陷
+openpyxl>=3.1.3    # Excel 文件上传解析；3.1.3 修复 CVE-2023-43870 (XXE)
+python-multipart>=0.0.20  # FastAPI 文件上传；0.0.18+ 修复 CVE-2024-53981 (DoS)，0.0.20 含 CVE-2024-24762 (ReDoS) 后续修复
 cryptography>=43.0   # AES-GCM 价格包加密（Bundle 生成功能必须）
-requests>=2.31      # 三菱库存 GWT-RPC 查询引擎（HTTP 请求）
+requests>=2.32     # 三菱库存 GWT-RPC 查询引擎；2.32 修复 CVE-2024-35195（证书校验失效）
 python-dotenv>=1.0   # 从 .env 文件加载环境变量（本地开发用）
 
 # 错误监控（可选；设置 SENTRY_DSN 环境变量时自动启用）
@@ -13,3 +13,5 @@ sentry-sdk[fastapi]>=2.0
 
 # 测试依赖（本地开发用，不入库）
 # httpx>=0.27  # fastapi.testclient 需要
+
+# 可复现部署：本文件仅约束下界，精确版本见 requirements-lock.txt（由生产同版 .venv 经 pip freeze 生成）

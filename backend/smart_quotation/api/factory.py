@@ -33,10 +33,18 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
     # 初始化可观测性（Sentry 按需启用，无 SENTRY_DSN 时无操作）
     init_sentry()
 
-    app = FastAPI(title="Smart Quotation API", version="0.2.0")
+    # 安全：生产环境关闭交互式 API 文档与 schema 下载，避免泄露端点结构。
+    # 仅本地开发（SQ_DEV=1）保留 /docs 便于调试。
+    is_dev = os.environ.get("SQ_DEV", "0") == "1"
+    app = FastAPI(
+        title="Smart Quotation API",
+        version="0.2.0",
+        docs_url="/docs" if is_dev else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if is_dev else None,
+    )
 
     # CORS 配置：生产环境强制设置 ALLOW_ORIGINS，未设置时拒绝启动
-    is_dev = os.environ.get("SQ_DEV", "0") == "1"
     raw = os.environ.get("ALLOW_ORIGINS", "").strip()
 
     # H2 防护：SQ_DEV=1 与 ALLOW_ORIGINS 共存 = 生产环境误开 dev 模式

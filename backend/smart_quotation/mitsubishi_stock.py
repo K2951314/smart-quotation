@@ -4,6 +4,7 @@
 凭据三级降级：环境变量 → config.ini（本地）→ Railway 等平台。
 """
 
+import logging
 import os
 import re
 import time
@@ -14,6 +15,8 @@ import requests
 from urllib3.exceptions import InsecureRequestWarning
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://mcweb.mitsubishi-materials.com/concerto-mmsc-ec"
 GWT_MODULE_URL = BASE_URL + "/gwtModule/"
@@ -232,7 +235,8 @@ class QueryEngine:
                 err = resp.get("error", "")
                 if bool(material_val) and "ClassNotFound" in err:
                     return self.search(model_val, "")
-                return 0, 0, err
+                # 截断第三方服务端返回的错误内容，避免冗长/不可控文本进入 API 响应
+                return 0, 0, (err[:100] if err else "查询失败")
             stock = _extract_stock(resp["strings"])
             return *stock, None
         except requests.Timeout:
@@ -240,7 +244,9 @@ class QueryEngine:
         except requests.ConnectionError:
             return 0, 0, "连接失败"
         except Exception as e:
-            return 0, 0, str(e)
+            # 异常详情可能含内部 URL/连接信息，仅记日志，对外返回泛化文案
+            logger.warning("三菱库存查询异常 (model=%s): %s", model_val, e)
+            return 0, 0, "查询失败"
 
 
 # 模块级单例，全局复用登录态

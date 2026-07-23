@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -210,7 +211,49 @@ def validate_config(config: dict[str, Any]) -> None:
                 raise ValueError(f"unsupported action type: {action_type}")
             if action_type == "set_field" and action.get("field") not in field_keys:
                 raise ValueError(f"set_field references unknown field: {action.get('field')}")
+        for cond in _iter_when_conditions(rule.get("when") or {}):
+            if cond.get("op") == "regex":
+                try:
+                    validate_regex_pattern(str(cond.get("value") or ""))
+                except ValueError as exc:
+                    raise ValueError(f"rule '{rule.get('id')}' regex condition rejected: {exc}") from exc
 
     formula = (config.get("pricing") or {}).get("default_formula") or DEFAULT_FORMULA
     if "__" in formula or "import" in formula.lower():
         raise ValueError("pricing.default_formula contains forbidden tokens")
+
+
+# ─── ReDoS 防护 ─────────────────────────────────────────────
+# 规则正则由管理员经配置写入，但配置导入可能带入误操作/恶意 pattern。
+# 嵌套量词（如 (a+)+、(x{2,})*）在特定输入下产生指数级回溯，可卡死报价
+# worker（quote 对每行每条规则求值）。在保存期拦截成本最低。
+MAX_REGEX_PATTERN_LENGTH = 200
+_NESTED_QUANTIFIER_RE = re.compile(
+    r"\([^()]*(?:[+*]|\{\d+(?:,\d*)?\})[^()]*\)\s*(?:[+*]|\{\d+(?:,\d*)?\})"
+)
+
+
+def validate_regex_pattern(pattern: str) -> None:
+    """校验规则正则：长度上限 + 必须可编译 + 禁止嵌套量词。"""
+    if len(pattern) > MAX_REGEX_PATTERN_LENGTH:
+        raise ValueError(f"regex pattern too long ({len(pattern)} > {MAX_REGEX_PATTERN_LENGTH})")
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise ValueError(f"regex pattern invalid: {exc}") from exc
+    if _NESTED_QUANTIFIER_RE.search(pattern):
+        raise ValueError(f"regex pattern has nested quantifiers (ReDoS risk): {pattern[:50]}")
+
+
+def _iter_when_conditions(when: dict[str, Any]):
+    """递归展开 when 条件树（all/any/not），产出叶子条件。"""
+    if not isinstance(when, dict):
+        return
+    for key in ("all", "any"):
+        if key in when:
+            for item in when.get(key) or []:
+                yield from _iter_when_conditions(item)
+    if "not" in when:
+        yield from _iter_when_conditions(when.get("not"))
+    if when.get("op"):
+        yield when

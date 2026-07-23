@@ -1,7 +1,7 @@
 /**
  * discount-config.js — 默认折扣设置弹窗（配置驱动，动态生成品牌输入框）。
  *
- * 依赖：state.js, config-helpers.js
+ * 依赖：state.js, config-helpers.js, search-render.js（escapeHtml、formatCompactNumber）
  */
 
 function getSystemDefaultDiscountConfig() {
@@ -81,11 +81,14 @@ function buildDefaultDiscountForm(config, rules) {
     var percent = (safeConfig[id] !== undefined && Number.isFinite(Number(safeConfig[id])))
       ? Number(safeConfig[id])
       : (Number.isFinite(Number(rule.percent)) ? Number(rule.percent) : 55);
-    var inputId = "defaultDiscount-" + id;
-    var html = '<label class="discount-config-field" for="' + inputId + '">'
-      + '<span>' + label + '</span>'
+    // 安全：rule.id/label 来自远程 config.json（Supabase 公开桶），
+    // 必须转义后再插入 DOM，防止投毒配置注入 HTML/JS（存储型 XSS）。
+    var safeId = escapeHtml(id);
+    var safeInputId = escapeHtml("defaultDiscount-" + id);
+    var html = '<label class="discount-config-field" for="' + safeInputId + '">'
+      + '<span>' + escapeHtml(label) + '</span>'
       + '<div class="field-shell">'
-      + '<input type="number" id="' + inputId + '" min="0" max="100" step="0.1" inputmode="decimal" data-discount-id="' + id + '">'
+      + '<input type="number" id="' + safeInputId + '" min="0" max="100" step="0.1" inputmode="decimal" data-discount-id="' + safeId + '">'
       + '<span class="field-unit">%</span>'
       + '</div>'
       + '</label>';

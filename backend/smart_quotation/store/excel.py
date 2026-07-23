@@ -7,6 +7,9 @@ from typing import Any
 
 from .base import DEFAULT_COMPANY_ID
 
+# 单次导入行数上限：防止超大文件全量读入内存导致 OOM
+_MAX_IMPORT_ROWS = 50000
+
 
 class ExcelMixin:
     """Excel 文件解析与字段映射。"""
@@ -62,6 +65,8 @@ class ExcelMixin:
                     text = file_bytes.decode("utf-8-sig", errors="replace")
             reader = csv.DictReader(io.StringIO(text))
             raw_rows = list(reader)
+            if len(raw_rows) > _MAX_IMPORT_ROWS:
+                raise ValueError(f"CSV 行数超限（{len(raw_rows)} 行），单次上限 {_MAX_IMPORT_ROWS} 行，请拆分文件后分批导入")
             headers = list(raw_rows[0].keys()) if raw_rows else []
         else:
             try:
@@ -69,8 +74,16 @@ class ExcelMixin:
             except ImportError as exc:
                 raise ImportError("请先安装 openpyxl：pip install openpyxl") from exc
             wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
-            ws = wb.worksheets[sheet_index]
-            all_rows = list(ws.iter_rows(values_only=True))
+            try:
+                ws = wb.worksheets[sheet_index]
+                all_rows = []
+                for row in ws.iter_rows(values_only=True):
+                    all_rows.append(row)
+                    if len(all_rows) > _MAX_IMPORT_ROWS:
+                        raise ValueError(f"Excel 行数超限（>{_MAX_IMPORT_ROWS} 行），单次上限 {_MAX_IMPORT_ROWS} 行，请拆分文件后分批导入")
+            finally:
+                # read_only 模式的解析器资源需显式释放，不能依赖 GC
+                wb.close()
             if not all_rows:
                 return [], {"matched": [], "unmatched": [], "total_rows": 0}
             headers = [str(h or "").strip() for h in all_rows[0]]
