@@ -31,9 +31,53 @@ function getApiBase() {
   return localStorage.getItem("sq_api_base") || window.location.origin;
 }
 
+// ─── 凭证存储路由 ──────────────────────────────────────────
+// 登录持久化（ADR-005 方案B）：
+// - sq_keep_login !== "0"（默认保持登录）→ 凭证写 localStorage，跨会话免输链接；
+// - sq_keep_login === "0"（公用电脑）→ 凭证只写 sessionStorage，页签关闭即失效。
+// 写入时同步清除另一个存储的同键，防止双存储分裂出两份不同凭证。
+
+function _authWrite(key, val) {
+  var keep = true;
+  try { keep = localStorage.getItem("sq_keep_login") !== "0"; } catch (e) {}
+  if (keep) {
+    try { localStorage.setItem(key, val); } catch (e) {}
+    try { sessionStorage.removeItem(key); } catch (e) {}
+  } else {
+    try { sessionStorage.setItem(key, val); } catch (e) {}
+    try { localStorage.removeItem(key); } catch (e) {}
+  }
+}
+
+function _authRead(key) {
+  var val = null;
+  try { val = localStorage.getItem(key); } catch (e) {}
+  if (val) return val;
+  try { val = sessionStorage.getItem(key); } catch (e) { val = null; }
+  return val;
+}
+
+function _authClear(key) {
+  try { localStorage.removeItem(key); } catch (e) {}
+  try { sessionStorage.removeItem(key); } catch (e) {}
+}
+
+// 双清所有登录凭证并刷新页面（退出登录 / 链接失效出口）。
+function clearAllAuth() {
+  _authClear("sq_company_token");
+  _authClear("sq_stock_key");
+  _authClear(AUTH_STORAGE_KEY);
+  _authClear("sq_company_id");
+  try { localStorage.removeItem("sq_keep_login"); } catch (e) {}
+  try { sessionStorage.removeItem("sq_keep_login"); } catch (e) {}
+  g_AuthProfile = null;
+  location.reload();
+}
+
 // ─── 公司访问令牌（token）──────────────────────────────────
 // 安全策略：
-// - token 存于 sessionStorage（页签关闭即失效），不用 localStorage。
+// - 凭证存储位置由 _authWrite 按 sq_keep_login 路由（默认 localStorage 持久化）。
+// - 链接即凭证：URL 携带的 token 一律强制写 localStorage（忽略 sq_keep_login）。
 // - 首次传递优先使用 URL fragment（#token=xxx），因为 fragment 不会发送到服务器。
 // - 向后端传输只用 X-Company-Token 头，不走 URL query（防日志泄露）。
 
@@ -43,7 +87,9 @@ function getCompanyToken() {
   if (hashToken) {
     var token = hashToken.trim();
     if (token) {
-      try { sessionStorage.setItem("sq_company_token", token); } catch (e) {}
+      // 链接即凭证：URL 进入一律强制持久化到 localStorage（忽略 sq_keep_login）
+      try { localStorage.setItem("sq_company_token", token); } catch (e) {}
+      try { sessionStorage.removeItem("sq_company_token"); } catch (e) {}
       _stripTokenFromUrl();
       return token;
     }
@@ -52,13 +98,13 @@ function getCompanyToken() {
   if (urlParam) {
     var token = urlParam.trim();
     if (token) {
-      try { sessionStorage.setItem("sq_company_token", token); } catch (e) {}
+      try { localStorage.setItem("sq_company_token", token); } catch (e) {}
+      try { sessionStorage.removeItem("sq_company_token"); } catch (e) {}
       _stripTokenFromUrl();
       return token;
     }
   }
-  var stored;
-  try { stored = sessionStorage.getItem("sq_company_token"); } catch (e) { stored = null; }
+  var stored = _authRead("sq_company_token");
   if (stored) return stored.trim();
   if (window.__COMPANY_PROFILE__ && window.__COMPANY_PROFILE__.token) {
     return window.__COMPANY_PROFILE__.token;
@@ -127,27 +173,27 @@ function getStockQueryKey() {
   var hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   var hashKey = hashParams.get("stockkey");
   if (hashKey) {
-    try { sessionStorage.setItem("sq_stock_key", hashKey.trim()); } catch (e) {}
-    _stripTokenFromUrl();
-    return hashKey.trim();
+    var key = hashKey.trim();
+    if (key) {
+      // 链接即凭证：强制持久化（同 getCompanyToken）
+      try { localStorage.setItem("sq_stock_key", key); } catch (e) {}
+      try { sessionStorage.removeItem("sq_stock_key"); } catch (e) {}
+      _stripTokenFromUrl();
+      return key;
+    }
   }
   var urlKey = new URLSearchParams(window.location.search).get("stockkey");
   if (urlKey) {
-    try { sessionStorage.setItem("sq_stock_key", urlKey.trim()); } catch (e) {}
-    _stripTokenFromUrl();
-    return urlKey.trim();
-  }
-  var stored;
-  try { stored = sessionStorage.getItem("sq_stock_key"); } catch (e) { stored = null; }
-  if (stored) return stored.trim();
-  try {
-    var legacy = localStorage.getItem("sq_stock_key");
-    if (legacy) {
-      sessionStorage.setItem("sq_stock_key", legacy.trim());
-      localStorage.removeItem("sq_stock_key");
-      return legacy.trim();
+    var key = urlKey.trim();
+    if (key) {
+      try { localStorage.setItem("sq_stock_key", key); } catch (e) {}
+      try { sessionStorage.removeItem("sq_stock_key"); } catch (e) {}
+      _stripTokenFromUrl();
+      return key;
     }
-  } catch (e) {}
+  }
+  var stored = _authRead("sq_stock_key");
+  if (stored) return stored.trim();
   return "";
 }
 

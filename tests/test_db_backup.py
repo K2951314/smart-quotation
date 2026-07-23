@@ -1,11 +1,12 @@
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 from backend.smart_quotation.store import QuotationStore
-from backend.smart_quotation.store.db_backup import download_db
+from backend.smart_quotation.store.db_backup import BackupManager, download_db
 
 
 class _SqliteResponse:
@@ -25,16 +26,38 @@ class DbBackupTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.db_path = str(Path(self.tmp.name) / "quotation.db")
 
+    def set_env(self, values):
+        """定向设置环境变量并登记恢复。
+
+        不用 patch.dict：其实现会保存并整体写回完整环境副本，本机存在
+        >32767 字符的环境变量（Windows putenv 上限），恢复时必抛 ValueError
+        并可能清空 os.environ 波及其他测试。这里只读写指定的键。
+        """
+        old = {k: os.environ.get(k) for k in values}
+        os.environ.update(values)
+
+        def restore():
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        self.addCleanup(restore)
+
     def make_store(self):
         store = QuotationStore(self.db_path)
         store.init_schema()
         return store
 
     def test_download_uses_project_url_for_private_bucket(self):
-        with patch.dict(os.environ, {
+        self.set_env({
             "SQ_SUPABASE_PROJECT_URL": "https://project.supabase.co",
             "SQ_SUPABASE_SERVICE_KEY": "service-key",
-        }, clear=True), patch("urllib.request.urlopen", return_value=_SqliteResponse()) as urlopen:
+            "DB_BACKUP_BUCKET": "sq-db-backup",
+            "DB_BACKUP_PATH": "quotation.db",
+        })
+        with patch("urllib.request.urlopen", return_value=_SqliteResponse()) as urlopen:
             self.assertTrue(download_db(self.db_path))
 
         request = urlopen.call_args.args[0]
@@ -60,6 +83,65 @@ class DbBackupTest(unittest.TestCase):
         store.save_config({"revision": "r1"}, status="published")
 
         manager.mark_critical_dirty.assert_called_once_with()
+
+    def test_company_update_requests_immediate_backup(self):
+        """公司更新（companies.py update_company）走 critical 立即备份路径。"""
+        store = self.make_store()
+        store.create_company("tenant-a", "Tenant A")
+        manager = Mock()
+        store.set_backup_manager(manager)
+
+        store.update_company("tenant-a", name="Tenant A2")
+
+        manager.mark_critical_dirty.assert_called_once_with()
+
+    def test_company_delete_requests_immediate_backup(self):
+        """公司删除（companies.py delete_company）走 critical 立即备份路径。"""
+        store = self.make_store()
+        store.create_company("tenant-a", "Tenant A")
+        manager = Mock()
+        store.set_backup_manager(manager)
+
+        store.delete_company("tenant-a")
+
+        manager.mark_critical_dirty.assert_called_once_with()
+
+    def test_critical_uploads_merge_within_60s_window(self):
+        """critical 备份：0.5s 短窗口内连续触发合并；60s 最小间隔内再触发顺延不传。"""
+        self.set_env({
+            "SQ_SUPABASE_PROJECT_URL": "https://project.supabase.co",
+            "SQ_SUPABASE_SERVICE_KEY": "service-key",
+        })
+        with patch("backend.smart_quotation.store.db_backup.upload_db", return_value=True) as upload, \
+                patch("backend.smart_quotation.store.db_backup.CRITICAL_DEBOUNCE_SECONDS", 0.05):
+            manager = BackupManager(self.db_path)
+            self.addCleanup(manager.shutdown)
+
+            manager.mark_critical_dirty()
+            manager.mark_critical_dirty()  # 短窗口内重复触发，合并为一次
+            time.sleep(0.3)
+            self.assertEqual(upload.call_count, 1)
+
+            manager.mark_critical_dirty()  # 60s 合并窗口内：到点检查后顺延，不立即上传
+            time.sleep(0.3)
+            self.assertEqual(upload.call_count, 1)
+
+    def test_critical_upload_failure_marks_dirty_for_debounce_retry(self):
+        """critical 上传失败置 dirty，并调度普通防抖路径兜底重试。"""
+        self.set_env({
+            "SQ_SUPABASE_PROJECT_URL": "https://project.supabase.co",
+            "SQ_SUPABASE_SERVICE_KEY": "service-key",
+        })
+        with patch("backend.smart_quotation.store.db_backup.upload_db", return_value=False), \
+                patch("backend.smart_quotation.store.db_backup.CRITICAL_DEBOUNCE_SECONDS", 0.05):
+            manager = BackupManager(self.db_path)
+            self.addCleanup(manager.shutdown)
+
+            manager.mark_critical_dirty()
+            time.sleep(0.3)
+
+            self.assertTrue(manager._dirty)
+            self.assertIsNotNone(manager._timer)  # 普通防抖兜底已调度
 
     def test_published_config_keeps_full_rules_while_desensitize_strips_them(self):
         """完整配置随 SQLite 备份进入私有 bucket；脱敏后的公开配置不含折扣规则。

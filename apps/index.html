@@ -17,6 +17,7 @@
       <label class="gate-label">访问链接</label>
       <textarea id="authGateLink" class="gate-textarea" placeholder="粘贴包含 company_id 和 token 的链接..."></textarea>
     </div>
+    <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--text-soft);margin-bottom:0.8rem;cursor:pointer;user-select:none;"><input type="checkbox" id="authGateKeepLogin" checked> 保持登录（公用电脑请取消）</label>
     <button id="btnAuthGateEnter" type="button" class="gate-btn">进入</button>
     <!-- 手动输入折叠区（高级） -->
     <details style="margin-top:0.5rem;">
@@ -48,6 +49,7 @@
       <div class="brand-line">
         <h1>智能询价系统</h1>
         <div id="status" class="status-badge info">等待数据...</div>
+        <button id="btnLogout" type="button" style="margin-left:auto;padding:0.35rem 0.9rem;border:1px solid var(--line);border-radius:8px;background:var(--surface-strong);color:var(--text-soft);font-size:0.82rem;cursor:pointer;">退出</button>
       </div>
       <div id="versions" class="version-bar">价格版本: - | 库存版本: -</div>
     </div>

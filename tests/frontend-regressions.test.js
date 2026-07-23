@@ -120,3 +120,35 @@ test("calculateDisplayedPrice removes tax before the first result is rendered", 
   assert.equal(result.value, 88.5);
   assert.equal(result.display, "88.50");
 });
+
+test("calculateDisplayedPrice untaxed with floor rounding rounds down to 88.49", () => {
+  const context = {
+    document: { getElementById: () => ({ value: "floor" }) },
+  };
+  vm.createContext(context);
+  vm.runInContext(
+    fs.readFileSync(path.join(__dirname, "../apps/lib/search-render.js"), "utf8"),
+    context,
+  );
+
+  const result = context.calculateDisplayedPrice(100, { decimals: 2, threshold: 100 }, true, 13);
+
+  assert.equal(result.value, 88.49);
+  assert.equal(result.display, "88.49");
+});
+
+test("calculateDisplayedPrice untaxed with round rounding keeps 88.50", () => {
+  const context = {
+    document: { getElementById: () => ({ value: "round" }) },
+  };
+  vm.createContext(context);
+  vm.runInContext(
+    fs.readFileSync(path.join(__dirname, "../apps/lib/search-render.js"), "utf8"),
+    context,
+  );
+
+  const result = context.calculateDisplayedPrice(100, { decimals: 2, threshold: 100 }, true, 13);
+
+  assert.equal(result.value, 88.5);
+  assert.equal(result.display, "88.50");
+});

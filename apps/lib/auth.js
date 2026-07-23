@@ -13,7 +13,7 @@ function getAuthProfile() {
   if (window.__COMPANY_PROFILE__) return window.__COMPANY_PROFILE__;
   if (g_AuthProfile) return g_AuthProfile;
   try {
-    const raw = sessionStorage.getItem(AUTH_STORAGE_KEY);
+    const raw = _authRead(AUTH_STORAGE_KEY);
     if (raw) g_AuthProfile = JSON.parse(raw);
   } catch (e) {}
   return g_AuthProfile;
@@ -21,12 +21,12 @@ function getAuthProfile() {
 
 function saveAuthProfile(profile) {
   g_AuthProfile = profile;
-  try { sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile)); } catch (e) {}
+  try { _authWrite(AUTH_STORAGE_KEY, JSON.stringify(profile)); } catch (e) {}
 }
 
 function clearAuthProfile() {
   g_AuthProfile = null;
-  try { sessionStorage.removeItem(AUTH_STORAGE_KEY); } catch (e) {}
+  _authClear(AUTH_STORAGE_KEY);
 }
 
 function isCompanyMode() {
@@ -150,14 +150,23 @@ function initAuthGate() {
         tk = (tokenInput && tokenInput.value || "").trim();
         sk = (keyInput && keyInput.value || "").trim();
       }
+      // 保持登录偏好必须先于 _authWrite 写入（_authWrite 读它路由存储位置）。
+      // 复选框 DOM 缺失时视为勾选（默认保持登录）。
+      var keepCb = document.getElementById("authGateKeepLogin");
+      var keepLogin = keepCb ? !!keepCb.checked : true;
+      try { localStorage.setItem("sq_keep_login", keepLogin ? "1" : "0"); } catch (e) {}
       if (cid) {
         try { localStorage.setItem("sq_company_id", cid); } catch (e) {}
       }
-      if (tk) {
+      if (tk && !cid) {
+        // 例外：无 company_id 的 admin token 永远只写 sessionStorage（admin 见未脱敏数据）
         try { sessionStorage.setItem("sq_company_token", tk); } catch (e) {}
+        try { localStorage.removeItem("sq_company_token"); } catch (e) {}
+      } else if (tk) {
+        _authWrite("sq_company_token", tk);
       }
       if (sk) {
-        try { sessionStorage.setItem("sq_stock_key", sk); } catch (e) {}
+        _authWrite("sq_stock_key", sk);
       }
       gate.style.display = "none";
       location.reload();
@@ -200,6 +209,11 @@ function bindAuthEvents() {
       if (isCompanyMode()) refreshAllCompanyPrices();
       else refreshRenderedPrices();
     });
+  }
+  // 退出登录：JS 绑定而非内联 onclick（生产 CSP script-src 无 'unsafe-inline'，内联会被阻断）
+  var logoutBtn = document.getElementById("btnLogout");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", function () { clearAllAuth(); });
   }
 }
 
@@ -281,6 +295,13 @@ async function loadCompanyProfile(companyId) {
     var url = apiBase + "/api/public/company/" + encodeURIComponent(companyId);
     url = withToken(url);
     var resp = await fetch(url, { cache: "no-store", headers: withAuthHeaders() });
+    if (resp.status === 401) {
+      // token 已轮换/失效：清空本地凭证并提示重新索取链接（token 轮换出口）
+      console.warn("[authGate] 公司链接已失效（401），请重新向管理员索取");
+      alert("链接失效请重新索取");
+      clearAllAuth();
+      return false;
+    }
     if (resp.ok) {
       var profile = await resp.json();
       // 后端根据 meta.is_admin 返回 role；admin 角色看完整数据，company 角色看脱敏数据

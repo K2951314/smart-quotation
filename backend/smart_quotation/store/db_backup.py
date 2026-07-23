@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -40,6 +41,25 @@ DEBOUNCE_SECONDS = 600  # 10 分钟
 MIN_INTERVAL_SECONDS = 600  # 10 分钟
 # 每日上传上限：绝对硬上限，防止任何意外导致失控
 MAX_UPLOADS_PER_DAY = 24  # 最快每 60 分钟一次（理论极限 144，保守设 24）
+# critical 备份：近即时上传的短防抖窗口（0.5s 内连续触发合并为一次）
+CRITICAL_DEBOUNCE_SECONDS = 0.5
+# critical 专用最小上传间隔：距上次 critical 上传不足 N 秒的触发合并为一次
+CRITICAL_MIN_INTERVAL_SECONDS = 60
+
+# 配置类告警去重（_get_backup_config 处于 mark_dirty 热路径，同类告警只发一次）
+_emitted_config_warnings: set[str] = set()
+
+
+def _warn_config_once(key: str, msg: str, *args) -> None:
+    if key not in _emitted_config_warnings:
+        _emitted_config_warnings.add(key)
+        logger.warning(msg, *args)
+
+
+def _extract_project_ref(url: str) -> str:
+    """从 Supabase URL 提取 project-ref（https://<ref>.supabase.co 的 ref 段）。"""
+    m = re.match(r"https?://([A-Za-z0-9-]+)\.supabase\.co", url.strip())
+    return m.group(1) if m else ""
 
 
 def _get_backup_config() -> Optional[tuple[str, str, str, str]]:
@@ -51,6 +71,27 @@ def _get_backup_config() -> Optional[tuple[str, str, str, str]]:
     key = os.environ.get("SQ_SUPABASE_SERVICE_KEY", "").strip()
     bucket = os.environ.get("DB_BACKUP_BUCKET", "sq-db-backup")
     path = os.environ.get("DB_BACKUP_PATH", "quotation.db")
+    # 启动日志校验（仅日志，不改行为）：
+    # 1) 配了公开桶地址却漏配备份项目地址——备份静默失效，部署期最易踩
+    base_url = os.environ.get("SQ_SUPABASE_BASE_URL", "").strip()
+    if not url and base_url:
+        _warn_config_once(
+            "missing_project_url",
+            "DB backup disabled: SQ_SUPABASE_PROJECT_URL not set "
+            "(SQ_SUPABASE_BASE_URL is configured; backups need the project URL and service key)",
+        )
+    # 2) 两个地址都配了但指向不同 project-ref——公开配置与备份写往不同项目，漂移风险
+    elif url and base_url:
+        ref_backup = _extract_project_ref(url)
+        ref_public = _extract_project_ref(base_url)
+        if ref_backup and ref_public and ref_backup != ref_public:
+            _warn_config_once(
+                "project_ref_drift",
+                "SQ_SUPABASE_PROJECT_URL and SQ_SUPABASE_BASE_URL resolve to different projects "
+                "(%s vs %s); config/backup drift risk",
+                ref_backup,
+                ref_public,
+            )
     if not url or not key:
         return None
     return (url, key, bucket, path)
@@ -194,6 +235,9 @@ class BackupManager:
         self._last_upload_ts: float = 0.0
         self._upload_count_today = 0
         self._day_reset_ts = self._today_start()
+        # critical 专用：近即时上传的待执行定时器 + 上次 critical 上传时间
+        self._critical_timer: Optional[threading.Timer] = None
+        self._last_critical_ts: float = 0.0
 
     @staticmethod
     def _today_start() -> float:
@@ -221,23 +265,61 @@ class BackupManager:
             self._timer.start()
 
     def mark_critical_dirty(self) -> None:
-        """立即备份关键管理数据，避免紧接重部署丢失公司或完整配置。"""
+        """近即时备份关键管理数据（异步），避免紧接重部署丢失公司或完整配置。
+
+        不阻塞请求线程：0.5s 短防抖后由 daemon Timer 上传。距上次 critical
+        上传不足 60s 的重复触发合并为一次（到点检查发现窗口未过时继续顺延）。
+        上传失败置 dirty，由普通防抖路径兜底重试。
+        """
         if not _get_backup_config():
-            return
+            return  # 未配置备份，零开销
         with self._lock:
-            if self._timer is not None:
-                self._timer.cancel()
-                self._timer = None
-            self._dirty = False
+            if self._critical_timer is not None:
+                return  # 已有一次待执行的 critical 上传，合并本次触发
+            self._critical_timer = threading.Timer(CRITICAL_DEBOUNCE_SECONDS, self._do_critical_upload)
+            self._critical_timer.daemon = True
+            self._critical_timer.start()
+
+    def _do_critical_upload(self) -> None:
+        """critical 上传（由短防抖定时器触发）。"""
+        with self._lock:
+            self._critical_timer = None
+            now = time.time()
+            # 每日计数跨天重置（与普通路径 _do_upload 对齐后再计数）
+            today_start = now - (now % 86400)
+            if today_start > self._day_reset_ts:
+                self._day_reset_ts = today_start
+                self._upload_count_today = 0
+            # critical 专用最小间隔：窗口内的重复触发合并，顺延到窗口外再传
+            since_last = now - self._last_critical_ts
+            if since_last < CRITICAL_MIN_INTERVAL_SECONDS:
+                wait = CRITICAL_MIN_INTERVAL_SECONDS - since_last
+                logger.debug("Critical DB backup deferred %.1fs (merge window)", wait)
+                self._critical_timer = threading.Timer(wait, self._do_critical_upload)
+                self._critical_timer.daemon = True
+                self._critical_timer.start()
+                return
+            self._last_critical_ts = now
+
+        # 锁外上传（网络 IO 不阻塞锁）
         success = upload_db(self._db_path)
-        if success:
-            with self._lock:
+        with self._lock:
+            if success:
                 self._last_upload_ts = time.time()
                 self._upload_count_today += 1
-            return
-        with self._lock:
+                # 本次上传已包含普通 dirty 的全部数据，取消防抖等待避免重复传
+                if self._timer is not None:
+                    self._timer.cancel()
+                    self._timer = None
+                self._dirty = False
+                return
+            # 失败：置 dirty 并确保普通防抖路径有后续调度兜底重试
             self._dirty = True
-        logger.warning("Critical DB backup failed, will retry on next write")
+            if self._timer is None:
+                self._timer = threading.Timer(DEBOUNCE_SECONDS, self._do_upload)
+                self._timer.daemon = True
+                self._timer.start()
+        logger.warning("Critical DB backup failed, fallback to debounce retry")
 
     def _do_upload(self) -> None:
         """实际执行上传（由防抖定时器触发）。"""
@@ -309,4 +391,9 @@ class BackupManager:
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
+            if self._critical_timer is not None:
+                # 有待执行的 critical 上传被取消：按 dirty 处理，由 flush 兜底
+                self._critical_timer.cancel()
+                self._critical_timer = None
+                self._dirty = True
         self.flush()
