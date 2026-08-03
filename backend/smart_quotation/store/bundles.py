@@ -21,6 +21,7 @@ class BundlesMixin:
         company_id: str = DEFAULT_COMPANY_ID,
     ) -> list[dict[str, Any]]:
         """上传多文件，按文件名前缀识别品牌。"""
+        company_id = self.resolve_data_company_id(company_id)
         try:
             config = self.get_active_config(company_id=company_id)
         except LookupError:
@@ -68,7 +69,9 @@ class BundlesMixin:
 
         password 为空时不加密，否则使用 AES-GCM + PBKDF2 加密。
         role='company' 时脱敏面价并预计算报价。
+        成员公司自动使用 parent 的配置+数据生成 Bundle。
         """
+        company_id = self.resolve_data_company_id(company_id)
         try:
             config = self.get_active_config(company_id=company_id)
         except LookupError:
@@ -141,7 +144,11 @@ class BundlesMixin:
         return safe
 
     def build_stock_bundle(self, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
-        """从数据库数据生成库存 Bundle（不加密，与前端 bundle-utils.js 兼容格式）。"""
+        """从数据库数据生成库存 Bundle（不加密，与前端 bundle-utils.js 兼容格式）。
+
+        成员公司自动使用 parent 的商品数据。
+        """
+        company_id = self.resolve_data_company_id(company_id)
         try:
             config = self.get_active_config(company_id=company_id)
         except LookupError:

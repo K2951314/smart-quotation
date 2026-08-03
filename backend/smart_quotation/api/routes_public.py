@@ -201,20 +201,15 @@ def register(app) -> None:
           - meta.is_admin=true → role="admin"（前端显示完整数据：面价、折扣、配置入口）
           - 其他 → role="company"（前端脱敏：无面价、无折扣规则）
 
+        利润率解析链：tier → meta.profit_margin → 默认 10。
+        成员公司（有 parent_company_id）的 tier 从 parent 的 tiers 列表查找。
+
         管理员公司通过 meta.is_admin 标记，避免在前端硬编码 company_id 判断。
         """
         require_company_access(request, company_id=company_id)
         try:
-            company = store.get_company(company_id)
-            meta = company.get("meta") or {}
-            role = "admin" if meta.get("is_admin") else "company"
-            return {
-                "id": company["id"],
-                "name": company["name"],
-                "role": role,
-                "profit_margin": meta.get("profit_margin", 10),
-            }
+            return store.resolve_company_profile(company_id)
         except LookupError:
-            if company_id == "default":
-                return {"id": "default", "name": "默认", "role": "company", "profit_margin": 10}
+            if company_id == DEFAULT_COMPANY_ID:
+                return {"id": "default", "name": "默认", "role": "company", "profit_margin": 10, "tier": None, "parent_company_id": None}
             raise HTTPException(status_code=404, detail="company not found") from None

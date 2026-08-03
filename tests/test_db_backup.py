@@ -149,8 +149,11 @@ class DbBackupTest(unittest.TestCase):
         覆盖规格文档 §3「完整配置与公开配置」的边界：
         - get_active_config 返回完整规则（rules + pricing.default_formula），
           供管理端从 Railway 已发布配置读取完整折扣。
-        - desensitize_config 移除 rules、pricing.default_formula，并打上
-          _desensitized 标记，供 company 角色的 /api/config/active 返回。
+        - desensitize_config 移除 rules、discount_rules、pricing.default_formula，
+          并打上 _desensitized 标记，供 company 角色的 /api/config/active 返回。
+
+        安全设计：公司账户使用服务端预计算的 quote_price，不需要知道折扣规则，
+        防止通过 quote_price + discount 反推 face_price。
         """
         store = self.make_store()
         # v2 配置：discount_rules 会被 normalize 成 rules + default_formula
@@ -179,8 +182,9 @@ class DbBackupTest(unittest.TestCase):
         )
 
         safe = store.desensitize_config(full)
-        self.assertNotIn("rules", safe)
-        self.assertNotIn("discount_rules", safe)
+        # 安全设计：移除 rules/discount_rules 防止通过 quote_price 反推 face_price
+        self.assertNotIn("rules", safe)  # 移除 rules
+        self.assertNotIn("discount_rules", safe)  # 移除 discount_rules
         self.assertNotIn("default_formula", safe.get("pricing", {}))
         self.assertTrue(safe.get("_desensitized"))
 

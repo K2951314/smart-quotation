@@ -79,9 +79,9 @@
 <h2>公司管理</h2>
 </div>
 <div class="company-layout">
-  <!-- 创建新公司 -->
+  <!-- 创建数据源管理员 -->
   <div class="company-create-panel">
-    <h3>创建新公司</h3>
+    <h3>创建数据源管理员</h3>
     <div class="field-block">
       <label class="field-label">公司ID（英文/数字，如 acme）</label>
       <input id="newCompanyId" type="text" placeholder="acme">
@@ -90,30 +90,20 @@
       <label class="field-label">公司名称</label>
       <input id="newCompanyName" type="text" placeholder="ACME 刀具">
     </div>
-    <div class="field-block">
-      <label class="field-label">利润率（%）</label>
-      <input id="newCompanyProfitMargin" type="number" value="10" min="0" max="100" step="0.5">
-    </div>
-    <div class="field-block">
-      <label class="field-label">Supabase 地址（可选，留空=用全局默认）</label>
-      <input id="newCompanySupabaseUrl" type="text" placeholder="https://xxx.supabase.co/storage/v1/object/public/...">
-      <p class="field-hint">为该公司绑定独立的远程数据地址，留空则使用 .env 中的全局地址</p>
-    </div>
-    <div class="field-block">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-        <input id="newCompanyIsAdmin" type="checkbox" style="width:auto;margin:0;">
-        <span class="field-label" style="margin:0;">标记为管理员公司（看完整数据：面价/折扣/配置）</span>
-      </label>
-      <p class="field-hint">管理员公司通过令牌访问客户前端时，显示完整数据而非脱敏数据。通常只给内部人员使用。</p>
-    </div>
-    <button id="createCompanyBtn" type="button" class="create-btn">创建公司</button>
-    <p class="field-hint" style="margin-top:var(--sp-2);">公司客户看不到面价/折扣，只能看到含利润率的报价。税率请在「页面显示 → 定价设置」中统一配置。</p>
+    <button id="createCompanyBtn" type="button" class="create-btn">创建数据源管理员</button>
+    <p class="field-hint" style="margin-top:var(--sp-2);">
+      <strong>树形结构说明：</strong><br>
+      • 创建公司 = 创建一个独立的<strong>数据源管理员</strong>，拥有独立的配置、数据、折扣规则<br>
+      • 创建后，在管理员卡片上点击「添加成员」创建<strong>成员公司</strong><br>
+      • 成员公司自动继承管理员的配置/数据/折扣，通过<strong>利润率分组</strong>管理各自利润率<br>
+      • 管理员通过令牌访问可看完整数据（面价/折扣），成员公司看脱敏数据
+    </p>
   </div>
-  <!-- 公司列表 -->
+  <!-- 公司列表（树形） -->
   <div class="company-list-panel">
     <h3>已有公司</h3>
     <div id="companyList">
-      <p class="company-list-hint">点击公司卡片可切换到该公司，右侧按钮用于管理操作</p>
+      <p class="company-list-hint">加载中...</p>
     </div>
   </div>
 </div>
@@ -417,14 +407,15 @@
 <script src="./lib/bundle-utils.js?v=9"></script>
 <script src="./lib/export-utils.js?v=9"></script>
 <script src="./merger-app.js?v=14"></script>
-<script src="./lib/admin-core.js?v=14"></script>
-<script src="./lib/companies.js?v=14"></script>
-<script src="./lib/supabase-deploy.js?v=14"></script>
-<script src="./lib/standalone-html.js?v=14"></script>
-<script src="./lib/config-collect.js?v=14"></script>
-<script src="./lib/config-render.js?v=14"></script>
-<script src="./lib/config-api.js?v=14"></script>
-<script src="./lib/event-bindings.js?v=14"></script>
-<script src="./app.js?v=14"></script>
+<script src="./lib/admin-core.js?v=15"></script>
+<script src="./lib/companies.js?v=15"></script>
+<script src="./lib/tiers.js?v=15"></script>
+<script src="./lib/supabase-deploy.js?v=15"></script>
+<script src="./lib/standalone-html.js?v=15"></script>
+<script src="./lib/config-collect.js?v=15"></script>
+<script src="./lib/config-render.js?v=15"></script>
+<script src="./lib/config-api.js?v=15"></script>
+<script src="./lib/event-bindings.js?v=15"></script>
+<script src="./app.js?v=15"></script>
 </body>
 </html>

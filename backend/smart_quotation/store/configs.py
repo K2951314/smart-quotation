@@ -26,7 +26,12 @@ class ConfigsMixin:
         actor_id: str | None = None,
         company_id: str = DEFAULT_COMPANY_ID,
     ) -> dict[str, Any]:
-        """保存配置（草稿或发布）。发布时自动归档同公司旧发布版本。"""
+        """保存配置（草稿或发布）。发布时自动归档同公司旧发布版本。
+
+        成员公司（有 parent_company_id）的配置实际保存到 parent 名下，
+        确保共享数据源的公司共用同一份配置。
+        """
+        company_id = self.resolve_data_company_id(company_id)
         normalized = normalize_config(config)
         published_at = self.now() if status == "published" else None
         with closing(self.connect()) as conn:
@@ -63,7 +68,11 @@ class ConfigsMixin:
         return normalized
 
     def get_active_config(self, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
-        """获取当前已发布配置（带缓存）。"""
+        """获取当前已发布配置（带缓存）。
+
+        成员公司自动回退到 parent 的配置（共享数据源场景）。
+        """
+        company_id = self.resolve_data_company_id(company_id)
         cache_key = f"active:{company_id}"
         def _loader():
             with closing(self.connect()) as conn:
@@ -78,10 +87,19 @@ class ConfigsMixin:
 
     @staticmethod
     def desensitize_config(config: dict[str, Any]) -> dict[str, Any]:
-        """脱敏配置：移除折扣规则和定价公式（company 角色不应看到）。"""
+        """脱敏配置：company 角色不应看到面价/成本相关字段。
+
+        安全设计（防止面价反推）：
+        - 公司账户不应看到 face_price（面价/成本价）
+        - 公司账户不应看到 discount_rules（知道折扣可反推面价）
+        - 公司账户不应看到 rules（可能包含折扣条件）
+        - 公司账户不应看到 pricing.default_formula（可能包含面价引用）
+        - 报价使用服务端预计算的 quote_price（已包含折扣和利润率）
+        """
         safe = copy.deepcopy(config)
-        safe.pop("rules", None)
+        # 移除折扣规则（防止通过 quote_price 反推 face_price）
         safe.pop("discount_rules", None)
+        safe.pop("rules", None)
         if "pricing" in safe:
             safe["pricing"] = copy.deepcopy(safe["pricing"])
             safe["pricing"].pop("default_formula", None)
@@ -90,6 +108,7 @@ class ConfigsMixin:
 
     def get_config(self, revision: str, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
         """按版本号获取配置。"""
+        company_id = self.resolve_data_company_id(company_id)
         with closing(self.connect()) as conn:
             row = conn.execute(
                 "select config_json from quotation_configs where company_id = ? and revision = ?",
@@ -101,6 +120,7 @@ class ConfigsMixin:
 
     def export_config(self, revision: str, fmt: str = "json", company_id: str = DEFAULT_COMPANY_ID) -> str:
         """导出配置为 JSON 或 YAML 字符串。"""
+        company_id = self.resolve_data_company_id(company_id)
         config = self.get_config(revision, company_id=company_id)
         if fmt == "yaml":
             return yaml.safe_dump(config, allow_unicode=True, sort_keys=False)
@@ -117,6 +137,7 @@ class ConfigsMixin:
         company_id: str = DEFAULT_COMPANY_ID,
     ) -> dict[str, Any]:
         """从 JSON/YAML 字符串导入配置。"""
+        company_id = self.resolve_data_company_id(company_id)
         if fmt == "yaml":
             raw = yaml.safe_load(content) or {}
         elif fmt == "json":
@@ -127,6 +148,7 @@ class ConfigsMixin:
 
     def list_configs(self, company_id: str = DEFAULT_COMPANY_ID) -> list[dict[str, Any]]:
         """列出公司的所有配置版本（按 ID 降序）。"""
+        company_id = self.resolve_data_company_id(company_id)
         with closing(self.connect()) as conn:
             rows = conn.execute(
                 """
@@ -141,11 +163,13 @@ class ConfigsMixin:
 
     def rollback_config(self, revision: str, actor_id: str | None = None, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
         """将指定版本重新发布为当前配置。"""
+        company_id = self.resolve_data_company_id(company_id)
         config = self.get_config(revision, company_id=company_id)
         return self.save_config(config, status="published", actor_id=actor_id, company_id=company_id)
 
     def delete_config(self, revision: str, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
         """删除指定版本号的配置记录。"""
+        company_id = self.resolve_data_company_id(company_id)
         with closing(self.connect()) as conn:
             result = conn.execute(
                 "delete from quotation_configs where company_id = ? and revision = ?",

@@ -91,7 +91,7 @@ py -m backend.smart_quotation
 
 系统的关键隔离单位是 `company_id`。所有业务表（`quotation_configs`、`quotation_items`、`audit_events`）都有 `company_id` 列，所有 CRUD 都按公司过滤。默认公司 ID 为 `default`（单租户兼容模式）。
 
-**管理员公司**：通过 `meta.is_admin=true` 标记的公司，通过令牌访问客户前端时看完整数据（面价/折扣/配置入口）；普通公司看脱敏数据。在 admin UI 一键设置。
+**管理员公司**：通过 `meta.is_admin=true` 标记的公司，通过令牌访问客户前端时看完整数据（面价/折扣/配置入口）；普通公司看脱敏数据（无面价/无折扣规则，防止反推成本）。在 admin UI 一键设置。
 
 ### 配置驱动
 

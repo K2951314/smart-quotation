@@ -13,7 +13,11 @@ class ItemsMixin:
     """商品条目管理：按 data_revision 版本化存储。"""
 
     def replace_items(self, data_revision: str, rows: list[dict[str, Any]], company_id: str = DEFAULT_COMPANY_ID) -> None:
-        """替换指定 data_revision 的所有商品行。"""
+        """替换指定 data_revision 的所有商品行。
+
+        成员公司（有 parent_company_id）的数据实际写入 parent 名下。
+        """
+        company_id = self.resolve_data_company_id(company_id)
         with closing(self.connect()) as conn:
             conn.execute(
                 "delete from quotation_items where company_id = ? and data_revision = ?",
@@ -37,6 +41,7 @@ class ItemsMixin:
 
     def delete_items_revision(self, data_revision: str, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
         """删除指定 data_revision 的所有商品行（回滚）。"""
+        company_id = self.resolve_data_company_id(company_id)
         with closing(self.connect()) as conn:
             result = conn.execute(
                 "delete from quotation_items where company_id = ? and data_revision = ?",
@@ -52,7 +57,9 @@ class ItemsMixin:
         """全表扫描搜索（所有 token 必须出现在 searchable_fields 的并集中）。
 
         结果上限 limit 条（默认 500），防止大数据量时内存爆炸。
+        成员公司自动搜索 parent 的商品数据。
         """
+        company_id = self.resolve_data_company_id(company_id)
         tokens = [token.upper() for token in str(query or "").split() if token.strip()]
         if not tokens:
             return []
@@ -73,6 +80,7 @@ class ItemsMixin:
 
     def get_items_stats(self, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
         """返回最新 data_revision 及其行数。"""
+        company_id = self.resolve_data_company_id(company_id)
         with closing(self.connect()) as conn:
             row = conn.execute(
                 """

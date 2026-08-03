@@ -19,6 +19,7 @@ from .routes_items import register as register_items
 from .routes_merger import register as register_merger
 from .routes_public import register as register_public
 from .routes_stock import register as register_stock
+from .routes_tiers import register as register_tiers
 
 
 def create_app(store: QuotationStore | None = None) -> FastAPI:
@@ -167,6 +168,7 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
     register_items(app)
     register_merger(app)
     register_stock(app)
+    register_tiers(app)
 
     # 挂载静态文件
     root_dir = Path(__file__).resolve().parents[3]

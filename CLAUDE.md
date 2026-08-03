@@ -25,7 +25,7 @@
 - 依赖 FastAPI 后端（配置/数据/库存查询）+ Supabase Storage（config.json + price/stock bundles）
 - **认证模式**（当前）：前端本地模式，凭证默认存 localStorage（「保持登录」默认勾选，可取消退回 sessionStorage；admin 令牌永不持久），页头「退出」按钮调 clearAllAuth()，401 自动清凭证；后端不提供 customer 登录端点
 - **产品边界说明**：如需真正的多租户客户登录（服务端校验、密码哈希、会话令牌），需在 backend 中补全 `customers` / `customer_sessions` 表与相关 API 端点（见路线图）
-- 角色：admin 看完整数据（面价/折扣/报价），company 看脱敏数据（无面价/折扣）
+- 角色：admin 看完整数据（面价/折扣/报价），company 看脱敏数据（无面价/无折扣规则，防止反推成本）
 - 定价：品牌折扣规则定价（config rules），base = 面价 × 品牌折扣%，再叠加利润/税务
 - 税务：全局配置 `config.pricing.tax_rate`（默认 13%），在「定价设置」中统一配置；面价含税属性由 `config.pricing.face_price_tax_inclusive` 标注
 - 利润率：公司账号自设全局利润（百分比），系统自动算最终报价
@@ -114,4 +114,41 @@ node --test tests/*.test.js
 - [x] 消除 admin 源码真实折扣泄露（admin/lib/config-core.js 硬编码 32/36 → 改为中性 55）
 - [x] 日志规范化（6 处 print() 改 logging）
 - [x] 管理员公司 UI 标记（admin/lib/companies.js toggleAdminFlag + 前端 role 脱敏）
+- [x] **管理员-成员配置继承 + Tier 利润率分组**（parent_company_id 配置/数据/bundle 继承 + tier 拖拽分配 + 67 测试全绿）
 - [ ] 三菱 GWT-RPC 常量外置 + 并发查询
+
+## 管理员-成员配置继承 + Tier 利润率分组
+
+### 核心概念
+
+将报价链路中的两个变量彻底解耦：
+- **基础价**（面价 × 折扣%）= 管理员公司独有，成员公司共享 → 一份 config + 一份数据 + 一个 bundle
+- **利润率** = 各公司独有，通过命名分组（Tier）批量管理
+
+### 数据模型（全部存在 company meta_json 中，无需新表）
+
+| 角色 | meta 字段 | 说明 |
+|------|-----------|------|
+| 管理员公司 | `is_admin: true`, `tiers: [{name, profit_margin, color}]` | 拥有 config+data，定义 Tier |
+| 成员公司 | `parent_company_id: "admin-id"`, `tier: "A级"` | 继承 parent 的 config+data+bundle |
+| 独立公司 | （无上述字段） | 向后兼容，行为不变 |
+
+### 解析链路
+
+- 查配置/数据/bundle → `resolve_data_company_id(company_id)` → 若有 parent 则用 parent 的 config+items
+- 利润率 → `resolve_profit_margin(company_id)` → `tier` 查 parent.tiers → fallback `meta.profit_margin` → fallback `10`
+
+### 新增 API 端点
+
+| 方法 | 路径 | 认证 | 说明 |
+|------|------|------|------|
+| GET | `/api/tiers?company_id=X` | Bearer (Admin) | 获取 Tier 列表（成员公司自动从 parent 读取） |
+| PUT | `/api/tiers?company_id=X` | Bearer (Admin) | 替换 Tier 列表（写入 admin meta.tiers） |
+| POST | `/api/companies/{id}/assign-tier` | Bearer (Admin) | 分配公司到 Tier（设置 meta.tier + parent_company_id） |
+
+### Admin UI
+
+- 公司管理区新增「利润率分组」子面板（`#tierManager`）
+- Tier 定义卡片支持增删改 + 颜色标识
+- 公司卡片可拖拽（HTML5 Drag API），拖到 Tier 卡片上即完成分配
+- 公司卡片显示 Tier 徽标（颜色 + 名称 + 利润率）

@@ -35,6 +35,22 @@ def register(app) -> None:
 
     @app.post("/api/companies", dependencies=[Depends(require_admin_api)])
     def create_company_admin(payload: CompanyCreate) -> dict[str, Any]:
+        """创建公司。
+
+        设计原则（树形公司结构）：
+        - 不传 parent_company_id → 创建为「数据源管理员」（自动 is_admin=true），
+          拥有独立 config/data/折扣/tiers
+        - 传 parent_company_id → 创建为「成员公司」，继承 parent 的配置/数据
+        """
+        meta = dict(payload.meta or {})
+        has_parent = bool(meta.get("parent_company_id"))
+        # 无 parent 的公司自动标记为管理员（数据源管理员）
+        if not has_parent and not meta.get("is_admin"):
+            meta["is_admin"] = True
+        # 有 parent 的成员公司不标记 is_admin（防冲突）
+        if has_parent:
+            meta.pop("is_admin", None)
+
         # License 强制检查：公司数量不能超过授权上限
         # default 公司不计入配额（它是系统默认租户）
         from ..license import verify_license
@@ -49,7 +65,48 @@ def register(app) -> None:
                     f"当前已有 {len(current_companies)} 家，请联系供应商升级 license。",
                 )
         try:
-            return store.create_company(payload.id, payload.name, payload.meta)
+            return store.create_company(payload.id, payload.name, meta)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/companies/{admin_id}/members", dependencies=[Depends(require_admin_api)])
+    def create_member_company(admin_id: str, payload: CompanyCreate) -> dict[str, Any]:
+        """在管理员公司下创建成员公司。
+
+        自动设置 parent_company_id = admin_id，成员公司继承管理员的配置/数据/折扣/bundle。
+        可通过 meta.tier 指定初始 Tier 分组。
+        """
+        if admin_id == DEFAULT_COMPANY_ID:
+            raise HTTPException(status_code=422, detail="default 公司不能作为管理员添加成员")
+        # 验证管理员公司存在
+        try:
+            admin = store.get_company(admin_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=f"管理员公司 {admin_id} 不存在") from exc
+        # 确保管理员标记正确（自动修复老数据）
+        admin_meta = dict(admin.get("meta") or {})
+        if not admin_meta.get("is_admin"):
+            admin_meta["is_admin"] = True
+            store.update_company(admin_id, meta=admin_meta)
+
+        meta = dict(payload.meta or {})
+        meta["parent_company_id"] = admin_id
+        # 成员公司绝不标记 is_admin
+        meta.pop("is_admin", None)
+
+        # License 检查
+        from ..license import verify_license
+        license_payload = verify_license()
+        if license_payload is not None:
+            max_companies = int(license_payload.get("max_companies", 1))
+            current_companies = [c for c in store.list_companies() if c["id"] != DEFAULT_COMPANY_ID]
+            if len(current_companies) >= max_companies:
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"已达到 license 授权上限（{max_companies} 家公司）。请联系供应商升级 license。",
+                )
+        try:
+            return store.create_company(payload.id, payload.name, meta)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

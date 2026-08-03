@@ -11,6 +11,7 @@
   - routes_items.py:   商品数据（替换/上传/回滚/报价查询）
   - routes_merger.py:  品牌检测 + Bundle 生成与部署
   - routes_stock.py:   三菱库存查询
+  - routes_tiers.py:   利润率分组（Tier）管理 + 公司分配
 """
 
 from __future__ import annotations
