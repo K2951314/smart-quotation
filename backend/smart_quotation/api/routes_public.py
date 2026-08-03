@@ -162,12 +162,29 @@ def register(app) -> None:
 
         与 /config.json 代理一致：注入 Supabase 地址到 data_source.base_url，
         让前端直接从 Supabase 拉取 bundle（不走后端代理）。
+
+        新公司无配置时返回 _bootstrap（含 Supabase 地址），让前端从 Supabase
+        加载已有配置（即其他公司已发布的 config.json），而非 404 报错。
         """
         role = require_company_access(request, company_id=company_id)
         try:
             config = store.get_active_config(company_id=company_id)
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except LookupError:
+            # 新公司无配置：返回 _bootstrap，让前端从 Supabase 加载已有配置
+            effective_supabase_url = _resolve_supabase_url(company_id)
+            if effective_supabase_url:
+                return {
+                    "_bootstrap": True,
+                    "data_source": {
+                        "base_url": effective_supabase_url,
+                        "config_file": "config.json",
+                        "version_file": "version.json",
+                        "price_bundle_file": "price.bundle.json",
+                        "stock_bundle_file": "stock.bundle.json",
+                        "cache_name": "quotation-cache-v4",
+                    },
+                }
+            raise HTTPException(status_code=404, detail=f"no published config for company {company_id}") from None
         if role == "company":
             config = store.desensitize_config(config)
         _inject_supabase_url(config, company_id)

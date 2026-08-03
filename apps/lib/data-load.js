@@ -113,6 +113,23 @@ async function loadRemoteConfig(source) {
       var resp = await fetch(apiConfigUrl, { cache: "no-store", headers: withAuthHeaders() });
       if (resp.ok) {
         var config = await resp.json();
+        // 新公司无配置（_bootstrap 模式）：从 Supabase 加载已有 config.json
+        // 后端返回 _bootstrap 含 data_source.base_url（Supabase 地址），
+        // 前端据此拉取 Supabase 上已有的完整配置（其他公司已发布的 config.json）
+        if (config._bootstrap) {
+          console.log("[loadRemoteConfig] 公司无配置，从 Supabase 加载已有配置");
+          var bootSource = getDataSourceConfig();
+          if (config.data_source && config.data_source.base_url) {
+            bootSource = { ...bootSource, base_url: config.data_source.base_url };
+          }
+          var bootConfigUrl = buildRemoteFileUrl(bootSource, bootSource.config_file, "t=" + Date.now());
+          var bootConfig = await fetchRemoteJson(bootConfigUrl, bootSource.config_file);
+          bootConfig._loadedFromApi = false;
+          bootConfig._companyId = companyId;
+          bootConfig._bootstrap = true;
+          applyAppConfig(bootConfig);
+          return bootConfig;
+        }
         config._loadedFromApi = true;
         config._companyId = companyId;
         applyAppConfig(config);
@@ -187,8 +204,23 @@ async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
   const source = sourceConfig || getDataSourceConfig();
   const cacheName = source.cache_name || "quotation-cache-v4";
   const fileUrl = buildRemoteFileUrl(source, filename, `v=${encodeURIComponent(version)}`);
-  const cache = await caches.open(cacheName);
-  let response = await cache.match(fileUrl);
+  // Cache API 可能因存储配额、隐私模式或网络波动而失败（特别是大文件 + wifi 不稳定场景）。
+  // 所有缓存操作都用 try-catch 包裹，失败时安全降级到「仅内存」模式，不阻断数据加载。
+  let cache = null;
+  try {
+    cache = await caches.open(cacheName);
+  } catch (e) {
+    console.warn(`[${filename}] Cache API 不可用（将跳过缓存）:`, e);
+  }
+  let response = null;
+  if (cache) {
+    try {
+      response = await cache.match(fileUrl);
+    } catch (e) {
+      console.warn(`[${filename}] 缓存读取失败，尝试重新下载:`, e);
+      response = null;
+    }
+  }
   if (!response) {
     console.log(`[${filename}] 缓存未命中或版本更新，从 ${isBackendUrl(fileUrl) ? "后端" : "Supabase"} 下载...`);
     // 走后端时必须带 X-Company-Token 头（公开端点需要认证）
@@ -197,8 +229,16 @@ async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
       : { cache: "no-store" };
     response = await fetch(fileUrl, fetchOpts);
     if (response.ok) {
-      await cache.put(fileUrl, response.clone());
-      cleanOldCache(cache, filename, fileUrl);
+      if (cache) {
+        // 大文件在 wifi 不稳定时 cache.put 可能抛 "network error"，
+        // 降级处理：只下载、不持久化，保证当前会话可用
+        try {
+          await cache.put(fileUrl, response.clone());
+          cleanOldCache(cache, filename, fileUrl);
+        } catch (cacheErr) {
+          console.warn(`[${filename}] 缓存写入失败（数据已加载到内存，不影响使用）:`, cacheErr);
+        }
+      }
     } else {
       throw new Error(`${filename} 下载失败 (${response.status})`);
     }
@@ -218,11 +258,15 @@ async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
 }
 
 async function cleanOldCache(cache, filename, currentUrl) {
-  const keys = await cache.keys();
-  for (let request of keys) {
-    if (request.url.includes(filename) && request.url !== currentUrl) {
-      await cache.delete(request);
+  try {
+    const keys = await cache.keys();
+    for (let request of keys) {
+      if (request.url.includes(filename) && request.url !== currentUrl) {
+        try { await cache.delete(request); } catch (e) { /* 单条删除失败不影响整体 */ }
+      }
     }
+  } catch (e) {
+    console.warn(`[${filename}] 清理旧缓存失败（不影响数据加载）:`, e);
   }
 }
 

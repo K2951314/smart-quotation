@@ -238,6 +238,8 @@ appendResultRow = function (resultList, matchKey, item, shouldCheck, isExact, ru
           input.min = "0";
           input.max = "100";
           input.setAttribute("data-profit-id", String(rowId));
+          // 客户版利润单元格：添加标记类，CSS 据此增大宽度（参考管理员版折扣大小）
+          input.classList.add("profit-manual");
         }
       }
     }

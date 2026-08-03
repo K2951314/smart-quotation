@@ -78,7 +78,7 @@ def _gwt_payload(model_val, material_val):
 
 
 def _parse_gwt(text):
-    """解析 GWT-RPC 响应 → {success, strings[], error}"""
+    """解析 GWT-RPC 响应 → {success, strings[], raw_payload, error}"""
     if text.startswith("//EX"):
         m = re.search(r"'([^']*)'", text[4:])
         return {"success": False, "error": m.group(1) if m else "未知服务器错误"}
@@ -86,21 +86,78 @@ def _parse_gwt(text):
         return {"success": False, "error": "非正常响应"}
 
     body = text[4:]
-    bs, be = body.rfind("["), body.rfind("]")
-    if bs < 0 or be < 0:
+    # GWT-RPC 响应格式: //OK[数字部分,["strings表"],尾部]
+    # 需要提取完整 payload（含数字部分 + strings 表 + 尾部），
+    # 因为 _detect_needs_terminal 要读数字部分的固定位置字段。
+    # 用第一个 [ 和最后一个 ] 来提取（而非 rfind("[")，后者只定位到 strings 表的 [）
+    bs, be = body.find("["), body.rfind("]")
+    if bs < 0 or be < 0 or be <= bs:
         return {"success": False, "error": "响应格式异常"}
 
+    raw_payload = body[bs + 1 : be]
     strings = []
     for q in ('"', "'"):
-        strings = [m.group(1) for m in re.finditer(rf"{q}([^{q}]*){q}", body[bs + 1 : be])]
+        strings = [m.group(1) for m in re.finditer(rf"{q}([^{q}]*){q}", raw_payload)]
         if strings:
             break
 
-    return {"success": True, "strings": strings}
+    return {"success": True, "strings": strings, "raw_payload": raw_payload}
 
 
-def _extract_stock(strings):
-    """从 GWT 字符串表提取 (shanghai, japan)"""
+def _detect_needs_terminal(raw_payload):
+    """从 GWT-RPC raw_payload 检测是否需要提供终端客户。
+
+    通过真实数据验证发现：三菱 GWT-RPC 响应的 raw_payload 数字部分中，
+    有两个固定位置的字段对应官网上的「商流可视化」和「EC不可下单」列：
+
+      - 数字部分 [46] = EC不可下单（0=没打勾, 非零=打勾）
+      - 数字部分 [47] = 商流可视化（0=没打勾, 非零=打勾）
+
+    当打勾时，字段的值是 strings 表的引用索引（非零数字）；
+    当没打勾时，字段的值为 0（空引用）。
+
+    任一打勾 → 需要提供终端客户。
+
+    真实样本验证：
+      WNMG080408-GK  (商流✓ EC✓): nums[46]=11 nums[47]=10 → True
+      WNMG080408-MA  (商流✓ EC✓): nums[46]=11 nums[47]=10 → True
+      WNMG080408-LK  (商流✓ EC✗): nums[46]=0  nums[47]=10 → True
+      CCGT03S104L-F  (商流✗ EC✓): nums[46]=10 nums[47]=0  → True
+    """
+    if not raw_payload:
+        return False
+
+    # raw_payload 格式: 数字部分,[strings表],尾部
+    # 找到 strings 表的开始位置（,[ 之前是数字部分）
+    bracket_idx = raw_payload.find(',[')
+    if bracket_idx < 0:
+        return False
+
+    nums_part = raw_payload[:bracket_idx]
+    # 用逗号分割数字部分（包含数字和字符串引用如 'B', 'ooSA'）
+    nums = nums_part.split(',')
+
+    # 数字部分固定位置：[46] = EC不可下单, [47] = 商流可视化
+    # 0 = 没打勾（空引用），非零 = 打勾（有值）
+    EC_INDEX = 46
+    VISUAL_INDEX = 47
+
+    ec_checked = (EC_INDEX < len(nums) and nums[EC_INDEX] != '0')
+    visual_checked = (VISUAL_INDEX < len(nums) and nums[VISUAL_INDEX] != '0')
+
+    result = ec_checked or visual_checked
+    if result:
+        ec_val = nums[EC_INDEX] if EC_INDEX < len(nums) else '?'
+        visual_val = nums[VISUAL_INDEX] if VISUAL_INDEX < len(nums) else '?'
+        logger.debug(
+            "需要提供终端客户: EC不可下单=%s(值=%s) 商流可视化=%s(值=%s)",
+            ec_checked, ec_val, visual_checked, visual_val,
+        )
+    return result
+
+
+def _extract_stock(strings, raw_payload=None):
+    """从 GWT 字符串表提取 (shanghai, japan, needs_terminal)"""
 
     def clean(s):
         try:
@@ -119,7 +176,10 @@ def _extract_stock(strings):
         return 0 <= v < 999999
 
     vals = [clean(s) for s in strings[4:] if is_stock(s)]
-    return (vals[0], vals[1]) if len(vals) >= 2 else (vals[0] if vals else 0, 0)
+    shanghai = vals[0] if len(vals) >= 1 else 0
+    japan = vals[1] if len(vals) >= 2 else 0
+    needs_terminal = _detect_needs_terminal(raw_payload)
+    return (shanghai, japan, needs_terminal)
 
 
 class QueryEngine:
@@ -152,11 +212,12 @@ class QueryEngine:
         now = time.time()
         with self._cache_lock:
             entry = self._cache.get(key)
-            if entry and now - entry[3] < self._CACHE_TTL:
-                return (entry[0], entry[1], entry[2])
+            # 缓存格式：(shanghai, japan, needs_terminal, error, timestamp)
+            if entry and now - entry[4] < self._CACHE_TTL:
+                return (entry[0], entry[1], entry[2], entry[3])
         return None
 
-    def _cache_put(self, model_val, material_val, shanghai, japan, error):
+    def _cache_put(self, model_val, material_val, shanghai, japan, needs_terminal, error):
         # 只缓存成功结果（error is None）——错误可能是临时的，不应缓存
         if error is not None:
             return
@@ -165,9 +226,9 @@ class QueryEngine:
         with self._cache_lock:
             # 简单淘汰：超过上限时删最早的条目
             if len(self._cache) >= self._CACHE_MAX:
-                oldest_key = min(self._cache, key=lambda k: self._cache[k][3])
+                oldest_key = min(self._cache, key=lambda k: self._cache[k][4])
                 del self._cache[oldest_key]
-            self._cache[key] = (shanghai, japan, error, now)
+            self._cache[key] = (shanghai, japan, needs_terminal, error, now)
 
     def _login(self, username, password):
         self.session.get(BASE_URL + "/login.jsp", timeout=30)
@@ -229,24 +290,24 @@ class QueryEngine:
                         timeout=30,
                     )
             if r.status_code != 200:
-                return 0, 0, f"HTTP {r.status_code}"
+                return 0, 0, False, f"HTTP {r.status_code}"
             resp = _parse_gwt(r.text)
             if not resp["success"]:
                 err = resp.get("error", "")
                 if bool(material_val) and "ClassNotFound" in err:
                     return self.search(model_val, "")
                 # 截断第三方服务端返回的错误内容，避免冗长/不可控文本进入 API 响应
-                return 0, 0, (err[:100] if err else "查询失败")
-            stock = _extract_stock(resp["strings"])
+                return 0, 0, False, (err[:100] if err else "查询失败")
+            stock = _extract_stock(resp["strings"], resp.get("raw_payload"))
             return *stock, None
         except requests.Timeout:
-            return 0, 0, "查询超时"
+            return 0, 0, False, "查询超时"
         except requests.ConnectionError:
-            return 0, 0, "连接失败"
+            return 0, 0, False, "连接失败"
         except Exception as e:
             # 异常详情可能含内部 URL/连接信息，仅记日志，对外返回泛化文案
             logger.warning("三菱库存查询异常 (model=%s): %s", model_val, e)
-            return 0, 0, "查询失败"
+            return 0, 0, False, "查询失败"
 
 
 # 模块级单例，全局复用登录态

@@ -223,14 +223,18 @@ function getCompanyId() {
 // ─── 三菱库存查询 ──────────────────────────────────────────
 
 function parseStockResultLine(text) {
-  var result = { shanghai: 0, japan: 0, error: null };
+  var result = { shanghai: 0, japan: 0, error: null, needsTerminal: false };
   if (!text) { result.error = "无响应"; return result; }
+  // 后端在结果行追加“需要提供终端客户”标记，这里解析出来供剪贴板和卡片使用
+  if (/需要提供终端客户/.test(text)) {
+    result.needsTerminal = true;
+  }
   var shMatch = text.match(/上海库存(\d+)/);
   if (shMatch) result.shanghai = parseInt(shMatch[1], 10);
   var jpMatch = text.match(/日本库存(\d+)/);
   if (jpMatch) result.japan = parseInt(jpMatch[1], 10);
   var hasStock = (result.shanghai > 0 || result.japan > 0);
-  if (!hasStock && !/上海库存|日本库存/.test(text) && !/无货/.test(text)) {
+  if (!hasStock && !/上海库存|日本库存/.test(text) && !/无货/.test(text) && !result.needsTerminal) {
     var errMatch = text.match(/[：:]\s*(.+)$/);
     result.error = errMatch ? errMatch[1] : text;
   }
@@ -384,6 +388,10 @@ function buildStockClipboardLine(row, stockResult) {
     if (stockResult.shanghai > 0) stockParts.push("上海" + stockResult.shanghai);
     if (stockResult.japan > 0) stockParts.push("日本" + stockResult.japan);
     stockStr = stockParts.length > 0 ? stockParts.join(" ") : "厂家无货";
+    // 商流可视化/EC不可下单打勾 → 需要提供终端客户
+    if (stockResult.needsTerminal) {
+      stockStr += " 需要提供终端客户";
+    }
   }
   mainParts.push(stockStr);
 
@@ -419,11 +427,16 @@ function updateCardStock(row, state, result) {
     var parts = [];
     if (result.shanghai > 0) parts.push("上海" + result.shanghai);
     if (result.japan > 0) parts.push("日本" + result.japan);
+    var html = "";
     if (parts.length > 0) {
-      stockEl.innerHTML = '<span class="stock-signal stock-live-data">' + parts.join(" · ") + '</span>';
+      html = '<span class="stock-signal stock-live-data">' + parts.join(" · ") + '</span>';
     } else {
-      stockEl.innerHTML = '<span class="stock-signal stock-live-data stock-zero">厂家无货</span>';
+      html = '<span class="stock-signal stock-live-data stock-zero">厂家无货</span>';
     }
+    if (result.needsTerminal) {
+      html += '<span class="stock-signal stock-needs-terminal">需要提供终端客户</span>';
+    }
+    stockEl.innerHTML = html;
     stockEl.style.display = "";
   }
 }

@@ -2869,6 +2869,15 @@ body.has-overlay {
   animation: stock-pulse 1.2s ease-in-out infinite;
 }
 
+.stock-needs-terminal {
+  color: #b3584b;
+  background: rgba(179, 88, 75, 0.08);
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(179, 88, 75, 0.2);
+  margin-left: 0.3rem;
+}
+
 @keyframes stock-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
@@ -2975,4 +2984,71 @@ body.has-overlay {
   margin: 1rem 0 0;
   font-size: 0.78rem;
   text-align: center;
+}
+
+/* ── 客户版利润单元格增大（参考管理员版折扣大小）── */
+/* 客户模式下利润值可能带小数（如 15.5），需要更宽的输入框才能完整显示和输入 */
+body.is-company .discount-input-shell {
+  min-height: 2.08rem;
+  padding: 0 0.68rem;
+}
+
+body.is-company .discount-manual,
+.discount-manual.profit-manual {
+  width: 3.4rem;
+}
+
+/* 移动端：利润单元格整体调到和电脑版一样大（步进按钮+输入框+外壳），
+   避免输入框宽但步进按钮小导致视觉比例失调 */
+@media (max-width: 720px) {
+  body.is-company .discount-stepper,
+  .discount-stepper:has(.profit-manual) {
+    padding: 5px;
+    gap: 6px;
+    border-radius: 999px;
+    border-color: rgba(18, 108, 105, 0.14);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 238, 229, 0.92));
+  }
+
+  body.is-company .discount-stepper-btn,
+  .discount-stepper:has(.profit-manual) .discount-stepper-btn {
+    width: 2.08rem;
+    height: 2.08rem;
+    font-size: 0.92rem;
+  }
+
+  body.is-company .discount-input-shell,
+  .discount-input-shell:has(.profit-manual) {
+    min-height: 2.08rem;
+    padding: 0 0.68rem;
+    gap: 4px;
+    border-color: rgba(18, 108, 105, 0.1);
+    background: rgba(18, 108, 105, 0.05);
+  }
+
+  body.is-company .discount-manual,
+  .discount-manual.profit-manual {
+    width: 3.4rem;
+    font-size: 16px; /* iOS Safari 需 ≥16px 防止自动缩放 */
+  }
+}
+
+/* 超窄屏（≤380px）保持输入框宽度，步进按钮微缩防溢出 */
+@media (max-width: 380px) {
+  body.is-company .discount-stepper,
+  .discount-stepper:has(.profit-manual) {
+    padding: 3px;
+    gap: 3px;
+  }
+
+  body.is-company .discount-stepper-btn,
+  .discount-stepper:has(.profit-manual) .discount-stepper-btn {
+    width: 1.72rem;
+    height: 1.72rem;
+  }
+
+  body.is-company .discount-manual,
+  .discount-manual.profit-manual {
+    width: 3rem;
+  }
 }

@@ -84,10 +84,13 @@ def register(app) -> None:
 
             try:
                 # search 是同步 GWT-RPC 调用，放线程池避免阻塞事件循环
-                shanghai, japan, error = await run_in_threadpool(engine.search, model, material)
+                # 返回 (shanghai, japan, needs_terminal, error)
+                shanghai, japan, needs_terminal, error = await run_in_threadpool(
+                    engine.search, model, material
+                )
             except Exception as exc:
                 capture_exception(exc, endpoint="stock_query", model=model)
-                shanghai, japan, error = 0, 0, "查询异常"
+                shanghai, japan, needs_terminal, error = 0, 0, False, "查询异常"
 
             stock_parts = []
             if shanghai > 0:
@@ -101,7 +104,11 @@ def register(app) -> None:
             if error:
                 results.append(f"{model}{tag} {error}")
             else:
-                results.append(f"{model}{tag} {inv}")
+                line = f"{model}{tag} {inv}"
+                # 商流可视化/EC不可下单打勾 → 需要提供终端客户
+                if needs_terminal:
+                    line += " 需要提供终端客户"
+                results.append(line)
 
         # 4. 查询成功后记录（用于日配额统计）
         try:
