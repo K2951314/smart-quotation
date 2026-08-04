@@ -261,7 +261,8 @@ function refreshAllCompanyPrices() {
   if (!g_Results || !g_Results.length) return;
   g_Results.forEach(function (row) {
     if (!row) return;
-    if (row.profitMargin === undefined) {
+    // 未手动改过利润率的行，每次都使用当前整体利润率
+    if (!row.hasCustomDiscount) {
       row.profitMargin = getCompanyProfitMargin();
     }
     refreshRowPrice(row, false);
@@ -277,7 +278,12 @@ calcDiscountedPrice = function (facePrice, discount, decimals, threshold) {
     var factor = Math.pow(10, decimals);
     var method = getRoundingMethod();
     var base = calculateBaseDiscountedPrice(facePrice, discount, decimals, threshold);
-    var withProfit = applyRounding(base.value * (1 + profit / 100), factor, method);
+    // 与 calculateBaseDiscountedPrice 对齐：先按小数位取整，再判定阈值
+    var rawWithProfit = base.value * (1 + profit / 100);
+    var withProfit = applyRounding(rawWithProfit * factor, 1, method) / factor;
+    if (withProfit > threshold && decimals > 0) {
+      withProfit = applyRounding(rawWithProfit, 1, method);
+    }
     return calculateDisplayedPrice(withProfit, { decimals: decimals, threshold: threshold }, useUntaxed, tax);
   }
   var base = _origCalcDiscountedPrice(facePrice, discount, decimals, threshold);

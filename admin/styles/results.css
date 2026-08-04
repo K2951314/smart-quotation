@@ -1,0 +1,190 @@
+/* 结果列表、报价/折扣/利润单元格、表格、库存显示 — 由 scripts/split_css.py 自动拆分 */
+/* ─── Tables ───────────────────────────────────────────────────────── */
+.table-wrap {
+  width:100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+th, td {
+  border-bottom: 1px solid var(--line-light);
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  vertical-align: middle;
+  font-size: var(--text-sm);
+}
+
+th {
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+}
+
+td input, td select { min-width: 80px; font-size: var(--text-xs); }
+
+.key-col { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+th.matched { color: var(--success); }
+
+th.unmatched { color: var(--warning); }
+
+/* ─── Rule & Copy Rows ─────────────────────────────────────────────── */
+.rule-list, .copy-list { display: grid; gap: var(--sp-2); }
+
+.copy-row{
+  display:grid;
+  grid-template-columns:
+      1fr
+      1fr
+      100px
+      1fr
+      100px;
+
+  gap:var(--sp-2);
+  align-items:center;
+}
+
+.rule-row{
+  display:grid;
+
+  grid-template-columns:
+      100px
+      180px
+      80px
+      80px
+      140px
+      80px
+      120px
+      1fr
+      80px;
+
+  gap:var(--sp-2);
+
+  align-items:center;
+
+  border:1px solid var(--line);
+
+  border-radius:var(--radius-md);
+
+  background:linear-gradient(
+      180deg,
+      rgba(255,255,255,.95),
+      rgba(248,243,236,.92)
+  );
+
+  padding:var(--sp-2);
+
+  box-shadow:var(--shadow-sm);
+}
+
+.rule-row:hover, .copy-row:hover {
+  border-color: var(--accent-muted);
+  box-shadow: var(--shadow-md);
+}
+
+/* 复制模板行：与标题行共用 5 列布局（字段 / 行类型 / 默认显示 / 前缀 / 操作） */
+.copy-list { gap: 4px !important; }
+
+.copy-row { grid-template-columns: 1.4fr 1fr 80px 1.2fr 72px; align-items: center; }
+
+/* ─── Company List ──────────────────────────────────────────────────── */
+.company-list {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--sp-3);
+  box-shadow: var(--shadow-sm);
+}
+
+.company-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+.company-chip-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 3px 4px 3px 2px;
+  background: rgba(255,255,255,0.88);
+  transition: border-color var(--transition);
+}
+
+.company-chip-card:hover { border-color: var(--accent-muted); }
+
+/* ─── Stats Bar ─────────────────────────────────────────────────────── */
+.stats-bar {
+  display: flex;
+  gap: var(--sp-5);
+  align-items: center;
+  background: var(--success-light);
+  border: 1px solid rgba(31,123,86,0.2);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--text-sm);
+}
+
+.stat-item { color: var(--muted); }
+
+.stat-item strong { color: var(--ink); font-family: var(--font-mono); }
+
+.mcard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.mcard-table th,
+.mcard-table td {
+  border-bottom: 1px solid var(--line-light);
+  padding: var(--sp-2);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.mcard-table th {
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--surface-raised);
+  position: sticky;
+  top: 0;
+}
+
+.mcard-table td select {
+  min-width: 80px;
+  font-size: var(--text-xs);
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.88);
+}
+
+.company-list-panel {
+  flex: 2;
+  min-width: 320px;
+}
+
+.company-list-panel h3 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--text-lg);
+}
+
+.company-list-hint {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}

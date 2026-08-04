@@ -1,0 +1,21 @@
+/* 通用响应式补丁（跨多组件的 @media 规则） — 由 scripts/split_css.py 自动拆分 */
+/* ─── Responsive ────────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .shell { grid-template-columns: 160px 1fr; }
+  .workspace { max-width: none; }
+
+
+
+  .form-grid, .rule-row, .copy-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .supabase-creds { grid-template-columns: 1fr; }
+  .supabase-deploy-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .shell { display: block; }
+  .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .topbar, .section-head { align-items: stretch; flex-direction: column; }
+  .form-grid, .rule-row, .copy-row { grid-template-columns: 1fr; }
+  .merger-cards { grid-template-columns: 1fr; }
+  .supabase-deploy-grid { grid-template-columns: 1fr; }
+}

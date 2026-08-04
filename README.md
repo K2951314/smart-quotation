@@ -128,8 +128,8 @@ py -m backend.smart_quotation
 ├── apps/                        # 前端报价台（静态部署到 Netlify）
 │   ├── index.html               # 统一入口（authGate 覆盖层）
 │   ├── app.js                   # 主逻辑（bootstrap）
-│   ├── styles.css
-│   └── lib/                     # 13 个模块
+│   ├── styles/                  # CSS 模块（6 文件：base/layout/forms/results/modals/responsive）
+│   └── lib/                     # 14 个模块（含 profit-config.js）
 │       ├── config-core.js       # 配置核心（v2/v3 兼容）
 │       ├── discount-utils.js    # 折扣计算
 │       ├── query-regex.js       # 模糊查询
@@ -141,6 +141,7 @@ py -m backend.smart_quotation
 │   ├── index.html
 │   ├── app.js                   # bootstrap
 │   ├── merger-app.js            # 数据拼接
+│   ├── styles/                  # CSS 模块（6 文件，与 apps/ 同结构）
 │   └── lib/                     # 12 个模块
 │       ├── config-core.js       # 与 apps/lib/config-core.js 同步（见 scripts/sync-config-core.py）
 │       ├── bundle-utils.js      # Bundle 生成/加密
@@ -171,8 +172,11 @@ py -m backend.smart_quotation
 │       ├── observability.py     # Sentry 错误监控
 │       ├── plugins.py / erp.py
 ├── scripts/
-│   └── sync-config-core.py      # config-core.js 同步脚本（apps → admin）
-├── tests/                       # 40 个 Python 测试 + 3 个 JS 测试文件
+│   ├── sync-config-core.py      # config-core.js 同步脚本（apps → admin）
+│   ├── split_css.py             # CSS 按功能模块拆分（base/layout/forms/results/modals/responsive）
+│   ├── verify_css_split.py      # 验证拆分后括号完整性
+│   └── analyze_css.py           # 分析 CSS 各功能模块行数分布
+├── tests/                       # 67 个 Python 测试 + 5 个 JS 测试文件
 ├── config.example.json           # 配置示例（不含敏感值）
 ├── .env.example                  # 环境变量示例
 ├── requirements.txt

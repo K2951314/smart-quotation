@@ -8,9 +8,18 @@
  */
 
 // ─── apps/ 前端文件清单（与 apps/index.html 的 <script> 顺序一致）───
+// CSS 已拆分为 6 个模块文件（styles/*.css），JS 新增 profit-config.js
+const STANDALONE_CSS_FILES = [
+  "styles/base.css",
+  "styles/layout.css",
+  "styles/forms.css",
+  "styles/results.css",
+  "styles/modals.css",
+  "styles/responsive.css",
+];
+
 const STANDALONE_FILES = [
   "index.html",
-  "styles.css",
   "lib/query-regex.js",
   "lib/discount-utils.js",
   "lib/result-sort.js",
@@ -23,6 +32,7 @@ const STANDALONE_FILES = [
   "lib/discount-config.js",
   "lib/stock-query.js",
   "lib/auth.js",
+  "lib/profit-config.js",
   "lib/data-load.js",
   "app.js",
 ];
@@ -37,9 +47,14 @@ async function fetchStandaloneSources() {
   if (!htmlResp.ok) throw new Error("加载 index.html 失败 (HTTP " + htmlResp.status + ")");
   const html = await htmlResp.text();
 
-  const cssResp = await fetch(baseUrl + "styles.css?t=" + Date.now());
-  if (!cssResp.ok) throw new Error("加载 styles.css 失败 (HTTP " + cssResp.status + ")");
-  const css = await cssResp.text();
+  // 拉取所有拆分后的 CSS 模块文件
+  const cssSources = await Promise.all(STANDALONE_CSS_FILES.map(async function (file) {
+    const url = baseUrl + file + "?t=" + Date.now();
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("加载 " + file + " 失败 (HTTP " + resp.status + ")");
+    return resp.text();
+  }));
+  const css = cssSources.join("\n");
 
   const jsNames = STANDALONE_FILES.filter(function (f) { return f.endsWith(".js"); });
   const jsSources = await Promise.all(jsNames.map(async function (file) {
@@ -70,8 +85,8 @@ function buildStandaloneHtml(sources) {
   const bodyEnd = sources.html.indexOf("</body>");
   let bodyContent = sources.html.slice(bodyStart, bodyEnd);
 
-  // 移除外部引用
-  bodyContent = bodyContent.replace(/<link\s+rel="stylesheet"\s+href="\.\/styles\.css(\?v=[\d]+)?">/g, "");
+  // 移除外部引用（CSS 已拆分为 styles/*.css，匹配所有 6 个 <link> 标签）
+  bodyContent = bodyContent.replace(/<link\s+rel="stylesheet"\s+href="\.\/styles\/[^"]+\.css(\?v=[\d]+)?">\s*/g, "");
   bodyContent = bodyContent.replace(/<script\s+src="\.\/lib\/[^"]+\.js(\?v=[\d]+)?"><\/script>/g, "");
   bodyContent = bodyContent.replace(/<script\s+src="\.\/app\.js(\?v=[\d]+)?"><\/script>/g, "");
 

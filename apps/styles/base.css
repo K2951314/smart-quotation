@@ -1,0 +1,237 @@
+/* CSS 变量、reset、全局排版、动画 — 由 scripts/split_css.py 自动拆分 */
+:root {
+  --bg: #f4eee4;
+  --bg-soft: #fffaf2;
+  --surface: rgba(255, 255, 255, 0.88);
+  --surface-strong: #ffffff;
+  --surface-muted: #f6f0e7;
+  --line: rgba(94, 78, 54, 0.14);
+  --line-strong: rgba(94, 78, 54, 0.2);
+  --text: #24303a;
+  --text-soft: #5b6773;
+  --text-faint: #7d8791;
+  --accent: #0f766e;
+  --accent-ink: #0c5d57;
+  --accent-soft: rgba(15, 118, 110, 0.1);
+  --success: #18794e;
+  --warning: #986d17;
+  --danger: #a54f44;
+  --shadow: 0 16px 36px -30px rgba(78, 61, 35, 0.2);
+  --shadow-soft: 0 12px 26px -24px rgba(78, 61, 35, 0.16);
+    --transition: 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+/* ── Animations ── */
+* {
+      box-sizing: border-box;
+    }
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 26%),
+    radial-gradient(circle at top right, rgba(214, 188, 142, 0.22), transparent 28%),
+    linear-gradient(180deg, #fbf7f0 0%, #f4eee4 48%, #eee5d7 100%);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(87, 74, 52, 0.024) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(87, 74, 52, 0.024) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.6), transparent 82%);
+  opacity: 0.55;
+}
+
+.toolbar-title h2,
+.section-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+@keyframes surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes flash-price {
+  0% {
+    color: var(--text);
+    background: rgba(15, 118, 110, 0.22);
+  }
+  100% {
+    color: var(--accent-ink);
+    background: transparent;
+  }
+}
+
+@keyframes status-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+/* v9 refresh: editorial light workbench */
+:root {
+  --bg: #f7f3ec;
+  --bg-soft: #fffdf8;
+  --surface: rgba(255, 252, 246, 0.82);
+  --surface-strong: #fffdfa;
+  --surface-muted: #f3eee6;
+  --line: rgba(31, 48, 60, 0.11);
+  --line-strong: rgba(31, 48, 60, 0.18);
+  --text: #1f2e38;
+  --text-soft: #5e6d78;
+  --text-faint: #84919b;
+  --accent: #126c69;
+  --accent-ink: #0f5755;
+  --accent-soft: rgba(18, 108, 105, 0.09);
+  --success: #1f7b56;
+  --warning: #ab7220;
+  --danger: #b3584b;
+  --shadow: 0 26px 72px -46px rgba(47, 37, 20, 0.35);
+  --shadow-soft: 0 20px 52px -40px rgba(47, 37, 20, 0.28);
+}
+
+body {
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(18, 108, 105, 0.12), transparent 24%),
+    radial-gradient(circle at 86% 10%, rgba(233, 180, 112, 0.18), transparent 18%),
+    linear-gradient(180deg, #fffdf8 0%, #f8f3ec 44%, #f1eadf 100%);
+}
+
+body::before {
+  background-image:
+    linear-gradient(rgba(64, 83, 96, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(64, 83, 96, 0.028) 1px, transparent 1px);
+  background-size: 30px 30px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.72), transparent 88%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.62), transparent 22%),
+    radial-gradient(circle at 82% 0%, rgba(18, 108, 105, 0.06), transparent 24%);
+  opacity: 0.8;
+}
+
+.brand-line h1,
+.toolbar-title h2,
+.section-head h2,
+.state-card h3 {
+  font-family: "STZhongsong", "STSong", "Noto Serif SC", "Songti SC", serif;
+}
+
+/* v9 configurable default discounts */
+body.has-overlay {
+  overflow: hidden;
+}
+
+/* v9 toolbar/result control alignment */
+:root {
+  --toolbar-stack-height: 0px;
+}
+
+@keyframes stock-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ── 客户版利润单元格增大（参考管理员版折扣大小）── *//* 客户模式下利润值可能带小数（如 15.5），需要更宽的输入框才能完整显示和输入 */
+body.is-company .discount-input-shell {
+  min-height: 2.08rem;
+  padding: 0 0.68rem;
+}
+
+body.is-company .discount-manual,
+.discount-manual.profit-manual {
+  width: 3.4rem;
+}
+
+/* 移动端：利润单元格保持适当宽度，与折扣一致 */
+@media (max-width: 720px) {
+  body.is-company .discount-stepper,
+  .discount-stepper:has(.profit-manual) {
+    padding: 4px;
+    gap: 4px;
+    border-radius: 999px;
+  }
+
+  body.is-company .discount-stepper-btn,
+  .discount-stepper:has(.profit-manual) .discount-stepper-btn {
+    width: 1.48rem;
+    height: 1.48rem;
+    font-size: 0.82rem;
+  }
+
+  body.is-company .discount-input-shell,
+  .discount-input-shell:has(.profit-manual) {
+    min-height: 1.52rem;
+    padding: 0 0.32rem;
+    gap: 2px;
+    flex: 1 1 auto; /* 填满可用空间 */
+    min-width: 0;
+  }
+
+  body.is-company .discount-manual,
+  .discount-manual.profit-manual {
+    width: 100%; /* 填满父容器 */
+    min-width: 2.3rem;
+    font-size: 16px; /* iOS Safari 需 ≥16px 防止自动缩放 */
+  }
+}
+
+/* 超窄屏（≤380px）利润输入框与折扣保持一致 */
+@media (max-width: 380px) {
+  body.is-company .discount-stepper,
+  .discount-stepper:has(.profit-manual) {
+    padding: 3px;
+    gap: 3px;
+  }
+
+  body.is-company .discount-stepper-btn,
+  .discount-stepper:has(.profit-manual) .discount-stepper-btn {
+    width: 1.32rem;
+    height: 1.32rem;
+  }
+
+  body.is-company .discount-manual,
+  .discount-manual.profit-manual {
+    width: 100%;
+    min-width: 1.6rem;
+  }
+}

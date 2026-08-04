@@ -5,7 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#f7f3ec">
 <title>智能询价系统</title>
-<link rel="stylesheet" href="./styles.css?v=11">
+<link rel="stylesheet" href="./styles/base.css?v=17">
+<link rel="stylesheet" href="./styles/layout.css?v=17">
+<link rel="stylesheet" href="./styles/forms.css?v=17">
+<link rel="stylesheet" href="./styles/results.css?v=17">
+<link rel="stylesheet" href="./styles/modals.css?v=17">
+<link rel="stylesheet" href="./styles/responsive.css?v=17">
 </head>
 <body>
 <div id="authGate" class="auth-gate-overlay" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;">
@@ -190,21 +195,50 @@
   </section>
 </div>
 
+<div id="profitConfigModal" class="discount-config-modal" hidden>
+  <div id="profitConfigBackdrop" class="discount-config-backdrop"></div>
+  <section class="discount-config-card" role="dialog" aria-modal="true" aria-labelledby="profitConfigTitle">
+    <div class="discount-config-head">
+      <div>
+        <p class="discount-config-kicker">Profit Margin</p>
+        <h2 id="profitConfigTitle">整体利润设置</h2>
+      </div>
+      <button id="btnCloseProfitConfig" type="button" class="discount-config-close" aria-label="关闭">×</button>
+    </div>
+    <p class="discount-config-copy">设置整体利润率（百分比）。保存后，所有未手动改过利润率的报价行会自动套用新利润率。</p>
+    <div class="discount-config-grid discount-config-grid-single">
+      <label class="discount-config-field" for="defaultProfitMargin">
+        <span>利润率</span>
+        <div class="field-shell">
+          <input type="number" id="defaultProfitMargin" min="0" max="100" step="0.5" inputmode="decimal">
+          <span class="field-unit">%</span>
+        </div>
+      </label>
+    </div>
+    <div class="discount-config-actions">
+      <button id="btnResetProfitConfig" type="button" class="btn btn-ghost">恢复默认</button>
+      <button id="btnCancelProfitConfig" type="button" class="btn btn-ghost">取消</button>
+      <button id="btnSaveProfitConfig" type="button" class="btn btn-search">保存</button>
+    </div>
+  </section>
+</div>
+
 <button id="btnBackToTop" class="mobile-back-top" type="button">回到顶部</button>
 
-<script src="./lib/query-regex.js?v=11"></script>
-<script src="./lib/discount-utils.js?v=11"></script>
-<script src="./lib/result-sort.js?v=11"></script>
-<script src="./lib/config-core.js?v=11"></script>
-<script src="./lib/state.js?v=11"></script>
-<script src="./lib/ui-helpers.js?v=11"></script>
-<script src="./lib/config-helpers.js?v=11"></script>
-<script src="./lib/search-render.js?v=11"></script>
-<script src="./lib/copy-clipboard.js?v=11"></script>
-<script src="./lib/discount-config.js?v=11"></script>
-<script src="./lib/stock-query.js?v=11"></script>
-<script src="./lib/auth.js?v=11"></script>
-<script src="./lib/data-load.js?v=11"></script>
-<script src="./app.js?v=11"></script>
+<script src="./lib/query-regex.js?v=17"></script>
+<script src="./lib/discount-utils.js?v=17"></script>
+<script src="./lib/result-sort.js?v=17"></script>
+<script src="./lib/config-core.js?v=17"></script>
+<script src="./lib/state.js?v=17"></script>
+<script src="./lib/ui-helpers.js?v=17"></script>
+<script src="./lib/config-helpers.js?v=17"></script>
+<script src="./lib/search-render.js?v=17"></script>
+<script src="./lib/copy-clipboard.js?v=17"></script>
+<script src="./lib/discount-config.js?v=17"></script>
+<script src="./lib/stock-query.js?v=17"></script>
+<script src="./lib/auth.js?v=17"></script>
+<script src="./lib/profit-config.js?v=17"></script>
+<script src="./lib/data-load.js?v=17"></script>
+<script src="./app.js?v=17"></script>
 </body>
 </html>

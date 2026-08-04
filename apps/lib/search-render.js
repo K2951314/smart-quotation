@@ -286,17 +286,27 @@ function flashPriceCell(priceCell) {
 function refreshRowPrice(row, flash) {
   if (!row) return;
   const settings = getCurrentPriceSettings();
-  var baseResult = calculateBaseDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
   var priceInfo;
   if (isCompanyMode()) {
+    // 客户版：与 calcDiscountedPrice (auth.js 补丁) 完全一致的逻辑
+    // 1. 先对基础价取整（与管理员版 calculateBaseDiscountedPrice 相同）
+    // 2. 在取整后的基础上叠加利润率
+    // 3. 对含利润的价再次按小数位+阈值取整
     var profit = getCompanyProfitMargin(row);
     var tax = getTaxRate();
     var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
     var factor = Math.pow(10, settings.decimals);
     var method = getRoundingMethod();
-    var withProfit = applyRounding(baseResult.value * (1 + profit / 100), factor, method);
+    var base = calculateBaseDiscountedPrice(row.facePrice, 1.0, settings.decimals, settings.threshold);
+    var rawWithProfit = base.value * (1 + profit / 100);
+    var withProfit = applyRounding(rawWithProfit * factor, 1, method) / factor;
+    if (withProfit > settings.threshold && settings.decimals > 0) {
+      withProfit = applyRounding(rawWithProfit, 1, method);
+    }
     priceInfo = calculateDisplayedPrice(withProfit, settings, useUntaxed, tax);
   } else {
+    // 管理员版：正常折扣计算
+    var baseResult = calculateBaseDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
     var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
     priceInfo = calculateDisplayedPrice(baseResult.value, settings, useUntaxed, getTaxRate());
   }

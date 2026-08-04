@@ -28,8 +28,8 @@
 - 角色：admin 看完整数据（面价/折扣/报价），company 看脱敏数据（无面价/无折扣规则，防止反推成本）
 - 定价：品牌折扣规则定价（config rules），base = 面价 × 品牌折扣%，再叠加利润/税务
 - 税务：全局配置 `config.pricing.tax_rate`（默认 13%），在「定价设置」中统一配置；面价含税属性由 `config.pricing.face_price_tax_inclusive` 标注
-- 利润率：公司账号自设全局利润（百分比），系统自动算最终报价
-- 面价隐藏：公司账号下前端不渲染 discount-panel
+- 利润率：公司账号通过「利润设置」弹窗（`profit-config.js`）自设全局利润（百分比），系统自动算最终报价；客户版步进预设为 0.5/1/5（默认 1），管理员版折扣步进为 0.1/0.5/1（默认 0.1）
+- 面价隐藏：公司账号下 discount-panel 改造为利润步进器（不显示面价/折扣规则，防止反推成本）
 - 折扣弹窗：动态渲染，根据 `discount_rules` 配置自动生成任意数量品牌输入框
 - 三菱库存：`POST /api/stock-query`（需 `X-Stock-Key` 认证 + 频率限制），QueryEngine 通过 GWT-RPC 直连三菱官网；终端客户检测逻辑根据响应数组长度动态选择索引位置（标准格式用固定索引 46/47，扩展格式用倒数第3/4位）
 - `apps/login.html` → `apps/customer.html` 已废弃，统一使用 `apps/index.html` + authGate
@@ -62,7 +62,7 @@ py -m backend.smart_quotation
 测试命令：
 
 ```powershell
-# Python 测试（主力，当前 40/40 全绿）
+# Python 测试（主力，当前 67/67 全绿）
 py -m pytest tests/ -v
 
 # 兼容旧命令
@@ -105,7 +105,7 @@ node --test tests/*.test.js
 
 ### P2（后续）
 
-- [x] 前端模块化重构（app.js 拆分）— apps/ 拆为 13 模块，admin/ 拆为 12 模块
+- [x] 前端模块化重构（app.js 拆分）— apps/ 拆为 14 模块（含 profit-config.js），admin/ 拆为 12 模块；CSS 已拆分为 `styles/` 下 6 个功能模块（base/layout/forms/results/modals/responsive），拆分工具 `scripts/split_css.py`
 - [x] 部署文档（本地 `_DEPLOYMENT-STEPS.md` + `_LOCAL-GUIDE.md`，README 部署章节同步）
 - [ ] 产品官网 + 文档站
 - [ ] 多租户客户登录（customers / customer_sessions 表 + API）

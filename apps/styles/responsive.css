@@ -1,0 +1,848 @@
+/* 通用响应式补丁（跨多组件的 @media 规则） — 由 scripts/split_css.py 自动拆分 */
+@media (max-width: 1180px) {
+  .masthead,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-main {
+    grid-template-columns: minmax(116px, 0.56fr) minmax(132px, 0.66fr) minmax(220px, 1.08fr);
+  }
+
+  .result-row {
+    grid-template-columns: auto minmax(0, 1fr) minmax(320px, auto);
+  }
+}
+
+@media (max-width: 900px) {
+  .shell {
+    padding: 12px 12px 96px;
+  }
+
+  .toolbar {
+    position: static;
+  }
+
+  .toolbar-top,
+  .masthead,
+  .masthead-meta,
+  .result-panel-header {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-top,
+  .result-panel-header {
+    display: grid;
+  }
+
+  .result-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .result-side {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding: 10px 10px 108px;
+  }
+
+  .masthead,
+  .toolbar,
+  .query-panel,
+  .result-panel {
+    padding: 12px;
+    border-radius: 1rem;
+  }
+
+  body::before {
+    display: none;
+  }
+
+  .brand-line,
+  .masthead-meta,
+  .result-panel-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .masthead-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-actions {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 32;
+    padding: 10px;
+    min-width: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-radius: 1.15rem;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    background: rgba(255, 250, 242, 0.94);
+    --shadow-soft: 0 12px 26px -24px rgba(78, 61, 35, 0.16);
+        --transition: 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .query-input {
+    min-height: 9rem;
+  }
+
+  .query-note-inline {
+    display: grid;
+  }
+
+  .result-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .result-side {
+    grid-column: auto;
+    grid-template-columns: minmax(72px, 0.95fr) minmax(82px, 1fr) minmax(150px, 1.7fr);
+    gap: 6px;
+    justify-content: stretch;
+  }
+
+  body.is-company .result-side {
+    grid-template-columns: minmax(60px, 1fr) minmax(120px, 1.6fr);
+  }
+
+  .result-metrics {
+    display: contents;
+  }
+
+  .metric-inline {
+    grid-column: auto;
+  }
+
+  .discount-panel {
+    grid-column: auto;
+  }
+
+  .result-stat,
+  .select-all-toggle,
+  .select-chip {
+    justify-content: space-between;
+  }
+
+  .discount-panel {
+    justify-content: stretch;
+    min-width: 0;
+  }
+
+  .discount-stepper {
+    width: 100%;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .discount-input-shell {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .discount-manual {
+    width: 100%;
+    max-width: 4rem;
+  }
+
+  .btn {
+    min-height: 3rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .shell {
+    padding: 14px 14px 40px;
+  }
+
+  .result-row {
+    grid-template-columns: 1fr;
+  }
+
+  .result-side {
+    grid-column: auto;
+    justify-content: stretch;
+  }
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding: 10px 10px 28px;
+  }
+
+  .masthead,
+  .toolbar,
+  .query-panel,
+  .result-panel {
+    padding: 14px;
+    border-radius: 1.25rem;
+  }
+
+  .brand-line {
+    align-items: flex-start;
+  }
+
+  .toolbar-top {
+    gap: 12px;
+  }
+
+  .toolbar-actions {
+    position: sticky;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    left: auto;
+    right: auto;
+    bottom: auto;
+    z-index: 40;
+    width: 100%;
+    min-width: 0;
+    padding: 8px;
+    border-radius: 1.2rem;
+    background: rgba(255, 252, 246, 0.96);
+    box-shadow: 0 24px 46px -32px rgba(47, 37, 20, 0.34);
+    backdrop-filter: blur(16px);
+  }
+
+  .toolbar-copy {
+    flex-wrap: nowrap;
+    padding-top: 10px;
+  }
+
+  .query-input,
+  input[type="number"],
+  .discount-manual {
+    font-size: 16px;
+  }
+
+  .query-input {
+    min-height: 10rem;
+  }
+
+  .result-panel-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .result-side {
+    grid-template-columns: minmax(46px, 0.72fr) minmax(46px, 0.72fr) minmax(104px, 1.58fr);
+    gap: 6px;
+  }
+
+  body.is-company .result-side {
+    grid-template-columns: minmax(60px, 1fr) minmax(120px, 1.6fr);
+  }
+
+  .result-metrics {
+    display: contents;
+  }
+
+  .discount-panel {
+    grid-column: auto;
+  }
+
+  .discount-stepper {
+    width: 100%;
+  }
+
+  .discount-input-shell {
+    flex: 1 1 auto;
+  }
+
+  .discount-manual {
+    max-width: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .masthead {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    padding: 10px 12px;
+  }
+
+  .masthead-main {
+    gap: 4px;
+  }
+
+  .brand-line h1 {
+    font-size: 1.16rem;
+  }
+
+  .version-bar {
+    font-size: 0.72rem;
+  }
+
+  .toolbar {
+    padding: 8px 10px 10px;
+  }
+
+  .toolbar-actions {
+    top: calc(6px + env(safe-area-inset-top, 0px));
+    padding: 6px;
+    border-radius: 1rem;
+  }
+
+  .toolbar-actions.is-stuck {
+    max-width: min(100%, 352px);
+    margin-inline: auto;
+    border-radius: 999px;
+    box-shadow: 0 18px 34px -24px rgba(31, 46, 56, 0.28);
+  }
+
+  .toolbar-actions.is-stuck .btn {
+    min-height: 2.3rem;
+    padding: 0 0.58rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+  }
+
+  .toolbar-main {
+    gap: 8px;
+  }
+
+  .query-panel,
+  .result-panel {
+    padding: 10px 12px;
+  }
+
+  .query-input {
+    min-height: 9.6rem;
+  }
+
+  .result-row {
+    grid-template-columns: 1fr;
+  }
+
+  .result-side {
+    grid-template-columns: minmax(46px, 0.72fr) minmax(46px, 0.72fr) minmax(104px, 1.58fr);
+  }
+
+  body.is-company .result-side {
+    grid-template-columns: minmax(60px, 1fr) minmax(120px, 1.6fr);
+  }
+
+  .discount-panel {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .field-group-inline {
+    align-items: flex-start;
+  }
+
+  .toolbar-copy-inline {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .field-group-inline {
+    gap: 6px;
+  }
+
+  .toolbar-copy-inline {
+    flex-basis: 100%;
+    gap: 5px;
+  }
+
+  .toolbar-copy-inline .opt-lbl {
+    font-size: 0.74rem;
+  }
+
+  .result-summary {
+    gap: 3px;
+  }
+
+  .meta-line {
+    gap: 5px;
+  }
+
+  .info-note-inline {
+    min-height: 1.62rem;
+  }
+
+  /* 管理员版：面价 + 报价 + 折扣 同一行（3列）*/
+  .result-side {
+    grid-template-columns: minmax(46px, 0.72fr) minmax(46px, 0.72fr) minmax(104px, 1.58fr);
+    align-items: center;
+    gap: 5px;
+  }
+
+  /* 客户版：报价 + 利润 同一行（2列）*/
+  body.is-company .result-side {
+    grid-template-columns: minmax(60px, 1fr) minmax(120px, 1.6fr);
+  }
+
+  .metric-inline {
+    min-width: 0;
+    text-align: center;
+    justify-items: center;
+    padding: 0.4rem 0.5rem;
+  }
+
+  .metric-inline strong {
+    font-size: 0.8rem;
+    text-align: center;
+    white-space: nowrap;
+    line-height: 1.2;
+  }
+
+  .discount-panel {
+    grid-column: auto;
+  }
+
+  .discount-stepper {
+    width: 100%;
+    gap: 3px;
+  }
+
+  .discount-stepper-btn {
+    width: 1.7rem;
+    height: 1.7rem;
+  }
+
+  .discount-input-shell {
+    min-height: 1.72rem;
+  }
+
+  .discount-manual {
+    width: 2.3rem;
+  }
+}
+
+/* v9 single-row toolbar refinement */
+@media (min-width: 901px) {
+  .toolbar-main {
+    grid-template-columns: minmax(0, 1.72fr) minmax(96px, 0.42fr) minmax(110px, 0.48fr);
+  }
+
+  .field-group-inline {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+  }
+
+  .toolbar-copy-inline {
+    flex: 0 0 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 4px;
+    overflow: visible;
+  }
+
+  .toolbar-copy-inline .opt-lbl {
+    min-height: 1.62rem;
+    padding: 0 0.48rem;
+    font-size: 0.71rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .field-group-inline {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .toolbar-copy-inline {
+    width: 100%;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .toolbar-copy-inline::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding: 8px 6px 16px;
+  }
+
+  .masthead,
+  .toolbar,
+  .query-panel,
+  .result-panel {
+    padding: 8px 9px;
+    border-radius: 0.94rem;
+  }
+
+  .toolbar {
+    gap: 5px;
+  }
+
+  .toolbar-actions {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .toolbar-actions.is-stuck {
+    max-width: min(100%, 304px);
+    padding: 4px;
+  }
+
+  .toolbar-actions .btn,
+  .toolbar-actions.is-stuck .btn {
+    min-height: 2.08rem;
+    padding: 0 0.46rem;
+    font-size: 0.76rem;
+  }
+
+  .toolbar-main {
+    gap: 6px;
+  }
+
+  .field-shell {
+    min-height: 1.79rem;
+  }
+
+  .step-preset {
+    min-width: 2.88rem;
+    min-height: 1.68rem;
+    font-size: 0.74rem;
+  }
+
+  .toolbar-copy-inline .opt-lbl {
+    min-height: 1.54rem;
+    padding: 0 0.42rem;
+    font-size: 0.7rem;
+  }
+
+  .query-panel,
+  .result-panel {
+    gap: 8px;
+  }
+
+  .query-input {
+    min-height: 8.8rem;
+    padding: 0.7rem 0.76rem;
+  }
+
+  .result-card {
+    padding: 6px 7px;
+    border-radius: 0.86rem;
+  }
+
+  .result-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "summary summary"
+      "side select";
+    gap: 6px;
+    align-items: end;
+  }
+
+  /* 客户版：报价 + 利润 + 勾选 三等分同一行 */
+  body.is-company .result-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "summary summary summary"
+      "side side select";
+    align-items: center;
+  }
+
+  body.is-company .result-summary {
+    grid-area: summary;
+  }
+
+  body.is-company .result-side {
+    grid-area: side;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 5px;
+    align-items: center;
+  }
+
+  body.is-company .result-metrics {
+    display: contents;
+  }
+
+  body.is-company .discount-select-chip {
+    grid-area: select;
+  }
+
+  .select-chip {
+    min-width: 0;
+    padding: 0 0.52rem;
+  }
+
+  .discount-select-chip {
+    grid-area: select;
+    align-self: stretch;
+    justify-content: center;
+    min-height: 1.6rem;
+    padding: 0 0.44rem;
+    border-radius: 0.74rem;
+    font-size: 0.68rem;
+  }
+
+  .identity-code {
+    min-height: 1.56rem;
+    padding: 0 0.48rem;
+    font-size: 0.66rem;
+  }
+
+  .identity-spec {
+    font-size: 0.82rem;
+  }
+
+  .meta-line {
+    gap: 4px;
+  }
+
+  .stock-chip,
+  .special-chip,
+  .info-note-inline {
+    min-height: 1.56rem;
+    padding: 0 0.46rem;
+    font-size: 0.68rem;
+  }
+
+  /* 管理员版：面价 + 报价 + 折扣 同一行（3列）*/
+  .result-side {
+    grid-area: side;
+    grid-template-columns: minmax(46px, 0.72fr) minmax(46px, 0.72fr) minmax(104px, 1.58fr);
+    gap: 5px;
+    align-items: center;
+  }
+
+  .metric-inline {
+    padding: 0.38rem 0.5rem;
+    border-radius: 0.72rem;
+    text-align: center;
+    justify-items: center;
+    min-width: 0;
+  }
+
+  .metric-label {
+    font-size: 0.58rem;
+    text-align: center;
+    width: 100%;
+  }
+
+  .metric-inline strong {
+    font-size: 0.8rem;
+    text-align: center;
+    white-space: nowrap;
+    line-height: 1.18;
+  }
+
+  .discount-panel {
+    grid-column: auto;
+  }
+
+  .discount-stepper {
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .discount-stepper-btn {
+    width: 1.48rem;
+    height: 1.48rem;
+    font-size: 0.82rem;
+  }
+
+  .discount-input-shell {
+    min-height: 1.52rem;
+    padding: 0 0.32rem;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .discount-manual {
+    width: 100%;
+    min-width: 1.9rem;
+    font-size: 16px;
+  }
+
+  .discount-unit {
+    font-size: 0.62rem;
+  }
+
+  .result-panel-actions {
+    gap: 4px;
+  }
+
+  .result-stat,
+  .select-all-toggle {
+    min-height: 1.68rem;
+    padding: 0 0.52rem;
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .toolbar-main {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar-secondary-main {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .toolbar-secondary .toolbar-copy-inline {
+    justify-content: flex-start;
+  }
+
+  .discount-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .toolbar-main {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .toolbar-secondary {
+    gap: 5px;
+  }
+
+  .toolbar-secondary-main {
+    gap: 5px;
+  }
+
+  .toolbar-secondary .step-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr) auto auto;
+    gap: 2px;
+    white-space: nowrap;
+    padding-bottom: 1px;
+  }
+
+  .step-preset-action {
+    min-width: 2.9rem;
+  }
+
+  .toolbar-secondary .toolbar-copy-inline .opt-lbl {
+    min-height: 1.56rem;
+    padding: 0 0.3rem;
+    font-size: 0.69rem;
+  }
+
+  .discount-config-modal {
+    padding: 10px;
+  }
+
+  .discount-config-card {
+    gap: 12px;
+    padding: 14px;
+    border-radius: 1rem;
+  }
+
+  .discount-config-grid {
+    gap: 8px;
+  }
+
+  .discount-config-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .discount-config-actions .btn {
+    min-height: 2.2rem;
+    padding: 0 0.42rem;
+    font-size: 0.76rem;
+  }
+
+  .discount-config-field .field-shell,
+  .discount-config-field input {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  .toolbar {
+    position: sticky;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    z-index: 32;
+  }
+
+  .toolbar-actions {
+    position: static;
+    top: auto;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    z-index: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .toolbar-main {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .toolbar-secondary-main {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .toolbar-step-presets,
+  .toolbar-result-actions {
+    grid-column: auto;
+    gap: 5px;
+  }
+
+  .toolbar-copy-inline {
+    grid-column: auto;
+    width: 100%;
+    gap: 5px;
+  }
+
+  .toolbar-result-actions .result-stat,
+  .toolbar-result-actions .select-all-toggle {
+    min-height: 1.9rem;
+    padding: 0 0.44rem;
+    font-size: 0.68rem;
+  }
+
+  .toolbar-copy-inline .opt-lbl {
+    min-height: 1.56rem;
+    padding: 0 0.46rem;
+    font-size: 0.69rem;
+  }
+
+  .version-bar {
+    overflow-x: auto;
+    white-space: nowrap;
+    word-break: normal;
+    scrollbar-width: none;
+  }
+
+  .version-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .query-panel {
+    position: static;
+    top: auto;
+    z-index: auto;
+  }
+
+  .query-input {
+    min-height: 11rem;
+    max-height: 38vh;
+  }
+}

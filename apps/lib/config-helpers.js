@@ -150,7 +150,16 @@ function renderConfigDrivenControls() {
   if (stepWrap) {
     const existingConfigButton = document.getElementById("btnDefaultDiscounts");
     stepWrap.innerHTML = "";
-    (cfg.pricing?.discount_step?.presets || [0.1, 0.5, 1]).forEach((step) => {
+    // 客户版利润步进：0.5/1/5，默认1；管理员版折扣步进：0.1/0.5/1，默认0.1
+    var presets, defaultStep;
+    if (typeof isCompanyMode === "function" && isCompanyMode()) {
+      presets = [0.5, 1, 5];
+      defaultStep = 1;
+    } else {
+      presets = cfg.pricing?.discount_step?.presets || [0.1, 0.5, 1];
+      defaultStep = cfg.pricing?.discount_step?.default || 0.1;
+    }
+    presets.forEach((step) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "step-preset";
@@ -162,8 +171,21 @@ function renderConfigDrivenControls() {
     configButton.id = "btnDefaultDiscounts";
     configButton.type = "button";
     configButton.className = "step-preset step-preset-action";
-    configButton.textContent = cfg.labels?.config_button || "配置";
+    // 公司模式：按钮文字改为"利润"，入口指向整体利润设置
+    if (typeof isCompanyMode === "function" && isCompanyMode()) {
+      configButton.textContent = cfg.labels?.profit_button || "利润";
+      configButton.setAttribute("aria-label", "整体利润设置");
+      configButton.title = "整体利润设置";
+    } else {
+      configButton.textContent = cfg.labels?.config_button || "配置";
+    }
     stepWrap.appendChild(configButton);
+    // 同步默认步进值
+    var stepInput = document.getElementById("discountStep");
+    if (stepInput && (!stepInput.value || stepInput.value === "0.1")) {
+      stepInput.value = formatCompactNumber(defaultStep);
+      if (typeof syncDiscountStepInput === "function") syncDiscountStepInput(defaultStep);
+    }
   }
 
   const copyWrap = document.getElementById("copyColumnControls");

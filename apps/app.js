@@ -42,7 +42,7 @@ async function startApp() {
     }
   }
   var currentProfile = getAuthProfile();
-  if (currentProfile && currentProfile.role === "stock_only") {
+  if (currentProfile && (currentProfile.role === "company" || currentProfile.role === "stock_only")) {
     applyCompanyMode(currentProfile);
   }
   g_DefaultDiscountConfig = loadLocalDefaultDiscountConfig() || getSystemDefaultDiscountConfig();
@@ -55,6 +55,8 @@ async function startApp() {
   renderLoadingState("正在极速同步远程数据");
   updateResultCount();
   if (isCompanyMode()) {
+    // 客户版：重新渲染步进预设按钮（0.5/1/5），因为 applyAppConfig 时 is-company class 还没设置
+    if (typeof renderConfigDrivenControls === "function") renderConfigDrivenControls();
     var stepLabel = document.querySelector("label[for=\"discountStep\"]");
     if (stepLabel) stepLabel.textContent = "步进";
     var stepUnit = document.querySelector(".field-group-large .field-unit");
@@ -62,12 +64,21 @@ async function startApp() {
     var stepInput = document.getElementById("discountStep");
     if (stepInput) {
       stepInput.value = "1";
-      stepInput.step = "0.1";
-      stepInput.min = "0.1";
+      stepInput.step = "0.5";
+      stepInput.min = "0.5";
       stepInput.max = "10";
     }
-    var configBtn = document.getElementById("btnDefaultDiscounts");
-    if (configBtn) configBtn.style.display = "none";
+    if (typeof syncDiscountStepInput === "function") syncDiscountStepInput(1);
+    // 加载本地保存的整体利润率
+    var localProfit = loadLocalProfitMargin();
+    if (localProfit !== null) {
+      g_DefaultProfitMargin = localProfit;
+      var profile = getAuthProfile();
+      if (profile) {
+        profile.profitMargin = localProfit;
+        saveAuthProfile(profile);
+      }
+    }
   }
   ensureDataLoaded().then(function (ready) {
     if (ready) {
@@ -101,10 +112,15 @@ function bindUiEvents() {
     stepWrap.addEventListener("click", function (event) {
       const button = event.target && event.target.closest ? event.target.closest("button") : null;
       if (!button || !stepWrap.contains(button)) return;
-      if (button.id === "btnDefaultDiscounts") { openDefaultDiscountConfig(); return; }
+      if (button.id === "btnDefaultDiscounts") {
+        if (isCompanyMode()) openProfitConfig();
+        else openDefaultDiscountConfig();
+        return;
+      }
       if (button.classList.contains("step-preset")) setDiscountStepPreset(button);
     });
   }
+
   const closeDefaultBtn = document.getElementById("btnCloseDefaultDiscounts");
   const resetDefaultBtn = document.getElementById("btnResetDefaultDiscounts");
   const cancelDefaultBtn = document.getElementById("btnCancelDefaultDiscounts");
@@ -115,6 +131,21 @@ function bindUiEvents() {
   if (cancelDefaultBtn) cancelDefaultBtn.addEventListener("click", closeDefaultDiscountConfig);
   if (saveDefaultBtn) saveDefaultBtn.addEventListener("click", saveDefaultDiscountConfig);
   if (defaultBackdrop) defaultBackdrop.addEventListener("click", closeDefaultDiscountConfig);
+
+  const closeProfitBtn = document.getElementById("btnCloseProfitConfig");
+  const resetProfitBtn = document.getElementById("btnResetProfitConfig");
+  const cancelProfitBtn = document.getElementById("btnCancelProfitConfig");
+  const saveProfitBtn = document.getElementById("btnSaveProfitConfig");
+  const profitBackdrop = document.getElementById("profitConfigBackdrop");
+  if (closeProfitBtn) closeProfitBtn.addEventListener("click", closeProfitConfig);
+  if (resetProfitBtn) resetProfitBtn.addEventListener("click", resetProfitConfig);
+  if (cancelProfitBtn) cancelProfitBtn.addEventListener("click", closeProfitConfig);
+  if (saveProfitBtn) saveProfitBtn.addEventListener("click", saveProfitConfig);
+  if (profitBackdrop) profitBackdrop.addEventListener("click", closeProfitConfig);
+  const profitInput = document.getElementById("defaultProfitMargin");
+  if (profitInput) {
+    profitInput.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); saveProfitConfig(); } });
+  }
 
   ["defaultDiscountEx", "defaultDiscountOsg", "defaultDiscountMitsubishi", "defaultDiscountOther"].forEach((id) => {
     const input = document.getElementById(id);
@@ -166,8 +197,10 @@ function bindUiEvents() {
   window.addEventListener("blur", () => stopDiscountPress(false));
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    const modal = document.getElementById("defaultDiscountModal");
-    if (modal && !modal.hidden) closeDefaultDiscountConfig();
+    const discountModal = document.getElementById("defaultDiscountModal");
+    if (discountModal && !discountModal.hidden) closeDefaultDiscountConfig();
+    const profitModal = document.getElementById("profitConfigModal");
+    if (profitModal && !profitModal.hidden) closeProfitConfig();
   });
   window.addEventListener("scroll", syncMobileActionDockState, { passive: true });
   window.addEventListener("resize", syncMobileActionDockState);

@@ -1,0 +1,327 @@
+/* 表单控件、按钮、输入框、步进预设、徽标、工具类 — 由 scripts/split_css.py 自动拆分 */
+.rounding-select { font-size: 0.78rem; padding: 1px 4px; border: 1px solid var(--line); border-radius: 5px; background: rgba(255,255,255,0.85); color: var(--text); cursor: pointer; min-width: 4.5rem; }
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+button,
+input,
+textarea {
+  transition:
+    transform var(--transition),
+    border-color var(--transition),
+    box-shadow var(--transition),
+    background-color var(--transition),
+    color var(--transition),
+    opacity var(--transition);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+}
+
+.btn {
+  min-height: 2.7rem;
+  padding: 0 0.82rem;
+  border-radius: 0.9rem;
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.btn-search {
+  background: linear-gradient(135deg, #12796f, #0d625b);
+  color: #f7fbfa;
+}
+
+.btn-regex {
+  border-color: rgba(15, 118, 110, 0.16);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-ink);
+}
+
+.btn-copy {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
+.field-group-large {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+
+.field-group {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.field-group-large .step-presets {
+  gap: 6px;
+}
+
+.field-shell {
+  display: flex;
+  align-items: center;
+  min-height: 2.6rem;
+  padding: 0 0.82rem;
+  border-radius: 0.9rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+input[type="number"] {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+}
+
+.field-unit {
+  flex-shrink: 0;
+  padding-left: 0.55rem;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+}
+
+.step-preset {
+  min-width: 3.35rem;
+  min-height: 1.9rem;
+  padding: 0 0.68rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.step-preset:hover,
+.step-preset.is-active {
+  border-color: rgba(15, 118, 110, 0.24);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.opt-lbl,
+.select-all-toggle,
+.select-chip {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-soft);
+}
+
+.opt-lbl input,
+.select-all-toggle input,
+.select-chip input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.opt-lbl.is-accent {
+  border-color: rgba(15, 118, 110, 0.2);
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--accent-ink);
+}
+
+.query-input {
+  width: 100%;
+  min-height: 12rem;
+  padding: 0.85rem 0.92rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Microsoft YaHei UI", monospace;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+}
+
+.query-input::placeholder {
+  color: #98a1aa;
+}
+
+.select-chip {
+  justify-content: center;
+  min-width: 3.45rem;
+}
+
+.discount-input-shell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 1.95rem;
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.btn {
+  min-height: 2.95rem;
+  border-radius: 1.1rem;
+  white-space: nowrap;
+}
+
+.btn-search {
+  background: linear-gradient(135deg, #0f6d69, #15514f);
+  box-shadow: 0 16px 28px -22px rgba(15, 109, 105, 0.65);
+}
+
+.btn-regex {
+  background: linear-gradient(135deg, rgba(18, 108, 105, 0.13), rgba(18, 108, 105, 0.05));
+}
+
+.btn-copy {
+  border-color: rgba(31, 48, 60, 0.12);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(244, 238, 228, 0.92));
+}
+
+.field-group-large {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.field-shell {
+  min-height: 2.95rem;
+  padding: 0 0.94rem;
+  border-radius: 1.05rem;
+  border-color: rgba(31, 48, 60, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 241, 233, 0.94));
+}
+
+.field-group-large .step-presets {
+  gap: 8px;
+}
+
+.step-preset {
+  min-width: 3.7rem;
+  min-height: 2.05rem;
+  border-color: rgba(31, 48, 60, 0.11);
+}
+
+.query-input {
+  min-height: 16.5rem;
+  padding: 1rem 1.02rem;
+  border-radius: 1.25rem;
+  border-color: rgba(31, 48, 60, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 243, 236, 0.92));
+  color: var(--text);
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Microsoft YaHei UI", monospace;
+  font-size: 0.92rem;
+}
+
+.select-chip {
+  min-width: 4.2rem;
+  justify-content: center;
+}
+
+.discount-input-shell {
+  min-height: 2.08rem;
+  padding: 0 0.68rem;
+  border-color: rgba(18, 108, 105, 0.1);
+  background: rgba(18, 108, 105, 0.05);
+}
+
+.btn {
+  min-height: 2.58rem;
+  padding: 0 0.72rem;
+  font-size: 0.84rem;
+}
+
+.field-shell {
+  min-height: 2.58rem;
+  padding: 0 0.82rem;
+}
+
+.step-preset {
+  min-width: 3.15rem;
+  min-height: 1.82rem;
+  font-size: 0.8rem;
+}
+
+.opt-lbl {
+  font-size: 0.78rem;
+}
+
+.query-input {
+  min-height: 13rem;
+  padding: 0.82rem 0.88rem;
+  font-size: 0.86rem;
+  line-height: 1.42;
+}
+
+.discount-input-shell {
+  min-height: 1.9rem;
+  padding: 0 0.55rem;
+}
+
+/* v9 density refinement */
+.field-group-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 10px;
+}
+
+.field-group-inline .step-presets {
+  flex: 0 0 auto;
+}
+
+.step-preset-action {
+  min-width: 4.9rem;
+  border-color: rgba(18, 108, 105, 0.16);
+  background: linear-gradient(135deg, rgba(18, 108, 105, 0.12), rgba(232, 184, 123, 0.12));
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+.discount-config-field .field-shell {
+  min-height: 2.46rem;
+}
+
+.btn-ghost {
+  border-color: rgba(31, 48, 60, 0.12);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--text);
+}
+
+.btn-mmc {
+  border-color: rgba(18, 108, 105, 0.16);
+  background: linear-gradient(135deg, rgba(18, 108, 105, 0.14), rgba(232, 184, 123, 0.1));
+  color: var(--accent-ink);
+}
+
+/* 按钮 loading 态 */
+.btn-mmc.btn-loading {
+  opacity: 0.72;
+  cursor: wait;
+}
+
