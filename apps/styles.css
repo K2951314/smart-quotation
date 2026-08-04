@@ -1033,9 +1033,12 @@ input[type="number"] {
     display: contents;
   }
 
-  .metric-inline,
-  .discount-panel {
+  .metric-inline {
     grid-column: auto;
+  }
+
+  .discount-panel {
+    grid-column: -1; /* 始终占据最后一列 */
   }
 
   .result-stat,
@@ -2044,7 +2047,7 @@ body::after {
   }
 
   .discount-panel {
-    grid-column: auto;
+    grid-column: -1; /* 始终占据最后一列（第3列），确保宽度一致 */
   }
 
   .discount-stepper {
@@ -2259,7 +2262,7 @@ body::after {
   }
 
   .discount-panel {
-    grid-column: auto;
+    grid-column: -1; /* 始终占据最后一列 */
   }
 
   .discount-stepper {
@@ -2277,10 +2280,13 @@ body::after {
     min-height: 1.52rem;
     padding: 0 0.32rem;
     gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .discount-manual {
-    width: 1.9rem;
+    width: 100%;
+    min-width: 1.9rem;
     font-size: 16px;
   }
 
@@ -2998,42 +3004,40 @@ body.is-company .discount-manual,
   width: 3.4rem;
 }
 
-/* 移动端：利润单元格整体调到和电脑版一样大（步进按钮+输入框+外壳），
-   避免输入框宽但步进按钮小导致视觉比例失调 */
+/* 移动端：利润单元格保持适当宽度，与折扣一致 */
 @media (max-width: 720px) {
   body.is-company .discount-stepper,
   .discount-stepper:has(.profit-manual) {
-    padding: 5px;
-    gap: 6px;
+    padding: 4px;
+    gap: 4px;
     border-radius: 999px;
-    border-color: rgba(18, 108, 105, 0.14);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 238, 229, 0.92));
   }
 
   body.is-company .discount-stepper-btn,
   .discount-stepper:has(.profit-manual) .discount-stepper-btn {
-    width: 2.08rem;
-    height: 2.08rem;
-    font-size: 0.92rem;
+    width: 1.48rem;
+    height: 1.48rem;
+    font-size: 0.82rem;
   }
 
   body.is-company .discount-input-shell,
   .discount-input-shell:has(.profit-manual) {
-    min-height: 2.08rem;
-    padding: 0 0.68rem;
-    gap: 4px;
-    border-color: rgba(18, 108, 105, 0.1);
-    background: rgba(18, 108, 105, 0.05);
+    min-height: 1.52rem;
+    padding: 0 0.32rem;
+    gap: 2px;
+    flex: 1 1 auto; /* 填满可用空间 */
+    min-width: 0;
   }
 
   body.is-company .discount-manual,
   .discount-manual.profit-manual {
-    width: 3.4rem;
+    width: 100%; /* 填满父容器 */
+    min-width: 2.3rem;
     font-size: 16px; /* iOS Safari 需 ≥16px 防止自动缩放 */
   }
 }
 
-/* 超窄屏（≤380px）保持输入框宽度，步进按钮微缩防溢出 */
+/* 超窄屏（≤380px）利润输入框与折扣保持一致 */
 @media (max-width: 380px) {
   body.is-company .discount-stepper,
   .discount-stepper:has(.profit-manual) {
@@ -3043,12 +3047,13 @@ body.is-company .discount-manual,
 
   body.is-company .discount-stepper-btn,
   .discount-stepper:has(.profit-manual) .discount-stepper-btn {
-    width: 1.72rem;
-    height: 1.72rem;
+    width: 1.32rem;
+    height: 1.32rem;
   }
 
   body.is-company .discount-manual,
   .discount-manual.profit-manual {
-    width: 3rem;
+    width: 100%;
+    min-width: 1.6rem;
   }
 }

@@ -31,7 +31,7 @@
 - 利润率：公司账号自设全局利润（百分比），系统自动算最终报价
 - 面价隐藏：公司账号下前端不渲染 discount-panel
 - 折扣弹窗：动态渲染，根据 `discount_rules` 配置自动生成任意数量品牌输入框
-- 三菱库存：`POST /api/stock-query`（需 `X-Stock-Key` 认证 + 频率限制），QueryEngine 通过 GWT-RPC 直连三菱官网
+- 三菱库存：`POST /api/stock-query`（需 `X-Stock-Key` 认证 + 频率限制），QueryEngine 通过 GWT-RPC 直连三菱官网；终端客户检测逻辑根据响应数组长度动态选择索引位置（标准格式用固定索引 46/47，扩展格式用倒数第3/4位）
 - `apps/login.html` → `apps/customer.html` 已废弃，统一使用 `apps/index.html` + authGate
 
 ## 部署架构

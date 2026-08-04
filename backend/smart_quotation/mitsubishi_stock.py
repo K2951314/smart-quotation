@@ -137,21 +137,81 @@ def _detect_needs_terminal(raw_payload):
     # 用逗号分割数字部分（包含数字和字符串引用如 'B', 'ooSA'）
     nums = nums_part.split(',')
 
-    # 数字部分固定位置：[46] = EC不可下单, [47] = 商流可视化
-    # 0 = 没打勾（空引用），非零 = 打勾（有值）
-    EC_INDEX = 46
-    VISUAL_INDEX = 47
+    # 根据数组长度动态计算索引位置
+    # 不同型号的响应格式不同，索引位置可能不同
+    nums_len = len(nums)
 
-    ec_checked = (EC_INDEX < len(nums) and nums[EC_INDEX] != '0')
-    visual_checked = (VISUAL_INDEX < len(nums) and nums[VISUAL_INDEX] != '0')
+    # 基于用户反馈的规律：
+    # - 长度 85-87：索引 46/47 正确（标准格式）
+    # - 长度 200+：索引需要调整（扩展格式）
+    if nums_len >= 200:
+        # 扩展格式：从末尾倒数计算索引（更稳定）
+        # 假设 EC/商流 在倒数第3、第4个位置
+        EC_INDEX = nums_len - 3
+        VISUAL_INDEX = nums_len - 4
+        format_type = "扩展格式"
+    elif nums_len >= 80:
+        # 标准格式：固定索引 46/47
+        EC_INDEX = 46
+        VISUAL_INDEX = 47
+        format_type = "标准格式"
+    else:
+        logger.warning(
+            "[终端客户检测] 数组长度不足: len=%s, 需要至少80, raw_payload前缀=%s",
+            nums_len, raw_payload[:200] if raw_payload else 'None'
+        )
+        return _detect_needs_terminal_from_strings(raw_payload)
+
+    # 0 = 没打勾（空引用），非零 = 打勾（有值）
+    ec_checked = (nums[EC_INDEX] != '0')
+    visual_checked = (nums[VISUAL_INDEX] != '0')
 
     result = ec_checked or visual_checked
+    # 记录所有检测结果（不仅是阳性），便于诊断误判
+    ec_val = nums[EC_INDEX]
+    visual_val = nums[VISUAL_INDEX]
     if result:
-        ec_val = nums[EC_INDEX] if EC_INDEX < len(nums) else '?'
-        visual_val = nums[VISUAL_INDEX] if VISUAL_INDEX < len(nums) else '?'
+        logger.info(
+            "[终端客户检测] 需要提供终端客户: EC不可下单=%s(值=%s) 商流可视化=%s(值=%s) 数组长度=%s 格式=%s 索引=%s/%s",
+            ec_checked, ec_val, visual_checked, visual_val, nums_len, format_type, EC_INDEX, VISUAL_INDEX,
+        )
+    else:
         logger.debug(
-            "需要提供终端客户: EC不可下单=%s(值=%s) 商流可视化=%s(值=%s)",
-            ec_checked, ec_val, visual_checked, visual_val,
+            "[终端客户检测] 不需要提供终端客户: EC不可下单=%s(值=%s) 商流可视化=%s(值=%s) 数组长度=%s 格式=%s 索引=%s/%s",
+            ec_checked, ec_val, visual_checked, visual_val, nums_len, format_type, EC_INDEX, VISUAL_INDEX,
+        )
+    return result
+
+
+def _detect_needs_terminal_from_strings(raw_payload):
+    """备用检测逻辑：从 strings 表中检测是否需要终端客户。
+
+    某些型号的响应格式不同，数字部分长度不足，此时尝试从 strings 表中检测。
+    如果 strings 表中包含 "EC不可下单" 或 "商流可视化" 字样，认为需要终端客户。
+    """
+    if not raw_payload:
+        return False
+
+    # 提取 strings 表部分
+    bracket_idx = raw_payload.find(',[')
+    if bracket_idx < 0:
+        return False
+
+    strings_start = bracket_idx + 2
+    strings_end = raw_payload.rfind(']')
+    if strings_end < 0 or strings_end <= strings_start:
+        return False
+
+    strings_part = raw_payload[strings_start:strings_end]
+    # 检查是否包含关键字
+    has_ec = '"EC不可下单"' in strings_part or 'EC不可下单' in strings_part
+    has_visual = '"商流可视化"' in strings_part or '商流可视化' in strings_part
+
+    result = has_ec or has_visual
+    if result:
+        logger.info(
+            "[终端客户检测-备用] 从strings表检测到: EC不可下单=%s, 商流可视化=%s, strings=%s",
+            has_ec, has_visual, strings_part[:200]
         )
     return result
 
