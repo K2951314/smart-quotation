@@ -546,7 +546,8 @@
       "summary summary"
       "side select";
     gap: 6px;
-    align-items: end;
+    /* 居中对齐：避免 side 与 select 高度不一致时底部留白 */
+    align-items: center;
   }
 
   /* 客户版：报价 + 利润 + 勾选 三等分同一行 */
@@ -615,7 +616,8 @@
     font-size: 0.68rem;
   }
 
-  /* 管理员版：面价 + 报价 + 折扣 同一行（3列）*/
+  /* 管理员版：面价 + 报价 + 折扣 同一行（3列）
+     折扣面板需要更宽空间容纳步进器（-/+按钮+输入框+%），故 1.58fr */
   .result-side {
     grid-area: side;
     grid-template-columns: minmax(46px, 0.72fr) minmax(46px, 0.72fr) minmax(104px, 1.58fr);
@@ -628,24 +630,33 @@
     border-radius: 0.72rem;
     text-align: center;
     justify-items: center;
+    justify-self: stretch;
     min-width: 0;
   }
 
+  /* 显式 display:block 确保所有手机浏览器（含 vivo WebView）
+     都将 <span> 作为 block 级 grid item，width:100% + text-align:center 生效 */
   .metric-label {
+    display: block;
     font-size: 0.58rem;
     text-align: center;
     width: 100%;
   }
 
   .metric-inline strong {
+    display: block;
     font-size: 0.8rem;
     text-align: center;
     white-space: nowrap;
     line-height: 1.18;
+    width: 100%;
   }
 
+  /* 折扣面板占满 grid 单元格，消除内部空白 */
   .discount-panel {
     grid-column: auto;
+    width: 100%;
+    justify-content: stretch;
   }
 
   .discount-stepper {

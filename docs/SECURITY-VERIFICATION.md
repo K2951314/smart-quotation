@@ -252,6 +252,7 @@ py -m uvicorn backend.smart_quotation.api:create_app --factory --host 0.0.0.0 --
 - [ ] `SQ_DEV` **未设置**（或设为 0）
 - [ ] HTTPS 已启用（Netlify/Railway 默认）
 - [ ] `config.example.json` 不含敏感值
+- [ ] 静态文件缓存头已生效（`curl -I` 检查 HTML 返回 `no-cache`，CSS/JS 返回 `immutable`）
 
 ### 给客户签发 License
 

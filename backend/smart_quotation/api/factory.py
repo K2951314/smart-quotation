@@ -8,6 +8,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from ..engine import QuotationEngine
 from ..observability import init_sentry
@@ -20,6 +23,47 @@ from .routes_merger import register as register_merger
 from .routes_public import register as register_public
 from .routes_stock import register as register_stock
 from .routes_tiers import register as register_tiers
+
+
+class StaticCacheControlMiddleware(BaseHTTPMiddleware):
+    """为静态文件设置正确的 Cache-Control 头。
+
+    根因修复：Starlette StaticFiles 默认不设 Cache-Control，
+    导致手机浏览器启用启发式缓存（Heuristic Caching），
+    缓存 HTML 数小时甚至数天——即使部署了新 CSS（?v=18），
+    浏览器仍在用旧 HTML（引用 ?v=17）加载旧 CSS。
+
+    策略：
+    - HTML: no-cache, must-revalidate — 每次通过 ETag 校验，变更才下载
+    - CSS/JS: public, max-age=31536000, immutable — 1年永久缓存，靠 ?v= 失效
+    - 其他（图片/字体）: public, max-age=86400 — 1天缓存
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        path = request.url.path
+        # 只处理静态文件路径，API 路由不受影响
+        if not (path.startswith("/apps/") or path.startswith("/admin/")):
+            return response
+        # 只对 GET/HEAD 请求设置缓存头
+        if request.method not in ("GET", "HEAD"):
+            return response
+        # 避免覆盖已显式设置的 Cache-Control（如 API 误路由到此处）
+        if "cache-control" in response.headers:
+            return response
+
+        if path.endswith(".html") or path == "/apps/" or path == "/admin/":
+            # HTML 入口文件：每次都校验 ETag，确保部署后立即生效
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        elif path.endswith((".css", ".js")):
+            # 版本化静态资源：靠 ?v= 查询参数失效，可永久缓存
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot")):
+            # 图片/字体：1天缓存
+            response.headers["Cache-Control"] = "public, max-age=86400"
+        # 其他文件不设缓存头，走浏览器默认行为
+        return response
+
 
 
 def create_app(store: QuotationStore | None = None) -> FastAPI:
@@ -169,6 +213,10 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
     register_merger(app)
     register_stock(app)
     register_tiers(app)
+
+    # 缓存控制中间件：必须在挂载 StaticFiles 之前添加
+    # 解决手机浏览器启发式缓存导致部署后看不到更新的问题
+    app.add_middleware(StaticCacheControlMiddleware)
 
     # 挂载静态文件
     root_dir = Path(__file__).resolve().parents[3]

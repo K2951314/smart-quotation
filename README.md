@@ -221,6 +221,7 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 - Netlify 独立部署时还需配置 `BACKEND_URL` 环境变量（被 `netlify.toml` rewrite 规则引用，把 `/api/*` 透明代理到后端；bundle 文件直接从 Supabase Storage 拉，不走后端代理）
 - 三菱库存 key 通过 URL fragment `#stockkey=xxx` 注入（不发送到服务器，防日志泄露），也可在 authGate 手动输入
 - CSP `script-src` 白名单：`'self'` + `https://browser.sentry-cdn.com`（Sentry SDK，按需加载）；SheetJS 已自托管至 `admin/lib/`（消除第三方 CDN 供应链风险）
+- **静态文件缓存**：后端 `StaticCacheControlMiddleware` 和 `netlify.toml` 一致设置 — HTML `no-cache`（每次 ETag 校验）；CSS/JS `immutable, max-age=31536000`（靠 `?v=` 失效）；更新前端后必须递增 `index.html` 中的 `?v=` 版本号
 
 **数据源**（Supabase Storage）：
 - 通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`

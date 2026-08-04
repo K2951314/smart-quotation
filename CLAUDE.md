@@ -47,6 +47,7 @@
   4. 同源（默认）
 - **Supabase 项目地址**通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
 - **CSP**：`script-src 'self' https://browser.sentry-cdn.com`（SheetJS 已自托管至 `admin/lib/`，仅保留 Sentry SDK CDN 白名单）；`connect-src` 白名单：`*.supabase.co`/`.in`/`.net` + `*.sentry.io` + `*.railway.app` + `*.render.com`（`netlify.toml`，已移除 `https:` 通配防 XSS 外泄）
+- **静态文件缓存策略**（`StaticCacheControlMiddleware` in `factory.py`）：HTML → `no-cache, must-revalidate`（每次通过 ETag 校验，部署后立即生效）；CSS/JS → `public, max-age=31536000, immutable`（永久缓存，靠 `?v=` 查询参数失效）；图片/字体 → `public, max-age=86400`。**改静态文件服务时不能删此中间件**——否则手机浏览器启用启发式缓存，部署后看不到更新。Netlify 部署时 `netlify.toml` 的 `[[headers]]` 提供等价策略。
 - **生产环境必填**：`ADMIN_API_KEY`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份安全降级并打 warning（静默丢数据风险，需看日志确认）
 
 ## 运行与验证

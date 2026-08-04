@@ -22,6 +22,40 @@
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     Content-Security-Policy = "default-src 'self'; script-src 'self' https://browser.sentry-cdn.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://*.supabase.in https://*.supabase.net https://*.sentry.io https://*.railway.app https://*.render.com; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"
 
+# ─── 静态资源缓存策略（与后端 StaticCacheControlMiddleware 一致）──
+# HTML 入口文件：no-cache，每次校验 ETag，确保部署后手机端立即生效
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
+
+# CSS/JS：永久缓存（1年），靠 ?v= 查询参数失效
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# 图片/字体：1天缓存
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
+  for = "/*.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
+  for = "/*.woff2"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
 # ─── Rewrite 代理：只代理后端动态 API ───
 # 架构：前端 bundle（config.json / price.bundle.json / stock.bundle.json / version.json）
 #       直接从 Supabase Storage 拉（CDN 分发），不走后端代理。
