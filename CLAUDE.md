@@ -115,7 +115,7 @@ node --test tests/*.test.js
 - [x] 消除 admin 源码真实折扣泄露（admin/lib/config-core.js 硬编码 32/36 → 改为中性 55）
 - [x] 日志规范化（6 处 print() 改 logging）
 - [x] 管理员公司 UI 标记（admin/lib/companies.js toggleAdminFlag + 前端 role 脱敏）
-- [x] **管理员-成员配置继承 + Tier 利润率分组**（parent_company_id 配置/数据/bundle 继承 + tier 拖拽分配 + 67 测试全绿）
+- [x] **管理员-成员配置继承 + Tier 利润率分组**（parent_company_id 配置/数据/bundle 继承 + tier 拖拽分配 + 93 测试全绿）
 - [ ] 三菱 GWT-RPC 常量外置 + 并发查询
 
 ## 管理员-成员配置继承 + Tier 利润率分组

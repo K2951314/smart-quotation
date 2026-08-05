@@ -1,4 +1,4 @@
-﻿﻿(function (root, factory) {
+﻿﻿﻿﻿(function (root, factory) {
   if (typeof module === "object" && module.exports) {
     module.exports = factory(require("./data-utils"), require("./bundle-utils"));
   } else {
@@ -9,8 +9,24 @@
 
   // ─── 脱敏逻辑（与后端 store._desensitize_item_fields 对齐）──────────
   // 安全：部署到 Supabase public bucket 前，必须移除面价并预计算报价。
+  // 敏感字段集必须与后端 base.py SENSITIVE_FIELDS 保持一致，否则 admin
+  // 若在 config 里定义了 cost/margin 等字段，会泄露到公开 bucket。
 
-  var SENSITIVE_FIELDS = ["face_price", "discount_percent"];
+  var DEFAULT_SENSITIVE_FIELDS = [
+    "face_price", "discount_percent", "discount",
+    "cost", "cost_price", "purchase_price", "supplier_price",
+    "margin", "margin_percent", "profit_margin", "base_price",
+    "进价", "成本", "采购价",
+  ];
+
+  function _getSensitiveFields(config) {
+    var security = (config && config.security) || {};
+    var custom = security.sensitive_fields;
+    if (Array.isArray(custom) && custom.length) {
+      return custom.map(function (f) { return String(f); });
+    }
+    return DEFAULT_SENSITIVE_FIELDS;
+  }
 
   function _toNumber(val) {
     var n = parseFloat(val);
@@ -25,7 +41,11 @@
     var text = rawVal === null || rawVal === undefined ? "" : String(rawVal);
 
     if (op === "equals") return text === String(expected);
-    if (op === "contains") return String(expected).replace(/ /g, "").toUpperCase().indexOf(text.replace(/ /g, "").toUpperCase()) >= 0;
+    if (op === "contains") return text.replace(/ /g, "").toUpperCase().indexOf(String(expected).replace(/ /g, "").toUpperCase()) >= 0;
+    if (op === "regex") {
+      try { return new RegExp(String(expected), "i").test(text); }
+      catch (e) { return false; }
+    }
     if (op === "in") return Array.isArray(expected) && expected.indexOf(rawVal) >= 0;
 
     var left = _toNumber(rawVal);
@@ -87,21 +107,28 @@
 
     var pricing = (config && config.pricing) || {};
     var rounding = pricing.rounding || {};
-    var decimals = parseInt(pricing.decimal_places || 1, 10);
+    var decimals = Math.max(parseInt(pricing.decimal_places || 1, 10), 0);
+
+    // 与后端 engine.py calculate_price 对齐：
+    // - ceil 模式：先按小数位向上取整；若面价 > integer_above，再取整到整数
+    // - 其他模式：按小数位格式化（保留尾随零，如 32.0 而非 32）
     if (rounding.mode === "ceil") {
-      var factor = Math.pow(10, Math.max(decimals, 0));
+      var factor = Math.pow(10, decimals);
       basePrice = Math.ceil(basePrice * factor) / factor;
       var integerAbove = parseFloat(rounding.integer_above || 0) || 0;
       if (facePrice > integerAbove) {
-        basePrice = Math.ceil(basePrice);
+        // 面价超阈值 → 报价取整到整数（后端 return str(int(value))）
+        safe.quote_price = String(Math.ceil(basePrice));
+      } else {
+        safe.quote_price = basePrice.toFixed(decimals);
       }
     } else {
-      basePrice = parseFloat(basePrice.toFixed(Math.max(decimals, 0)));
+      safe.quote_price = basePrice.toFixed(decimals);
     }
 
-    safe.quote_price = String(basePrice);
-    for (var i = 0; i < SENSITIVE_FIELDS.length; i++) {
-      delete safe[SENSITIVE_FIELDS[i]];
+    var sensitiveFields = _getSensitiveFields(config);
+    for (var i = 0; i < sensitiveFields.length; i++) {
+      delete safe[sensitiveFields[i]];
     }
     return safe;
   }
