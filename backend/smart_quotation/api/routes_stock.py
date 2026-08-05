@@ -98,11 +98,15 @@ def register(app) -> None:
             if japan > 0:
                 stock_parts.append(f"日本库存{japan}")
 
-            inv = " ".join(stock_parts) if stock_parts else ("无货" if not error else "")
+            inv = " ".join(stock_parts) if stock_parts else "厂家无货"
             tag = f" {material}" if material else ""
 
             if error:
-                results.append(f"{model}{tag} {error}")
+                # MODEL_NOT_FOUND 表示官网没有这个型号，返回空字符串（前端会跳过不显示）
+                if error == "MODEL_NOT_FOUND":
+                    results.append("")
+                else:
+                    results.append(f"{model}{tag} {error}")
             else:
                 line = f"{model}{tag} {inv}"
                 # 商流可视化/EC不可下单打勾 → 需要提供终端客户

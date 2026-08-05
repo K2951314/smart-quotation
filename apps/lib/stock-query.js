@@ -223,9 +223,13 @@ function getCompanyId() {
 // ─── 三菱库存查询 ──────────────────────────────────────────
 
 function parseStockResultLine(text) {
-  var result = { shanghai: 0, japan: 0, error: null, needsTerminal: false };
-  if (!text) { result.error = "无响应"; return result; }
-  // 后端在结果行追加“需要提供终端客户”标记，这里解析出来供剪贴板和卡片使用
+  // 空字符串表示 MODEL_NOT_FOUND（官网没有这个型号）
+  if (!text || text === "") {
+    return { empty: true, shanghai: 0, japan: 0, error: null, needsTerminal: false };
+  }
+
+  var result = { empty: false, shanghai: 0, japan: 0, error: null, needsTerminal: false };
+  // 后端在结果行追加"需要提供终端客户"标记，这里解析出来供剪贴板和卡片使用
   if (/需要提供终端客户/.test(text)) {
     result.needsTerminal = true;
   }
@@ -303,8 +307,13 @@ async function doMitsubishiStockQuery() {
       setBtnText("已完成 " + doneCount + "/" + total);
       if (idx < parsed.length) {
         var r = parsed[idx];
-        if (r.error) errorCount++;
-        updateCardStock(selected[idx], r.error ? "error" : "data", r);
+        // 空字符串表示 MODEL_NOT_FOUND（官网没有这个型号），清空状态不显示
+        if (r.empty) {
+          updateCardStock(selected[idx], null);
+        } else {
+          if (r.error) errorCount++;
+          updateCardStock(selected[idx], r.error ? "error" : "data", r);
+        }
       }
       if (doneCount < selected.length) {
         setTimeout(updateNext, 80);
@@ -382,11 +391,17 @@ function buildStockClipboardLine(row, stockResult) {
   if (!stockResult) {
     stockStr = "查询失败(无结果)";
   } else if (stockResult.error) {
-    stockStr = "查询失败(" + stockResult.error + ")";
+    // MODEL_NOT_FOUND 表示官网没有这个型号，不返回任何数据（空着）
+    if (stockResult.error === "MODEL_NOT_FOUND") {
+      stockStr = "";
+    } else {
+      stockStr = "查询失败(" + stockResult.error + ")";
+    }
   } else {
     var stockParts = [];
     if (stockResult.shanghai > 0) stockParts.push("上海" + stockResult.shanghai);
     if (stockResult.japan > 0) stockParts.push("日本" + stockResult.japan);
+    // 查得到型号但没库存 → 返回"厂家无货"
     stockStr = stockParts.length > 0 ? stockParts.join(" ") : "厂家无货";
     // 商流可视化/EC不可下单打勾 → 需要提供终端客户
     if (stockResult.needsTerminal) {
@@ -431,6 +446,7 @@ function updateCardStock(row, state, result) {
     if (parts.length > 0) {
       html = '<span class="stock-signal stock-live-data">' + parts.join(" · ") + '</span>';
     } else {
+      // 查得到型号但没库存 → 显示"厂家无货"
       html = '<span class="stock-signal stock-live-data stock-zero">厂家无货</span>';
     }
     if (result.needsTerminal) {

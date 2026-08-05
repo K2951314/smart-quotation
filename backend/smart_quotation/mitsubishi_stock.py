@@ -107,22 +107,15 @@ def _parse_gwt(text):
 def _detect_needs_terminal(raw_payload):
     """从 GWT-RPC raw_payload 检测是否需要提供终端客户。
 
-    通过真实数据验证发现：三菱 GWT-RPC 响应的 raw_payload 数字部分中，
-    有两个固定位置的字段对应官网上的「商流可视化」和「EC不可下单」列：
+    通过批量型号分析发现的标志位编码规则：
+    - 标志位在 item 的倒数第2位（相对于item末尾）
+    - 如果倒数第2位的字符串值是 '1'，则需要终端客户
+    - 否则不需要终端客户
 
-      - 数字部分 [46] = EC不可下单（0=没打勾, 非零=打勾）
-      - 数字部分 [47] = 商流可视化（0=没打勾, 非零=打勾）
+    关键修复：必须先按 'GI' 分隔符分割 items，再检测每个 item。
+    整个 nums 数组长度可能是 87（多item），但每个 item 只有 48-50 个元素。
 
-    当打勾时，字段的值是 strings 表的引用索引（非零数字）；
-    当没打勾时，字段的值为 0（空引用）。
-
-    任一打勾 → 需要提供终端客户。
-
-    真实样本验证：
-      WNMG080408-GK  (商流✓ EC✓): nums[46]=11 nums[47]=10 → True
-      WNMG080408-MA  (商流✓ EC✓): nums[46]=11 nums[47]=10 → True
-      WNMG080408-LK  (商流✓ EC✗): nums[46]=0  nums[47]=10 → True
-      CCGT03S104L-F  (商流✗ EC✓): nums[46]=10 nums[47]=0  → True
+    支持单 item 和多 item 响应检测。
     """
     if not raw_payload:
         return False
@@ -136,51 +129,74 @@ def _detect_needs_terminal(raw_payload):
     nums_part = raw_payload[:bracket_idx]
     # 用逗号分割数字部分（包含数字和字符串引用如 'B', 'ooSA'）
     nums = nums_part.split(',')
-
-    # 根据数组长度动态计算索引位置
-    # 不同型号的响应格式不同，索引位置可能不同
     nums_len = len(nums)
 
-    # 基于用户反馈的规律：
-    # - 长度 85-87：索引 46/47 正确（标准格式）
-    # - 长度 200+：索引需要调整（扩展格式）
-    if nums_len >= 200:
-        # 扩展格式：从末尾倒数计算索引（更稳定）
-        # 假设 EC/商流 在倒数第3、第4个位置
-        EC_INDEX = nums_len - 3
-        VISUAL_INDEX = nums_len - 4
-        format_type = "扩展格式"
-    elif nums_len >= 80:
-        # 标准格式：固定索引 46/47
-        EC_INDEX = 46
-        VISUAL_INDEX = 47
-        format_type = "标准格式"
-    else:
-        logger.warning(
-            "[终端客户检测] 数组长度不足: len=%s, 需要至少80, raw_payload前缀=%s",
-            nums_len, raw_payload[:200] if raw_payload else 'None'
-        )
-        return _detect_needs_terminal_from_strings(raw_payload)
+    # 提取 strings 表
+    strings = []
+    for q in ('"', "'"):
+        strings = [m.group(1) for m in re.finditer(rf"{q}([^{q}]*){q}", raw_payload)]
+        if strings:
+            break
 
-    # 0 = 没打勾（空引用），非零 = 打勾（有值）
-    ec_checked = (nums[EC_INDEX] != '0')
-    visual_checked = (nums[VISUAL_INDEX] != '0')
+    def check_item_needs_terminal(item_nums, item_strings):
+        """检查单个 item 是否需要终端客户
 
-    result = ec_checked or visual_checked
-    # 记录所有检测结果（不仅是阳性），便于诊断误判
-    ec_val = nums[EC_INDEX]
-    visual_val = nums[VISUAL_INDEX]
-    if result:
-        logger.info(
-            "[终端客户检测] 需要提供终端客户: EC不可下单=%s(值=%s) 商流可视化=%s(值=%s) 数组长度=%s 格式=%s 索引=%s/%s",
-            ec_checked, ec_val, visual_checked, visual_val, nums_len, format_type, EC_INDEX, VISUAL_INDEX,
-        )
-    else:
-        logger.debug(
-            "[终端客户检测] 不需要提供终端客户: EC不可下单=%s(值=%s) 商流可视化=%s(值=%s) 数组长度=%s 格式=%s 索引=%s/%s",
-            ec_checked, ec_val, visual_checked, visual_val, nums_len, format_type, EC_INDEX, VISUAL_INDEX,
-        )
-    return result
+        关键发现：标志位在 item 的倒数第2位
+        - 如果该位置引用字符串 '1'，则需要终端客户
+        - 否则不需要
+        """
+        item_len = len(item_nums)
+        if item_len < 10:
+            return False
+
+        # 标志位在倒数第2位
+        flag_index = item_len - 2
+
+        if flag_index < 0 or flag_index >= item_len:
+            return False
+
+        val = item_nums[flag_index]
+
+        # 检查该位置是否引用字符串 '1'
+        if val != '0' and val.isdigit():
+            str_idx = int(val)
+            if str_idx < len(item_strings) and item_strings[str_idx] == '1':
+                return True
+
+        return False
+
+    # 检查是否为多 item 响应（按 'GI' 分隔符判断）
+    gi_positions = [i for i, v in enumerate(nums) if v == "'GI'"]
+
+    # 多 item 响应（有 GI 分隔符）
+    if gi_positions:
+        any_needs_terminal = False
+
+        for i, gi_pos in enumerate(gi_positions):
+            if i == 0:
+                item_nums = nums[0:gi_pos]
+            else:
+                item_nums = nums[gi_positions[i-1]+1:gi_pos]
+
+            # 只检查长度足够的item（排除尾部元数据）
+            if len(item_nums) >= 40:
+                if check_item_needs_terminal(item_nums, strings):
+                    any_needs_terminal = True
+                    break
+
+        if any_needs_terminal:
+            logger.info("[终端客户检测] 多item响应需要终端客户")
+        return any_needs_terminal
+
+    # 单 item 响应（没有 GI 分隔符）
+    if nums_len >= 40:
+        result = check_item_needs_terminal(nums, strings)
+        if result:
+            logger.info("[终端客户检测] 单item响应需要终端客户")
+        return result
+
+    logger.debug("[终端客户检测] 数组长度不足: len=%s", nums_len)
+    return False
 
 
 def _detect_needs_terminal_from_strings(raw_payload):
@@ -217,7 +233,12 @@ def _detect_needs_terminal_from_strings(raw_payload):
 
 
 def _extract_stock(strings, raw_payload=None):
-    """从 GWT 字符串表提取 (shanghai, japan, needs_terminal)"""
+    """从 GWT 字符串表提取 (shanghai, japan, needs_terminal, model_found)
+
+    Returns:
+        (shanghai_stock, japan_stock, needs_terminal, model_found)
+        model_found: bool, 是否在三菱官网查得到该型号
+    """
 
     def clean(s):
         try:
@@ -235,11 +256,23 @@ def _extract_stock(strings, raw_payload=None):
             return True
         return 0 <= v < 999999
 
+    # 判断是否查得到型号
+    # 查得到型号的特征：raw_payload 中有 GI 分隔符（多item）或长度足够（单item）
+    model_found = False
+    if raw_payload:
+        bracket_idx = raw_payload.find(",[")
+        if bracket_idx > 0:
+            nums_part = raw_payload[:bracket_idx]
+            nums = nums_part.split(",")
+            # 有 GI 分隔符 或 nums 长度足够（>40）表示查得到型号
+            if "'GI'" in nums or len(nums) > 40:
+                model_found = True
+
     vals = [clean(s) for s in strings[4:] if is_stock(s)]
     shanghai = vals[0] if len(vals) >= 1 else 0
     japan = vals[1] if len(vals) >= 2 else 0
     needs_terminal = _detect_needs_terminal(raw_payload)
-    return (shanghai, japan, needs_terminal)
+    return (shanghai, japan, needs_terminal, model_found)
 
 
 class QueryEngine:
@@ -359,7 +392,11 @@ class QueryEngine:
                 # 截断第三方服务端返回的错误内容，避免冗长/不可控文本进入 API 响应
                 return 0, 0, False, (err[:100] if err else "查询失败")
             stock = _extract_stock(resp["strings"], resp.get("raw_payload"))
-            return *stock, None
+            shanghai, japan, needs_terminal, model_found = stock
+            # 如果查不到型号（官网没有这个型号），返回特定错误码以便前端区分
+            if not model_found:
+                return 0, 0, False, "MODEL_NOT_FOUND"
+            return shanghai, japan, needs_terminal, None
         except requests.Timeout:
             return 0, 0, False, "查询超时"
         except requests.ConnectionError:
