@@ -39,6 +39,8 @@ window.addEventListener("DOMContentLoaded", function () {
           }
           bind();
           run(loadCompanies);
+          // 加载 license 档位徽标（超管模式才有效，非超管静默跳过）
+          if (window.loadLicenseBadge) run(window.loadLicenseBadge);
         } else {
           // token 失效，清除并显示登录
           setAdminApiKey("");
