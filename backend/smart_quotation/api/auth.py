@@ -20,6 +20,7 @@ import os
 import secrets
 import time
 from collections import defaultdict, deque
+from typing import Any
 
 from fastapi import Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -61,6 +62,32 @@ def load_admin_api_key() -> str:
                 f"ADMIN_API_KEY 长度只有 {len(key)} 字符，至少需要 16 字符。\n"
                 "建议使用：python -c \"import secrets; print(secrets.token_urlsafe(32))\""
             )
+    return key
+
+
+def load_jwt_secret() -> str:
+    """加载并校验 JWT_SECRET（与 load_admin_api_key 对齐）。
+
+    安全策略：
+    - 生产环境必须显式设置 JWT_SECRET（≥32 字符），否则拒绝启动。
+    - 本地开发（SQ_DEV=1）生成随机密钥（每次重启变化，JWT 不跨会话持久）。
+    - 绝不在源码中硬编码密钥——已知弱密钥可被攻击者伪造任意 JWT。
+    """
+    key = os.environ.get("JWT_SECRET", "").strip()
+    is_dev = os.environ.get("SQ_DEV", "0") == "1"
+    if not key:
+        if is_dev:
+            logger.warning("JWT_SECRET 未设置，开发模式生成随机密钥（重启后失效）")
+            return "dev-" + secrets.token_hex(32)
+        raise RuntimeError(
+            "JWT_SECRET 未设置。注册/登录功能需要 JWT 密钥（至少 32 字符）。\n"
+            "生成方式：python -c \"import secrets; print(secrets.token_urlsafe(32))\"\n"
+            "本地开发可设 SQ_DEV=1 跳过此校验。"
+        )
+    if len(key) < 32 and not is_dev:
+        raise RuntimeError(f"JWT_SECRET 长度只有 {len(key)} 字符，至少需要 32 字符。")
+    if len(key) < 32:
+        logger.warning("JWT_SECRET 长度只有 %d 字符，建议至少 32 字符", len(key))
     return key
 
 
@@ -151,14 +178,15 @@ def _handle_auth_failure(auth: AuthContext, client_ip: str, status_code: int, de
 def require_admin_api(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(admin_security),
-) -> None:
-    """验证 admin 后台 API key 或 JWT。
+) -> dict[str, Any]:
+    """验证 admin 后台 API key 或 JWT，返回认证上下文。
 
     认证优先级：
-    1. ADMIN_API_KEY（超管）：Bearer token 与 ADMIN_API_KEY 比较
-    2. JWT（租户管理员）：解码 JWT，验证签名和过期时间
-    3. 开发模式（SQ_DEV=1）：宽松跳过
+    1. ADMIN_API_KEY（超管）：Bearer token 与 ADMIN_API_KEY 比较 → role="superadmin"
+    2. JWT（租户管理员）：解码 JWT，验证签名和过期时间 → role="tenant"
+    3. 开发模式（SQ_DEV=1）：宽松跳过 → role="dev"
 
+    返回值供 resolve_company_id / require_superadmin 做租户隔离。
     使用 compare_digest 防时序攻击。
     """
     auth: AuthContext = request.app.state.auth
@@ -170,27 +198,54 @@ def require_admin_api(
 
     token = credentials.credentials
 
-    # 1. 先检查是否为 ADMIN_API_KEY（超管）
+    # 1. ADMIN_API_KEY（超管）
     if secrets.compare_digest(token, auth.admin_api_key):
-        return
+        return {"role": "superadmin"}
 
-    # 2. 尝试解码 JWT（租户管理员）
+    # 2. JWT（租户管理员）
     try:
         from .routes_auth import _decode_jwt
         payload = _decode_jwt(token)
         if payload and "sub" in payload and "company_id" in payload:
-            # JWT 有效，将用户信息存入 request.state 供后续使用
-            request.state.jwt_user = payload
-            return
+            return {"role": "tenant", "company_id": payload["company_id"]}
     except Exception:
         pass
 
-    # 3. 开发模式宽松处理
+    # 3. 开发模式兜底
     if auth.is_dev:
         logger.debug("开发模式：宽松认证")
-        return
+        return {"role": "dev", "company_id": "default"}
 
     _handle_auth_failure(auth, client_ip, 401, "authentication required")
+
+
+def require_superadmin(auth: dict[str, Any] = Depends(require_admin_api)) -> dict[str, Any]:
+    """要求超管权限。租户用户得到 403。
+
+    用于公司创建/删除、令牌轮换等平台级操作——
+    租户管理员不应能创建或删除其他公司。
+    """
+    if auth["role"] != "superadmin":
+        raise HTTPException(status_code=403, detail="此操作需要平台管理员权限")
+    return auth
+
+
+def resolve_company_id(
+    company_id: str = Query(DEFAULT_COMPANY_ID),
+    auth: dict[str, Any] = Depends(require_admin_api),
+) -> str:
+    """解析有效 company_id（租户隔离核心）。
+
+    - 超管（ADMIN_API_KEY）：使用请求参数中的 company_id，可访问任意公司
+    - 租户（JWT）：强制使用 JWT 中的 company_id，忽略请求参数
+    - 开发模式：使用请求参数（向后兼容）
+
+    所有接受 company_id 查询参数的 admin 路由都应使用此依赖，
+    替代直接 Query(DEFAULT_COMPANY_ID)，确保 JWT 用户无法越权访问其他公司。
+    """
+    if auth["role"] == "tenant":
+        return auth["company_id"]
+    return company_id
 
 
 def require_company_access(

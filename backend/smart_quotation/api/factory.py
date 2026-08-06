@@ -15,8 +15,8 @@ from starlette.responses import Response
 from ..engine import QuotationEngine
 from ..observability import init_sentry
 from ..store import QuotationStore
-from .auth import AuthContext, load_admin_api_key
-from .routes_auth import register as register_auth
+from .auth import AuthContext, load_admin_api_key, load_jwt_secret
+from .routes_auth import configure_jwt, register as register_auth
 from .routes_companies import register as register_companies
 from .routes_config import register as register_config
 from .routes_items import register as register_items
@@ -187,6 +187,10 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
         stock_query_key=stock_query_key,
         is_dev=is_dev,
     )
+
+    # JWT 密钥：生产强制设置（≥32 字符），开发模式随机生成（每次重启变化）
+    # 必须在注册路由之前配置，否则 _decode_jwt 返回 None 拒绝所有 JWT
+    configure_jwt(load_jwt_secret())
 
     # License 启动检查（最小缓解 P1-2：提醒但不禁启动，避免破坏现有部署）
     # 生产环境未配置 license 时记录警告；完整强制校验留待下一阶段
