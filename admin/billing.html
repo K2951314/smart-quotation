@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>订阅方案 — 智能询价</title>
+  <link rel="stylesheet" href="./styles/base.css?v=1">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f5f6fa;
+      margin: 0;
+      padding: 40px 20px;
+      color: #2c3e50;
+    }
+    .container { max-width: 960px; margin: 0 auto; }
+    .header { text-align: center; margin-bottom: 48px; }
+    .header h1 { font-size: 32px; font-weight: 700; margin: 0 0 8px; }
+    .header p { font-size: 16px; color: #7f8c8d; margin: 0; }
+    .header a { color: #3498db; text-decoration: none; }
+
+    .plans {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 48px;
+    }
+    @media (max-width: 768px) {
+      .plans { grid-template-columns: 1fr; }
+    }
+
+    .plan {
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px 24px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    .plan.recommended { border: 2px solid #3498db; }
+    .plan .badge {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #3498db;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 16px;
+      border-radius: 12px;
+    }
+    .plan h2 { font-size: 20px; margin: 0 0 8px; }
+    .plan .price { font-size: 36px; font-weight: 700; margin: 16px 0; }
+    .plan .price .unit { font-size: 14px; font-weight: 400; color: #95a5a6; }
+    .plan .price .yearly { display: block; font-size: 13px; color: #27ae60; font-weight: 400; margin-top: 4px; }
+    .plan ul { list-style: none; padding: 0; margin: 0 0 24px; flex: 1; }
+    .plan li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+    .plan li:before { content: "✓"; color: #27ae60; font-weight: 700; margin-right: 8px; }
+    .plan li.disabled { color: #bdc3c7; }
+    .plan li.disabled:before { content: "✗"; color: #bdc3c7; }
+    .plan .cta {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      text-align: center;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      border: 1px solid #3498db;
+      color: #3498db;
+      background: #fff;
+      cursor: pointer;
+    }
+    .plan.recommended .cta { background: #3498db; color: #fff; }
+
+    .comparison { margin-top: 48px; }
+    .comparison h2 { font-size: 24px; margin-bottom: 24px; }
+    .comparison table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+    .comparison th, .comparison td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+    .comparison th { background: #f8f9fa; font-weight: 600; }
+    .comparison td:not(:first-child) { text-align: center; }
+
+    .faq { margin-top: 48px; }
+    .faq h2 { font-size: 24px; margin-bottom: 24px; }
+    .faq-item { background: #fff; border-radius: 8px; padding: 16px 20px; margin-bottom: 12px; }
+    .faq-item h3 { font-size: 15px; margin: 0 0 8px; }
+    .faq-item p { font-size: 14px; color: #7f8c8d; margin: 0; line-height: 1.6; }
+
+    .current-tier {
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .current-tier .label { font-size: 14px; color: #7f8c8d; }
+    .current-tier .tier-name { font-size: 18px; font-weight: 600; }
+    .current-tier .expires { font-size: 13px; color: #95a5a6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>选择适合你的订阅方案</h1>
+      <p>从免费版开始，随业务增长无缝升级 · <a href="index.html">← 返回配置中心</a></p>
+    </div>
+
+    <div id="currentTierInfo" class="current-tier" style="display:none;">
+      <div>
+        <span class="label">当前订阅：</span>
+        <span class="tier-name" id="currentTierName">—</span>
+      </div>
+      <div class="expires" id="currentTierExpires"></div>
+    </div>
+
+    <div class="plans">
+      <div class="plan">
+        <h2>免费版</h2>
+        <div class="price">¥0<span class="unit">/月</span></div>
+        <ul>
+          <li>1 家公司</li>
+          <li>1 个用户</li>
+          <li>500 个 SKU</li>
+          <li>2 个品牌折扣规则</li>
+          <li>3 个配置版本历史</li>
+          <li>客户门户（带水印）</li>
+          <li class="disabled">三菱库存查询</li>
+          <li class="disabled">Bundle 加密</li>
+          <li class="disabled">Supabase 部署</li>
+          <li class="disabled">管理员-成员继承</li>
+          <li class="disabled">Tier 利润率分组</li>
+          <li>7 天审计日志</li>
+        </ul>
+        <a href="mailto:sales@example.com?subject=免费版开通" class="cta">免费开始</a>
+      </div>
+
+      <div class="plan recommended">
+        <span class="badge">推荐</span>
+        <h2>个人版</h2>
+        <div class="price">¥99<span class="unit">/月</span><span class="yearly">年付 ¥990（省 ¥198）</span></div>
+        <ul>
+          <li>1 家公司</li>
+          <li>3 个用户</li>
+          <li>5,000 个 SKU</li>
+          <li>不限品牌折扣规则</li>
+          <li>20 个配置版本历史</li>
+          <li>客户门户（无水印）</li>
+          <li>三菱库存查询 50 次/天</li>
+          <li>Bundle 加密</li>
+          <li>Supabase 部署</li>
+          <li>API 访问</li>
+          <li class="disabled">管理员-成员继承</li>
+          <li class="disabled">Tier 利润率分组</li>
+          <li>30 天审计日志</li>
+        </ul>
+        <a href="mailto:sales@example.com?subject=个人版订阅" class="cta">订阅个人版</a>
+      </div>
+
+      <div class="plan">
+        <h2>专业版</h2>
+        <div class="price">¥399<span class="unit">/月</span><span class="yearly">年付 ¥3,990（省 ¥798）</span></div>
+        <ul>
+          <li>5 家公司（可加购）</li>
+          <li>不限用户</li>
+          <li>不限 SKU</li>
+          <li>不限品牌折扣规则</li>
+          <li>不限配置版本历史</li>
+          <li>客户门户（无水印 + 自定义品牌）</li>
+          <li>三菱库存查询 500 次/天</li>
+          <li>Bundle 加密</li>
+          <li>Supabase 部署</li>
+          <li>管理员-成员配置继承</li>
+          <li>Tier 利润率分组</li>
+          <li>数据库备份</li>
+          <li>90 天审计日志</li>
+          <li>优先支持（邮件 + 电话 24h）</li>
+        </ul>
+        <a href="mailto:sales@example.com?subject=专业版订阅" class="cta">订阅专业版</a>
+      </div>
+    </div>
+
+    <div class="comparison">
+      <h2>功能对比</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>功能</th>
+            <th>免费版</th>
+            <th>个人版</th>
+            <th>专业版</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>公司数</td><td>1</td><td>1</td><td>5（可加购）</td></tr>
+          <tr><td>用户数</td><td>1</td><td>3</td><td>不限</td></tr>
+          <tr><td>SKU 上限</td><td>500</td><td>5,000</td><td>不限</td></tr>
+          <tr><td>品牌折扣规则</td><td>2</td><td>不限</td><td>不限</td></tr>
+          <tr><td>配置版本历史</td><td>3</td><td>20</td><td>不限</td></tr>
+          <tr><td>客户门户水印</td><td>有</td><td>无</td><td>无</td></tr>
+          <tr><td>三菱库存查询/天</td><td>—</td><td>50</td><td>500</td></tr>
+          <tr><td>Bundle 加密</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Supabase 部署</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>管理员-成员继承</td><td>—</td><td>—</td><td>✓</td></tr>
+          <tr><td>Tier 利润率分组</td><td>—</td><td>—</td><td>✓</td></tr>
+          <tr><td>数据库备份</td><td>—</td><td>—</td><td>✓</td></tr>
+          <tr><td>自定义品牌</td><td>—</td><td>—</td><td>✓</td></tr>
+          <tr><td>审计日志保留</td><td>7 天</td><td>30 天</td><td>90 天</td></tr>
+          <tr><td>优先支持</td><td>社区</td><td>邮件 48h</td><td>邮件+电话 24h</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="faq">
+      <h2>常见问题</h2>
+      <div class="faq-item">
+        <h3>如何开通订阅？</h3>
+        <p>点击对应方案的「订阅」按钮发送邮件，我们的销售团队会在 24 小时内联系你完成开通。开通后你会收到一个 License 字符串，把它设为后端环境变量 <code>SQ_LICENSE</code> 即可激活对应功能。</p>
+      </div>
+      <div class="faq-item">
+        <h3>可以随时升级或降级吗？</h3>
+        <p>可以。升级立即生效（补差价），降级在下个计费周期生效。License 会在续费时自动更新。</p>
+      </div>
+      <div class="faq-item">
+        <h3>免费版有什么限制？</h3>
+        <p>免费版支持 500 个 SKU 和 2 个品牌折扣规则，足够小型分销商试用。客户门户会显示「Powered by 智能询价」水印。三菱库存查询、Bundle 加密、Supabase 部署需升级到个人版及以上。</p>
+      </div>
+      <div class="faq-item">
+        <h3>数据存储在哪里？</h3>
+        <p>个人版和专业版使用 PostgreSQL 云数据库（Supabase），数据自动备份。免费版使用本地 SQLite。你可以随时导出全部数据。</p>
+      </div>
+      <div class="faq-item">
+        <h3>支持私有部署吗？</h3>
+        <p>专业版支持自定义品牌（Logo + 主题色 + 独立域名）。如需完全私有化部署，请联系销售咨询企业版方案（¥2,000/月起）。</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 加载当前 license 状态（超管模式才有效）
+    (async function () {
+      try {
+        const apiBase = window.getApiBase ? window.getApiBase() : "";
+        const token = window.getAuthToken ? window.getAuthToken() : "";
+        if (!token) return;
+        const resp = await fetch(apiBase + "/api/license/info", {
+          headers: { Authorization: "Bearer " + token },
+        });
+        if (!resp.ok) return;
+        const info = await resp.json();
+        if (!info || !info.valid) return;
+        const labels = { free: "免费版", pro: "个人版", team: "专业版" };
+        document.getElementById("currentTierName").textContent = labels[info.tier] || info.tier;
+        document.getElementById("currentTierExpires").textContent =
+          info.expires_at ? "到期：" + info.expires_at.split("T")[0] : "";
+        document.getElementById("currentTierInfo").style.display = "flex";
+      } catch (e) {
+        // 静默
+      }
+    })();
+  </script>
+</body>
+</html>
