@@ -77,7 +77,6 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     company_id TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'admin',
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -169,7 +168,11 @@ class PGConnection:
         self._conn.commit()
 
     def close(self):
-        # 连接池模式下，归还连接而不是真正关闭
+        # 归还连接池前先 rollback，确保脏事务不污染下一个使用者
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass  # 连接已损坏等异常忽略，putconn 会处理
         if _pg_pool is not None:
             _pg_pool.putconn(self._conn)
         else:

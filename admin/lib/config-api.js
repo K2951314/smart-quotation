@@ -189,7 +189,9 @@ async function exportConfig(fmt) {
   const revision = $("revision").value.trim();
   if (!revision) { setStatus("请先在顶部填写版本号", true); return; }
   try {
-    const response = await fetch(withCompany(`${apiBase}/api/config/${encodeURIComponent(revision)}/export?fmt=${fmt}`));
+    const response = await fetch(withCompany(`${apiBase}/api/config/${encodeURIComponent(revision)}/export?fmt=${fmt}`), {
+      headers: { "Authorization": "Bearer " + getAuthToken() }
+    });
     if (!response.ok) throw new Error("HTTP " + response.status);
     const text = await response.text();
     const blob = new Blob([text], { type: fmt === "yaml" ? "text/yaml" : "application/json" });
