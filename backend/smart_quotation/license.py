@@ -1,15 +1,16 @@
-"""License 校验模块。
+"""License 校验 + 订阅档位模块。
 
-设计思路：
+设计思路（第一性原理）：
 - License = payload（JSON）+ HMAC-SHA256 签名
-- 你保留私钥（SECRET_KEY），用签名工具给客户生成 license
-- 客户端用同一个 SECRET_KEY 验签（HMAC 是对称的，生产中应换 RSA 非对称方案）
-- License payload 包含：product、customer、expires_at、features、max_companies
+- 三档预设：free / pro / team，每档有固定的 features + quota
+- quota 字段：max_companies, max_users, max_skus, max_brands,
+  max_config_revisions, stock_query_daily_limit, audit_log_days, watermark
+- 所有 quota 字段都有默认值，旧 license（无 quota 字段）向后兼容
 - 本地开发 SQ_DEV=1 跳过校验
 
 使用方式：
-1. 你用 generate_license() 给客户生成 license 字符串
-2. 客户把 license 写入环境变量 SQ_LICENSE 或通过 /api/license/verify 端点上传
+1. py scripts/generate_license.py --tier pro --customer "客户A"
+2. 客户把生成的 license 写入环境变量 SQ_LICENSE
 3. 后端启动时校验 license，过期或无效则拒绝启动
 
 注意：HMAC 是对称签名，SECRET_KEY 一旦泄露客户可伪造 license。
@@ -27,6 +28,8 @@ import secrets
 import time
 from typing import Any
 
+from fastapi import Depends, HTTPException
+
 logger = logging.getLogger(__name__)
 
 # 开发模式临时密钥（每次启动随机生成，避免源码中残留固定弱值）
@@ -39,6 +42,54 @@ _license_verified_at: float = 0
 
 # 每 5 分钟重新校验一次（避免每次请求都解码）
 _LICENSE_REVERIFY_INTERVAL = 300
+
+
+# ─── 三档订阅预设 ─────────────────────────────────────────────
+# 每档定义：features（功能开关）+ quota（用量上限）
+# quota 中 -1 表示不限，0 表示禁用
+TIER_FREE = "free"
+TIER_PRO = "pro"
+TIER_TEAM = "team"
+
+TIER_PRESETS: dict[str, dict[str, Any]] = {
+    TIER_FREE: {
+        "features": ["core", "customer_portal"],
+        "max_companies": 1,
+        "max_users": 1,
+        "max_skus": 500,
+        "max_brands": 2,
+        "max_config_revisions": 3,
+        "stock_query_daily_limit": 0,
+        "audit_log_days": 7,
+        "watermark": True,
+    },
+    TIER_PRO: {
+        "features": ["core", "customer_portal", "stock_query", "bundle_encryption",
+                      "supabase_deploy", "api_access", "audit_log"],
+        "max_companies": 1,
+        "max_users": 3,
+        "max_skus": 5000,
+        "max_brands": -1,
+        "max_config_revisions": 20,
+        "stock_query_daily_limit": 50,
+        "audit_log_days": 30,
+        "watermark": False,
+    },
+    TIER_TEAM: {
+        "features": ["core", "customer_portal", "stock_query", "bundle_encryption",
+                      "supabase_deploy", "api_access", "audit_log",
+                      "admin_member_inheritance", "tier_profit_grouping",
+                      "db_backup", "custom_branding"],
+        "max_companies": 5,
+        "max_users": -1,
+        "max_skus": -1,
+        "max_brands": -1,
+        "max_config_revisions": -1,
+        "stock_query_daily_limit": 500,
+        "audit_log_days": 90,
+        "watermark": False,
+    },
+}
 
 
 def _get_secret() -> bytes:
@@ -74,7 +125,7 @@ def generate_license(
     max_companies: int = 1,
     secret: str | None = None,
 ) -> str:
-    """生成 license 字符串（你用这个给客户签 license）。
+    """生成 license 字符串（兼容旧接口，推荐用 generate_tiered_license）。
 
     参数：
         customer: 客户名称
@@ -98,6 +149,66 @@ def generate_license(
         "expires_at": expires_at,
         "features": features or ["core"],
         "max_companies": max_companies,
+        "issued_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+    payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    signature = hmac.new(
+        secret.encode("utf-8"),
+        payload_json.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    license_obj = {"payload": payload, "signature": signature}
+    license_json = json.dumps(license_obj, separators=(",", ":"))
+    return base64.b64encode(license_json.encode("utf-8")).decode("ascii")
+
+
+def generate_tiered_license(
+    customer: str,
+    tier: str,
+    expires_at: str,
+    *,
+    secret: str | None = None,
+    **overrides: Any,
+) -> str:
+    """按订阅档位生成 license（推荐用法）。
+
+    参数：
+        customer: 客户名称
+        tier: 档位名 "free" / "pro" / "team"
+        expires_at: 过期时间 ISO 8601
+        secret: 签名密钥（默认从环境变量）
+        **overrides: 覆盖预设的 quota 字段（如 max_companies=10）
+
+    返回：base64 编码的 license 字符串。
+
+    示例：
+        py scripts/generate_license.py --tier pro --customer "客户A"
+    """
+    if tier not in TIER_PRESETS:
+        raise ValueError(f"未知档位: {tier}，可选: {list(TIER_PRESETS.keys())}")
+
+    preset = dict(TIER_PRESETS[tier])
+    preset.update(overrides)
+
+    if secret is None:
+        secret = _get_secret().decode("utf-8")
+
+    payload = {
+        "product": "smart-quotation",
+        "customer": customer,
+        "tier": tier,
+        "expires_at": expires_at,
+        "features": preset["features"],
+        "max_companies": preset["max_companies"],
+        "max_users": preset["max_users"],
+        "max_skus": preset["max_skus"],
+        "max_brands": preset["max_brands"],
+        "max_config_revisions": preset["max_config_revisions"],
+        "stock_query_daily_limit": preset["stock_query_daily_limit"],
+        "audit_log_days": preset["audit_log_days"],
+        "watermark": preset["watermark"],
         "issued_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -142,11 +253,30 @@ def _decode_license(license_str: str) -> dict[str, Any] | None:
     return payload
 
 
+# 开发模式 payload（所有功能开放，方便本地开发）
+_DEV_PAYLOAD: dict[str, Any] = {
+    "product": "smart-quotation",
+    "customer": "DEVELOPMENT",
+    "tier": "team",
+    "expires_at": "2099-12-31T23:59:59Z",
+    "features": TIER_PRESETS[TIER_TEAM]["features"],
+    "max_companies": 999,
+    "max_users": -1,
+    "max_skus": -1,
+    "max_brands": -1,
+    "max_config_revisions": -1,
+    "stock_query_daily_limit": 999,
+    "audit_log_days": 90,
+    "watermark": False,
+    "issued_at": "dev",
+}
+
+
 def verify_license(force: bool = False) -> dict[str, Any] | None:
     """校验当前环境中的 license。
 
-    返回 license payload（包含 customer、expires_at 等），无效则返回 None。
-    本地开发（SQ_DEV=1）时如果没设 license，返回一个开发用 payload。
+    返回 license payload（包含 customer、tier、features、quota 等），无效则返回 None。
+    本地开发（SQ_DEV=1）时如果没设 license，返回开发用 payload（全功能）。
     """
     global _license_cache, _license_verified_at
 
@@ -154,14 +284,7 @@ def verify_license(force: bool = False) -> dict[str, Any] | None:
 
     # 本地开发：无 license 时返回开发 payload
     if is_dev and not os.environ.get("SQ_LICENSE", "").strip():
-        return {
-            "product": "smart-quotation",
-            "customer": "DEVELOPMENT",
-            "expires_at": "2099-12-31T23:59:59Z",
-            "features": ["core", "multi_tenant", "stock_query"],
-            "max_companies": 999,
-            "issued_at": "dev",
-        }
+        return dict(_DEV_PAYLOAD)
 
     # 缓存检查（5 分钟内不重复解码）
     now = time.time()
@@ -175,14 +298,7 @@ def verify_license(force: bool = False) -> dict[str, Any] | None:
         if is_dev:
             # 本地开发 + license 无效：记录警告但放行
             logger.warning("SQ_LICENSE 无效或未设置，开发模式放行")
-            _license_cache = {
-                "product": "smart-quotation",
-                "customer": "DEVELOPMENT",
-                "expires_at": "2099-12-31T23:59:59Z",
-                "features": ["core", "multi_tenant", "stock_query"],
-                "max_companies": 999,
-                "issued_at": "dev",
-            }
+            _license_cache = dict(_DEV_PAYLOAD)
         else:
             _license_cache = None
         _license_verified_at = now
@@ -218,9 +334,17 @@ def get_license_info() -> dict[str, Any]:
         "valid": True,
         "customer": payload.get("customer", "UNKNOWN"),
         "product": payload.get("product", "smart-quotation"),
+        "tier": payload.get("tier", "free"),
         "expires_at": payload.get("expires_at", ""),
         "features": payload.get("features", []),
         "max_companies": payload.get("max_companies", 1),
+        "max_users": payload.get("max_users", 1),
+        "max_skus": payload.get("max_skus", 500),
+        "max_brands": payload.get("max_brands", 2),
+        "max_config_revisions": payload.get("max_config_revisions", 3),
+        "stock_query_daily_limit": payload.get("stock_query_daily_limit", 0),
+        "audit_log_days": payload.get("audit_log_days", 7),
+        "watermark": payload.get("watermark", True),
     }
 
 
@@ -231,3 +355,31 @@ def has_feature(feature: str) -> bool:
         return False
     features = payload.get("features", [])
     return feature in features or "all" in features
+
+
+def get_quota(field: str, default: Any = None) -> Any:
+    """获取 quota 字段值。未设置时返回 default。
+
+    常用 field：max_companies, max_users, max_skus, max_brands,
+    max_config_revisions, stock_query_daily_limit, audit_log_days, watermark
+    """
+    payload = verify_license()
+    if payload is None:
+        return default
+    return payload.get(field, default)
+
+
+def require_feature(feature: str):
+    """FastAPI 依赖：要求 license 包含某功能，否则返回 403。
+
+    用法：
+        @app.post("/api/xxx", dependencies=[Depends(require_feature("stock_query"))])
+        def xxx(): ...
+    """
+    def _check() -> None:
+        if not has_feature(feature):
+            raise HTTPException(
+                status_code=403,
+                detail=f"当前订阅档位不包含此功能（{feature}），请升级订阅。",
+            )
+    return _check
