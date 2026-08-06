@@ -25,6 +25,7 @@
 - **认证双模式**：`ADMIN_API_KEY`（超管，全平台权限）+ JWT（租户管理员，绑定 `company_id`）。`require_admin_api` 先检查 API Key，再尝试 JWT，最后开发模式兜底。返回 `{"role": "superadmin"|"tenant"|"dev", "company_id": ...}` 供下游依赖使用。
 - **租户隔离三依赖**：`require_admin_api`（认证）→ `resolve_company_id`（租户强制使用 JWT 中的 `company_id`）→ `require_superadmin`（公司创建/删除/assign-tier 等平台级操作限超管）。所有接受 `company_id` 查询参数的 admin 路由必须用 `Depends(resolve_company_id)` 而非 `Query(DEFAULT_COMPANY_ID)`，否则 JWT 用户可越权。
 - **注册/登录流程**：`admin/register.html` 填邮箱+密码+公司名 → `POST /api/auth/register` 自动创建公司+用户 → 返回 JWT → 跳转配置中心。`admin/login.html` 邮箱+密码登录。
+- **订阅档位系统**：三档预设 `free`/`pro`/`team`，每档定义 `features`（功能开关）+ `quota`（用量上限）。License payload 包含 `tier` 字段 + 所有 quota 字段。功能门控通过 `has_feature()` / `get_quota()` 在路由层检查，未授权返回 403。生成 license 用 `py scripts/generate_license.py --tier pro --customer "客户A"`。
 
 ## 客户门户 (apps/index.html)
 
@@ -55,7 +56,7 @@
 - **Supabase 项目地址**通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
 - **CSP**：`script-src 'self' https://browser.sentry-cdn.com`（SheetJS 已自托管至 `admin/lib/`，仅保留 Sentry SDK CDN 白名单）；`connect-src` 白名单：`*.supabase.co`/`.in`/`.net` + `*.sentry.io` + `*.railway.app` + `*.render.com`（`netlify.toml`，已移除 `https:` 通配防 XSS 外泄）
 - **静态文件缓存策略**（`StaticCacheControlMiddleware` in `factory.py`）：HTML → `no-cache, must-revalidate`（每次通过 ETag 校验，部署后立即生效）；CSS/JS → `public, max-age=31536000, immutable`（永久缓存，靠 `?v=` 查询参数失效）；图片/字体 → `public, max-age=86400`。**改静态文件服务时不能删此中间件**——否则手机浏览器启用启发式缓存，部署后看不到更新。Netlify 部署时 `netlify.toml` 的 `[[headers]]` 提供等价策略。
-- **生产环境必填**：`ADMIN_API_KEY`、`JWT_SECRET`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份安全降级并打 warning（静默丢数据风险，需看日志确认）
+- **生产环境必填**：`ADMIN_API_KEY`、`JWT_SECRET`、`SQ_LICENSE_SECRET`、`SQ_LICENSE`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份安全降级并打 warning（静默丢数据风险，需看日志确认）
 
 ## 运行与验证
 
@@ -89,7 +90,35 @@ node --test tests/*.test.js
 - `_DEPLOYMENT-STEPS.md`（本地）：部署步骤详记。
 - `_LOCAL-GUIDE.md`（本地）：本地开发指南。
 
-## 记忆原则
+## 功能门控（订阅档位）
+
+### 档位预设
+
+| 档位 | 公司数 | SKU | 库存查询/天 | 关键功能 |
+|------|--------|-----|------------|----------|
+| free | 1 | 500 | 0 | core + customer_portal（带水印） |
+| pro | 1 | 5000 | 50 | + stock_query + bundle_encryption + supabase_deploy + api_access |
+| team | 5 | 不限 | 500 | + admin_member_inheritance + tier_profit_grouping + db_backup + custom_branding |
+
+### 门控点
+
+| 端点 | 检查 | quota 字段 |
+|------|------|-----------|
+| `POST /api/items` / upload | SKU 数量 | `max_skus` |
+| `POST /api/config` | 版本历史上限（超限自动删最旧） | `max_config_revisions` |
+| `POST /api/stock-query` | 功能开关 + 日配额 | `stock_query_daily_limit` |
+| `POST /api/merger/bundle/*` (deploy) | supabase_deploy 功能 | `features` |
+| `PUT /api/tiers` | tier_profit_grouping 功能 | `features` |
+| `POST /api/companies/{id}/members` | admin_member_inheritance 功能 | `features` |
+| `GET /api/audit` | 按天数过滤 | `audit_log_days` |
+
+### License 生成
+
+```powershell
+py scripts/generate_license.py --tier pro --customer "客户A" --expires 2027-12-31
+```
+
+输出 base64 字符串，设为环境变量 `SQ_LICENSE`。
 
 - 不要把历史变更记录写入本文件。
 - 本文件只保留项目架构、核心运行规则、重要边界和查阅指针。

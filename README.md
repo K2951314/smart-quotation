@@ -262,6 +262,22 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 - **多租户隔离**：所有业务表 `company_id` 过滤，删除公司级联清理
 - **源码无硬编码 URL**：Supabase/Railway 地址全部通过环境变量或 admin 配置中心注入
 
+## 订阅档位
+
+| 档位 | 价格 | 公司数 | SKU | 库存查询/天 | 关键功能 |
+|------|------|--------|-----|------------|----------|
+| 免费版 | ¥0 | 1 | 500 | — | core + customer_portal（带水印） |
+| 个人版 | ¥99/月 | 1 | 5000 | 50 | + stock_query + bundle_encryption + supabase_deploy |
+| 专业版 | ¥399/月 | 5 | 不限 | 500 | + admin_member_inheritance + tier_profit_grouping + db_backup |
+
+生成 License：
+
+```powershell
+py scripts/generate_license.py --tier pro --customer "客户A" --expires 2027-12-31
+```
+
+定价详情见 `admin/billing.html`。
+
 ---
 
 ## 开发说明
