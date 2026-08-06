@@ -1,4 +1,7 @@
-"""Merger / Bundle 端点：品牌检测、Bundle 生成与部署。"""
+"""Merger / Bundle 端点：品牌检测、Bundle 生成与部署。
+
+租户隔离：所有端点使用 Depends(resolve_company_id)，JWT 用户只能操作自己公司的数据。
+"""
 
 from __future__ import annotations
 
@@ -9,7 +12,7 @@ from fastapi import Depends, File, HTTPException, Query, UploadFile
 
 from ..observability import capture_exception
 from ..store import DEFAULT_COMPANY_ID
-from .auth import require_admin_api
+from .auth import resolve_company_id
 from .models import BundleDeploy, BundleGenerate
 from .supabase import deploy_bundles_to_supabase
 
@@ -26,10 +29,10 @@ def register(app) -> None:
     store = app.state.store
     is_dev = app.state.is_dev
 
-    @app.post("/api/merger/detect-brands", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/merger/detect-brands")
     async def detect_brands(
         files: list[UploadFile] = File(...),
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
     ) -> dict[str, Any]:
         """上传多个 Excel 文件，按文件名识别品牌，返回检测结果。"""
         if len(files) > _MAX_FILE_COUNT:
@@ -43,10 +46,10 @@ def register(app) -> None:
         results = store.detect_brands(file_tuples, company_id=company_id)
         return {"files": results}
 
-    @app.post("/api/merger/bundle/generate", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/merger/bundle/generate")
     def generate_bundles(
         payload: BundleGenerate,
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
     ) -> dict[str, Any]:
         """生成价格包 + 库存包，可选部署到 Supabase。
 
@@ -83,10 +86,10 @@ def register(app) -> None:
 
         return result
 
-    @app.post("/api/merger/bundle/deploy", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/merger/bundle/deploy")
     def deploy_bundles(
         payload: BundleDeploy,
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
     ) -> dict[str, Any]:
         """将 Bundle 部署到 Supabase Storage。
 

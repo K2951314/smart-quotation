@@ -1,18 +1,19 @@
 """Tier（利润率分组）管理路由：查询/更新 Tier + 公司分配。
 
-Tier 存储在管理员公司的 meta.tiers 中，成员公司通过 meta.tier + meta.parent_company_id
-继承 parent 的配置/数据，同时按 tier 名解析出利润率。
+租户隔离：
+- get_tiers / update_tiers 使用 Depends(resolve_company_id)
+- assign_tier 需要超管权限（修改公司结构是平台级操作）
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..store import DEFAULT_COMPANY_ID
-from .auth import require_admin_api
+from .auth import require_superadmin, resolve_company_id
 
 
 class TierItem(BaseModel):
@@ -31,11 +32,11 @@ class TierAssign(BaseModel):
 
 
 def register(app) -> None:
-    """注册 Tier 管理端点（需 admin 认证）。"""
+    """注册 Tier 管理端点。"""
     store = app.state.store
 
-    @app.get("/api/tiers", dependencies=[Depends(require_admin_api)])
-    def get_tiers(company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, Any]:
+    @app.get("/api/tiers")
+    def get_tiers(company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
         """获取作用于该公司的 Tier 列表。
 
         成员公司自动从 parent 的 meta.tiers 读取。
@@ -49,10 +50,10 @@ def register(app) -> None:
             "tiers": tiers,
         }
 
-    @app.put("/api/tiers", dependencies=[Depends(require_admin_api)])
+    @app.put("/api/tiers")
     def update_tiers(
         payload: TiersUpdate,
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
     ) -> dict[str, Any]:
         """替换数据归属公司的 Tier 列表（写入 meta.tiers）。
 
@@ -71,9 +72,9 @@ def register(app) -> None:
             "tiers": (updated.get("meta") or {}).get("tiers", []),
         }
 
-    @app.post("/api/companies/{company_id}/assign-tier", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/companies/{company_id}/assign-tier", dependencies=[Depends(require_superadmin)])
     def assign_tier(company_id: str, payload: TierAssign) -> dict[str, Any]:
-        """将公司分配到指定 Tier。
+        """将公司分配到指定 Tier（超管操作）。
 
         - payload.tier 为 null → 移除 tier 分配（公司回退到 meta.profit_margin）
         - payload.parent_company_id 可同时设置/变更 parent（设为空串或 null 清除）

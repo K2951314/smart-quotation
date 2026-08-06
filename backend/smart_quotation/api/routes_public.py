@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from ..store import DEFAULT_COMPANY_ID
-from .auth import require_admin_api, require_company_access
+from .auth import require_admin_api, require_company_access, require_superadmin
 
 
 def register(app) -> None:
@@ -143,7 +143,7 @@ def register(app) -> None:
                 content={"error": "no published config", "hint": "请先在 /admin/ 中发布配置"},
             )
 
-    @app.get("/api/license/info", dependencies=[Depends(require_admin_api)])
+    @app.get("/api/license/info", dependencies=[Depends(require_superadmin)])
     def license_info(request: Request) -> dict[str, Any]:
         """返回当前 license 状态（需 admin 认证）。
 

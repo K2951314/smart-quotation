@@ -1,4 +1,9 @@
-"""Admin 公司管理路由：CRUD + 令牌轮换。"""
+"""Admin 公司管理路由：CRUD + 令牌轮换。
+
+租户隔离策略：
+- list/get/update/regenerate-token：租户只能操作自己的公司，超管可操作任意公司
+- create/delete/create-member：超管专属（平台级操作，租户不应能创建或删除公司）
+"""
 
 from __future__ import annotations
 
@@ -7,35 +12,44 @@ from typing import Any
 from fastapi import Depends, HTTPException
 
 from ..store import DEFAULT_COMPANY_ID
-from .auth import require_admin_api
+from .auth import require_admin_api, require_superadmin
 from .models import CompanyCreate, CompanyUpdate
 
 
-def register(app) -> None:
-    """注册公司管理端点（需 admin 认证）。
+def _ensure_company_access(auth: dict[str, Any], company_id: str) -> None:
+    """租户只能访问自己的公司，超管可访问任意公司。"""
+    if auth["role"] == "tenant" and auth["company_id"] != company_id:
+        raise HTTPException(status_code=403, detail="无权访问此公司")
 
-    安全说明：
-    - 所有端点需要 Admin API Key（Bearer token），这是最高权限。
-    - list/get 返回完整 access_token，因为 admin 前端需要它构建客户访问链接。
-    - 前端（admin/lib/companies.js）已自行做显示脱敏（只显示前 8 字符 + "..."）。
-    - 真正的防护是 Admin API Key 的强校验 + CSP（script-src 'self'）防 XSS。
-    """
+
+def register(app) -> None:
+    """注册公司管理端点。"""
     store = app.state.store
 
-    @app.get("/api/companies", dependencies=[Depends(require_admin_api)])
-    def list_companies_admin() -> list[dict[str, Any]]:
+    @app.get("/api/companies")
+    def list_companies_admin(auth: dict[str, Any] = Depends(require_admin_api)) -> list[dict[str, Any]]:
+        """列出公司。超管看到全部，租户只看到自己的。"""
+        if auth["role"] == "tenant":
+            try:
+                return [store.get_company(auth["company_id"])]
+            except LookupError:
+                return []
         return store.list_companies()
 
-    @app.get("/api/companies/{company_id}", dependencies=[Depends(require_admin_api)])
-    def get_company_admin(company_id: str) -> dict[str, Any]:
+    @app.get("/api/companies/{company_id}")
+    def get_company_admin(
+        company_id: str,
+        auth: dict[str, Any] = Depends(require_admin_api),
+    ) -> dict[str, Any]:
+        _ensure_company_access(auth, company_id)
         try:
             return store.get_company(company_id)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/api/companies", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/companies", dependencies=[Depends(require_superadmin)])
     def create_company_admin(payload: CompanyCreate) -> dict[str, Any]:
-        """创建公司。
+        """创建公司（超管专属）。
 
         设计原则（树形公司结构）：
         - 不传 parent_company_id → 创建为「数据源管理员」（自动 is_admin=true），
@@ -69,9 +83,9 @@ def register(app) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.post("/api/companies/{admin_id}/members", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/companies/{admin_id}/members", dependencies=[Depends(require_superadmin)])
     def create_member_company(admin_id: str, payload: CompanyCreate) -> dict[str, Any]:
-        """在管理员公司下创建成员公司。
+        """在管理员公司下创建成员公司（超管专属）。
 
         自动设置 parent_company_id = admin_id，成员公司继承管理员的配置/数据/折扣/bundle。
         可通过 meta.tier 指定初始 Tier 分组。
@@ -110,14 +124,19 @@ def register(app) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.patch("/api/companies/{company_id}", dependencies=[Depends(require_admin_api)])
-    def update_company_admin(company_id: str, payload: CompanyUpdate) -> dict[str, Any]:
+    @app.patch("/api/companies/{company_id}")
+    def update_company_admin(
+        company_id: str,
+        payload: CompanyUpdate,
+        auth: dict[str, Any] = Depends(require_admin_api),
+    ) -> dict[str, Any]:
+        _ensure_company_access(auth, company_id)
         try:
             return store.update_company(company_id, payload.name, payload.meta)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.delete("/api/companies/{company_id}", dependencies=[Depends(require_admin_api)])
+    @app.delete("/api/companies/{company_id}", dependencies=[Depends(require_superadmin)])
     def delete_company_admin(company_id: str) -> dict[str, Any]:
         try:
             return store.delete_company(company_id)
@@ -126,9 +145,13 @@ def register(app) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.post("/api/companies/{company_id}/regenerate-token", dependencies=[Depends(require_admin_api)])
-    def regenerate_company_token(company_id: str) -> dict[str, Any]:
-        """重新生成公司访问令牌（旧令牌立即失效）。"""
+    @app.post("/api/companies/{company_id}/regenerate-token")
+    def regenerate_company_token(
+        company_id: str,
+        auth: dict[str, Any] = Depends(require_admin_api),
+    ) -> dict[str, Any]:
+        """重新生成公司访问令牌（旧令牌立即失效）。租户只能轮换自己的令牌。"""
+        _ensure_company_access(auth, company_id)
         try:
             company = store.regenerate_company_token(company_id)
             return {

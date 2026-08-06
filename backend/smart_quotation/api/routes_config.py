@@ -1,4 +1,8 @@
-"""Admin 配置管理路由：保存/发布/回滚/导入导出/校验。"""
+"""Admin 配置管理路由：保存/发布/回滚/导入导出/校验。
+
+租户隔离：所有接受 company_id 的端点使用 Depends(resolve_company_id)，
+JWT 用户强制使用 JWT 中的 company_id，超管可指定任意 company_id。
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ from fastapi.responses import PlainTextResponse
 
 from ..observability import capture_event
 from ..store import DEFAULT_COMPANY_ID
-from .auth import require_admin_api
+from .auth import require_admin_api, resolve_company_id
 from .models import ConfigImport, ConfigSave
 
 
@@ -20,26 +24,26 @@ def register(app) -> None:
     store = app.state.store
     engine = app.state.engine
 
-    @app.get("/api/configs", dependencies=[Depends(require_admin_api)])
-    def list_configs(company_id: str = Query(DEFAULT_COMPANY_ID)) -> list[dict[str, Any]]:
+    @app.get("/api/configs")
+    def list_configs(company_id: str = Depends(resolve_company_id)) -> list[dict[str, Any]]:
         return store.list_configs(company_id=company_id)
 
-    @app.get("/api/config", dependencies=[Depends(require_admin_api)])
-    def get_active_config(company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, Any]:
+    @app.get("/api/config")
+    def get_active_config(company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
         try:
             return store.get_active_config(company_id=company_id)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/api/config", dependencies=[Depends(require_admin_api)])
-    def save_config(payload: ConfigSave, company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, Any]:
+    @app.post("/api/config")
+    def save_config(payload: ConfigSave, company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
         try:
             return store.save_config(payload.config, status=payload.status, company_id=company_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/api/config/{revision}/publish", dependencies=[Depends(require_admin_api)])
-    def rollback_config(revision: str, company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, Any]:
+    @app.post("/api/config/{revision}/publish")
+    def rollback_config(revision: str, company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
         try:
             result = store.rollback_config(revision, company_id=company_id)
             capture_event("config.published", company_id=company_id, revision=revision)
@@ -47,16 +51,16 @@ def register(app) -> None:
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.delete("/api/config/{revision}", dependencies=[Depends(require_admin_api)])
-    def delete_config(revision: str, company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, str]:
+    @app.delete("/api/config/{revision}")
+    def delete_config(revision: str, company_id: str = Depends(resolve_company_id)) -> dict[str, str]:
         try:
             store.delete_config(revision, company_id=company_id)
             return {"revision": revision, "status": "deleted"}
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.get("/api/config/validate", dependencies=[Depends(require_admin_api)])
-    def validate_config(company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, Any]:
+    @app.get("/api/config/validate")
+    def validate_config(company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
         try:
             config = store.get_active_config(company_id=company_id)
         except LookupError as exc:
@@ -64,15 +68,19 @@ def register(app) -> None:
         errors = engine.validate_config(config)
         return {"valid": len(errors) == 0, "errors": errors}
 
-    @app.get("/api/config/{revision}/export", response_class=PlainTextResponse, dependencies=[Depends(require_admin_api)])
-    def export_config(revision: str, fmt: Literal["json", "yaml"] = "json", company_id: str = Query(DEFAULT_COMPANY_ID)) -> str:
+    @app.get("/api/config/{revision}/export", response_class=PlainTextResponse)
+    def export_config(
+        revision: str,
+        fmt: Literal["json", "yaml"] = "json",
+        company_id: str = Depends(resolve_company_id),
+    ) -> str:
         try:
             return store.export_config(revision, fmt, company_id=company_id)
         except (LookupError, ValueError) as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/api/config/import", dependencies=[Depends(require_admin_api)])
-    def import_config(payload: ConfigImport, company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, Any]:
+    @app.post("/api/config/import")
+    def import_config(payload: ConfigImport, company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
         try:
             return store.import_config(payload.content, fmt=payload.fmt, status=payload.status, company_id=company_id)
         except (ValueError, SyntaxError) as exc:
@@ -90,6 +98,9 @@ def register(app) -> None:
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=500, detail=f"config.example.json is invalid JSON: {exc}") from exc
 
-    @app.get("/api/audit", dependencies=[Depends(require_admin_api)])
-    def list_audit(limit: int = Query(50, ge=1, le=200), company_id: str = Query(DEFAULT_COMPANY_ID)) -> list[dict[str, Any]]:
+    @app.get("/api/audit")
+    def list_audit(
+        limit: int = Query(50, ge=1, le=200),
+        company_id: str = Depends(resolve_company_id),
+    ) -> list[dict[str, Any]]:
         return store.list_audit(limit, company_id=company_id)

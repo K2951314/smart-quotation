@@ -1,4 +1,7 @@
-"""Admin 商品数据路由：替换/上传/回滚/报价查询。"""
+"""Admin 商品数据路由：替换/上传/回滚/报价查询。
+
+租户隔离：所有端点使用 Depends(resolve_company_id)，JWT 用户只能操作自己公司的数据。
+"""
 
 from __future__ import annotations
 
@@ -9,8 +12,7 @@ from fastapi import Depends, File, HTTPException, Query, UploadFile
 import logging
 
 from ..observability import capture_event
-from ..store import DEFAULT_COMPANY_ID
-from .auth import require_admin_api
+from .auth import resolve_company_id
 from .models import ItemsReplace
 
 logger = logging.getLogger(__name__)
@@ -24,22 +26,22 @@ def register(app) -> None:
     store = app.state.store
     engine = app.state.engine
 
-    @app.get("/api/items/stats", dependencies=[Depends(require_admin_api)])
-    def get_items_stats(company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, Any]:
+    @app.get("/api/items/stats")
+    def get_items_stats(company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
         return store.get_items_stats(company_id=company_id)
 
-    @app.post("/api/items", dependencies=[Depends(require_admin_api)])
-    def replace_items(payload: ItemsReplace, company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, int | str]:
+    @app.post("/api/items")
+    def replace_items(payload: ItemsReplace, company_id: str = Depends(resolve_company_id)) -> dict[str, int | str]:
         store.replace_items(payload.data_revision, payload.rows, company_id=company_id)
         capture_event("items.replaced", company_id=company_id, data_revision=payload.data_revision, count=len(payload.rows))
         return {"count": len(payload.rows)}
 
-    @app.post("/api/items/upload", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/items/upload")
     async def upload_items(
         file: UploadFile = File(...),
         data_revision: str = Query("", description="留空则自动从文件名生成"),
         write: bool = Query(False, description="True 时直接写入，False 仅预览"),
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
         face_price_tax_inclusive: bool | None = Query(None, description="面价是否含税；None 则使用 config 默认"),
     ) -> dict[str, Any]:
         content = await file.read()
@@ -66,18 +68,18 @@ def register(app) -> None:
             return {"action": "written", "data_revision": rev, "count": len(rows), "report": report}
         return {"action": "preview", "count": len(rows), "report": report, "preview": rows[:5]}
 
-    @app.delete("/api/items/rollback", dependencies=[Depends(require_admin_api)])
+    @app.delete("/api/items/rollback")
     def rollback_items(
         data_revision: str = Query(..., description="要回滚的库存版本，删除该版本的所有行"),
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
     ) -> dict[str, Any]:
         try:
             return store.delete_items_revision(data_revision, company_id=company_id)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.get("/api/quote", dependencies=[Depends(require_admin_api)])
-    def quote(q: str = Query(..., min_length=1), company_id: str = Query(DEFAULT_COMPANY_ID)) -> dict[str, Any]:
+    @app.get("/api/quote")
+    def quote(q: str = Query(..., min_length=1), company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
         try:
             config = store.get_active_config(company_id=company_id)
             return {
