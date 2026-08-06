@@ -4,7 +4,7 @@
  * 依赖：admin-core.js（$、state、request、setStatus、run、defaultConfig）
  *       config-collect.js（collectConfig）
  *       config-render.js（renderAll）
- *       supabase-deploy.js（sbUploadFile、sbUpdateVersionJson、autoFillSupabaseUrl、sbAutoFillBaseUrl、sbGetBaseUrl）
+ *       supabase-deploy.js（desensitizeConfigForPublic、sbUploadFile、sbUpdateVersionJson、autoFillSupabaseUrl、sbAutoFillBaseUrl、sbGetBaseUrl）
  *       companies.js（getCurrentCompanyId）
  */
 
@@ -47,24 +47,25 @@ async function initApp() {
 }
 
 async function loadConfig() {
-  const confirmed = confirm("将从 Supabase 下载 config.json 覆盖当前草稿，未保存的修改会丢失。\n\n是否继续？");
+  // 安全修复：从后端 SQLite 恢复完整配置（含 rules/discount_rules），
+  // 不再从 Supabase 恢复（Supabase 上是脱敏版，无 rules，恢复后再保存会丢 rules）。
+  const confirmed = confirm("将从后端数据库加载已发布的配置覆盖当前草稿，未保存的修改会丢失。\n\n是否继续？");
   if (!confirmed) return;
 
-  sbAutoFillBaseUrl();
-  const baseUrl = sbGetBaseUrl();
-  const configUrl = baseUrl + "/config.json";
-
   try {
-    const resp = await fetch(configUrl + "?t=" + Date.now());
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const raw = await resp.json();
-      if (!raw.schema_version) raw.schema_version = 2;
-      raw.status = "draft";
-      state.config = normalizeAdminConfig(raw);
+    const config = await request("/api/config");
+    if (!config.schema_version) config.schema_version = 3;
+    config.status = "draft";
+    state.config = normalizeAdminConfig(config);
     renderAll();
-    setStatus("✅ 已从 Supabase 恢复 config.json");
+    autoFillSupabaseUrl();
+    setStatus("已从后端恢复「" + getCurrentCompanyId() + "」的配置");
   } catch (err) {
-    setStatus("❌ 从 Supabase 恢复失败: " + (err.message || err), true);
+    if (err.status === 404) {
+      setStatus("「" + getCurrentCompanyId() + "」尚未发布配置", "warn");
+    } else {
+      setStatus("加载失败: " + (err.message || err), true);
+    }
   }
 }
 
@@ -80,33 +81,10 @@ async function saveConfig(status) {
   // 发布时自动部署到 Supabase
   if (status === "published") {
     try {
-      // 上传 config.json — 安全：脱敏后上传（移除折扣规则、定价公式、data_source）
-      const frontendCfg = {};
-      for (const [k, v] of Object.entries(state.config)) {
-        if (k !== "data_source" && k !== "rules" && k !== "discount_rules") {
-          frontendCfg[k] = v;
-        }
-      }
-      if (frontendCfg.pricing) {
-        frontendCfg.pricing = { ...frontendCfg.pricing };
-        delete frontendCfg.pricing.default_formula;
-      }
-      await sbUploadFile("config.json", JSON.stringify(frontendCfg, null, 2), "application/json;charset=utf-8");
-
-      // 上传 version.json
-      let dataRev = "";
-      try {
-        const stats = await request("/api/items/stats");
-        dataRev = (stats && stats.data_revision) || "";
-      } catch (e) {
-        dataRev = state.config.revision || state.config.version || "";
-      }
-      const versionPayload = JSON.stringify({
-        version: dataRev,
-        updated_at: new Date().toISOString(),
-      }, null, 2);
-      await sbUploadFile("version.json", versionPayload, "application/json;charset=utf-8");
-
+      // 上传 config.json — 使用统一脱敏函数（移除 rules/discount_rules/default_formula）
+      const safeCfg = desensitizeConfigForPublic(state.config);
+      await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
+      await sbUpdateVersionJson();
       setStatus("配置已发布并同步到 Supabase");
     } catch (err) {
       console.error("Supabase 同步失败:", err);
@@ -168,25 +146,11 @@ async function rollbackToRevision(revision) {
   setStatus(`已回滚到版本 ${revision}`);
 
   try {
-    const frontendCfg = {};
-    for (const [k, v] of Object.entries(config)) {
-      if (k !== "data_source") {
-        frontendCfg[k] = v;
-      }
-    }
-    await sbUploadFile("config.json", JSON.stringify(frontendCfg, null, 2), "application/json;charset=utf-8");
-    let dataRev = "";
-    try {
-      const stats = await request("/api/items/stats");
-      dataRev = (stats && stats.data_revision) || config.revision || "";
-    } catch (e) {
-      dataRev = config.revision || "";
-    }
-    const versionPayload = JSON.stringify({
-      version: dataRev,
-      updated_at: new Date().toISOString(),
-    }, null, 2);
-    await sbUploadFile("version.json", versionPayload, "application/json;charset=utf-8");
+    // 安全修复：使用统一脱敏函数（原代码只移除 data_source，漏了 rules/discount_rules，
+    // 导致折扣规则泄露到 Supabase 公开桶）
+    const safeCfg = desensitizeConfigForPublic(config);
+    await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
+    await sbUpdateVersionJson();
     setStatus("已回滚并同步到 Supabase");
   } catch (err) {
     console.error("Supabase 同步失败:", err);

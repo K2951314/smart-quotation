@@ -16,6 +16,7 @@ from ..engine import QuotationEngine
 from ..observability import init_sentry
 from ..store import QuotationStore
 from .auth import AuthContext, load_admin_api_key
+from .routes_auth import register as register_auth
 from .routes_companies import register as register_companies
 from .routes_config import register as register_config
 from .routes_items import register as register_items
@@ -206,6 +207,7 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
             _logger.warning("License 校验异常: %s", exc)
 
     # 注册路由模块
+    register_auth(app)
     register_public(app)
     register_companies(app)
     register_config(app)

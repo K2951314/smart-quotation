@@ -107,16 +107,7 @@ function bind() {
     try {
       sbAutoFillBaseUrl();
       const cfg = collectConfig();
-      const safeCfg = {};
-      for (const [k, v] of Object.entries(cfg)) {
-        if (k !== "data_source" && k !== "rules" && k !== "discount_rules") {
-          safeCfg[k] = v;
-        }
-      }
-      if (safeCfg.pricing) {
-        safeCfg.pricing = { ...safeCfg.pricing };
-        delete safeCfg.pricing.default_formula;
-      }
+      const safeCfg = desensitizeConfigForPublic(cfg);
       await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
     } catch (err) {
       sbSetStatus("❌ " + err.message, "error");
@@ -205,6 +196,21 @@ function bind() {
       }
       const cfg = collectConfig();
       const password = $("merger-pricePassword")?.value.trim() || "";
+
+      // 密码警告：加密包会导致客户端 prompt 密码，客户不知道密码无法查看价格
+      if (password) {
+        const ok = confirm("⚠️ 您填写了价格包密码，上传后价格包将被加密。\n\n" +
+          "客户端遇到加密包会弹出密码输入框，客户通常不知道密码。\n\n" +
+          "如需让客户直接查看价格，请清空密码框。\n\n是否继续？");
+        if (!ok) return;
+      }
+
+      // 上传 config.json（脱敏版）——修复：原来一键同步不上传 config.json，
+      // 导致 Supabase 上的 config.json 可能是旧的，客户端用旧配置 + 新 bundle 会字段不匹配
+      sbSetStatus("正在上传 config.json...", "info");
+      const safeCfg = desensitizeConfigForPublic(cfg);
+      await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
+
       if (hasPrice) {
         sbSetStatus("正在生成并上传脱敏价格包...", "info");
         const priceResult = await ExportUtils.createPriceBundleScript(ms.priceRows, password, cfg, { desensitize: true });
@@ -222,7 +228,7 @@ function bind() {
         window._mergerBundles.stock = stockResult.script;
       }
       await sbUpdateVersionJson();
-      sbSetStatus("⚡ 已同步全部数据到 Supabase", "ok");
+      sbSetStatus("⚡ 已同步全部数据到 Supabase（含 config + price + stock + version）", "ok");
     } catch (err) {
       sbSetStatus("❌ " + err.message, "error");
     }

@@ -1,10 +1,46 @@
 /**
  * supabase-deploy.js — Supabase Storage 上传工具。
  *
- * 依赖：admin-core.js（sbAnonKeyInput、sbBaseUrlInput、collectConfig、request）
+ * 依赖：admin-core.js（sbAnonKeyInput、sbBaseUrlInput、collectConfig、request、state）
  */
 
 const SB_KEY = "quotation-admin-sb-anon-key";
+
+/**
+ * 统一脱敏函数：用于上传 config.json 到 Supabase 公开桶。
+ *
+ * 与后端 store/configs.py desensitize_config() 对齐：
+ * - 移除 rules（折扣条件，可反推面价）
+ * - 移除 discount_rules（折扣规则，可反推面价）
+ * - 移除 pricing.default_formula（可能含面价引用）
+ * - 设置 _desensitized = true 标记（供客户端识别）
+ * - 保留 data_source（客户端需要 base_url 拉取 bundle）
+ *
+ * 安全：三处调用（saveConfig / sbUploadConfigBtn / rollbackToRevision）共用此函数，
+ * 避免遗漏导致 rules/discount_rules 泄露到公开桶。
+ */
+function desensitizeConfigForPublic(cfg) {
+  if (!cfg || typeof cfg !== "object") return {};
+  var safe = {};
+  for (var k in cfg) {
+    if (!cfg.hasOwnProperty(k)) continue;
+    // 移除敏感字段：rules、discount_rules
+    if (k === "rules" || k === "discount_rules") continue;
+    safe[k] = cfg[k];
+  }
+  // 移除 pricing.default_formula
+  if (safe.pricing && typeof safe.pricing === "object") {
+    safe.pricing = {};
+    for (var pk in cfg.pricing) {
+      if (!cfg.pricing.hasOwnProperty(pk)) continue;
+      if (pk === "default_formula") continue;
+      safe.pricing[pk] = cfg.pricing[pk];
+    }
+  }
+  // 设置脱敏标记（与后端 desensitize_config 对齐）
+  safe._desensitized = true;
+  return safe;
+}
 
 function sbAutoFillBaseUrl() {
   if (!sbBaseUrlInput || sbBaseUrlInput.value.trim()) return;
@@ -77,7 +113,8 @@ async function sbUpdateVersionJson() {
     const stats = await request("/api/items/stats");
     dataRev = (stats && stats.data_revision) || "";
   } catch (e) {
-    dataRev = new Date().toISOString();
+    // fallback：使用当前配置的 revision，与 saveConfig 对齐
+    dataRev = (state.config && state.config.revision) || "";
   }
   if (!dataRev) dataRev = new Date().toISOString();
   const versionPayload = JSON.stringify({

@@ -152,15 +152,45 @@ def require_admin_api(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(admin_security),
 ) -> None:
-    """验证 admin 后台 API key。使用 compare_digest 防时序攻击。"""
+    """验证 admin 后台 API key 或 JWT。
+
+    认证优先级：
+    1. ADMIN_API_KEY（超管）：Bearer token 与 ADMIN_API_KEY 比较
+    2. JWT（租户管理员）：解码 JWT，验证签名和过期时间
+    3. 开发模式（SQ_DEV=1）：宽松跳过
+
+    使用 compare_digest 防时序攻击。
+    """
     auth: AuthContext = request.app.state.auth
     client_ip = request.client.host if request.client else "unknown"
     # 内存级 IP 限流先于认证检查——挡住无凭证洪水请求，避免每次都查 DB
     auth.check_rate_limit(f"ip:{client_ip}")
     if not credentials or not credentials.credentials:
         _handle_auth_failure(auth, client_ip, 401, "authentication required")
-    if not secrets.compare_digest(credentials.credentials, auth.admin_api_key):
-        _handle_auth_failure(auth, client_ip, 401, "authentication required")
+
+    token = credentials.credentials
+
+    # 1. 先检查是否为 ADMIN_API_KEY（超管）
+    if secrets.compare_digest(token, auth.admin_api_key):
+        return
+
+    # 2. 尝试解码 JWT（租户管理员）
+    try:
+        from .routes_auth import _decode_jwt
+        payload = _decode_jwt(token)
+        if payload and "sub" in payload and "company_id" in payload:
+            # JWT 有效，将用户信息存入 request.state 供后续使用
+            request.state.jwt_user = payload
+            return
+    except Exception:
+        pass
+
+    # 3. 开发模式宽松处理
+    if auth.is_dev:
+        logger.debug("开发模式：宽松认证")
+        return
+
+    _handle_auth_failure(auth, client_ip, 401, "authentication required")
 
 
 def require_company_access(

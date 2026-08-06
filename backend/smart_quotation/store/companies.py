@@ -11,6 +11,16 @@ from typing import Any
 
 from .base import DEFAULT_COMPANY_ID
 
+# 双后端 IntegrityError：SQLite + PostgreSQL（psycopg2 懒加载）
+def _get_integrity_errors():
+    try:
+        from psycopg2 import errors as _pg_errors
+        return (sqlite3.IntegrityError, _pg_errors.UniqueViolation)
+    except ImportError:
+        return sqlite3.IntegrityError
+
+_IntegrityError = _get_integrity_errors()
+
 
 # 默认利润率（未配置 tier 且无 meta.profit_margin 时使用）
 DEFAULT_PROFIT_MARGIN = 10.0
@@ -176,7 +186,7 @@ class CompaniesMixin:
                     "insert into companies(id, name, created_at, meta_json) values(?, ?, ?, ?)",
                     (company_id, str(name).strip(), self.now(), json.dumps(meta, ensure_ascii=False)),
                 )
-            except sqlite3.IntegrityError as exc:
+            except _IntegrityError as exc:
                 raise ValueError(f"company {company_id} 已存在") from exc
             conn.commit()
         self._mark_db_dirty(immediate=True)

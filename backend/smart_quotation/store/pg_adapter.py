@@ -1,0 +1,180 @@
+"""PostgreSQL 适配器：提供与 sqlite3 兼容的接口，实现双数据库模式。
+
+当 DATABASE_URL 环境变量设置时，自动切换到 PostgreSQL 模式。
+未设置时，回退到 SQLite（本地开发模式，SQ_DEV=1）。
+
+核心设计：
+  - PGConnection 包装 psycopg2 连接，提供与 sqlite3.Connection 相同的方法签名
+  - ? 占位符自动翻译为 %s
+  - executescript() 按分号拆分执行，跳过 PRAGMA
+  - total_changes 累计 rowcount，模拟 SQLite 的连接级变更计数
+  - RealDictCursor 提供与 sqlite3.Row 相同的 dict-like 行访问
+  - psycopg2 采用懒加载，仅在 PG 模式下 import（SQLite 模式零依赖）
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+# PostgreSQL Schema（与 SQLite schema 对齐，语法适配 PG）
+PG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS companies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    meta_json TEXT DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS quotation_configs (
+    id SERIAL PRIMARY KEY,
+    company_id TEXT NOT NULL DEFAULT 'default',
+    revision TEXT NOT NULL,
+    status TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    created_by TEXT,
+    published_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(company_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_configs_company_status
+    ON quotation_configs(company_id, status);
+
+CREATE TABLE IF NOT EXISTS quotation_items (
+    id SERIAL PRIMARY KEY,
+    company_id TEXT NOT NULL DEFAULT 'default',
+    data_revision TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    fields_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_items_company_revision
+    ON quotation_items(company_id, data_revision);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id SERIAL PRIMARY KEY,
+    company_id TEXT DEFAULT 'default',
+    actor_id TEXT,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_company
+    ON audit_events(company_id, id);
+
+CREATE TABLE IF NOT EXISTS security_events (
+    id SERIAL PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    client_key TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_security_key_time
+    ON security_events(client_key, created_at);
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    company_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_company ON users(company_id);
+"""
+
+
+def is_pg_mode() -> bool:
+    """判断是否为 PostgreSQL 模式。
+
+    DATABASE_URL 必须以 postgres:// 或 postgresql:// 开头才认定为 PG 模式。
+    file: 开头的视为 SQLite（兼容已有环境变量配置）。
+    """
+    url = os.environ.get("DATABASE_URL", "").strip().lower()
+    return url.startswith("postgres://") or url.startswith("postgresql://")
+
+
+# 模块级连接池（懒初始化）
+_pg_pool = None
+
+
+def get_pg_pool():
+    """获取或初始化 PG 连接池。"""
+    global _pg_pool
+    if _pg_pool is None:
+        from psycopg2.pool import SimpleConnectionPool
+        db_url = os.environ["DATABASE_URL"].strip()
+        _pg_pool = SimpleConnectionPool(1, 10, db_url)
+    return _pg_pool
+
+
+class PGConnection:
+    """psycopg2 连接包装器，提供 sqlite3.Connection 兼容接口。
+
+    透明处理：
+    - ? → %s 占位符翻译
+    - executescript() 按分号拆分执行
+    - total_changes 累计 rowcount
+    - RealDictCursor 提供 dict-like 行访问（与 sqlite3.Row 对齐）
+    """
+
+    def __init__(self, conn) -> None:
+        self._conn = conn
+        self._total_changes = 0
+
+    def _get_cursor(self, dict_mode=True):
+        from psycopg2.extras import RealDictCursor
+        if dict_mode:
+            return self._conn.cursor(cursor_factory=RealDictCursor)
+        return self._conn.cursor()
+
+    def execute(self, sql: str, params: tuple | list | None = None):
+        if params is not None:
+            sql = sql.replace("?", "%s")
+            cursor = self._get_cursor(dict_mode=True)
+            cursor.execute(sql, tuple(params))
+        else:
+            cursor = self._get_cursor(dict_mode=True)
+            cursor.execute(sql)
+        # 累计写操作变更行数（与 SQLite total_changes 语义对齐）
+        stripped = sql.strip().upper()
+        if stripped.startswith(("INSERT", "UPDATE", "DELETE")) and cursor.rowcount > 0:
+            self._total_changes += cursor.rowcount
+        return cursor
+
+    def executemany(self, sql: str, params_list):
+        sql = sql.replace("?", "%s")
+        cursor = self._get_cursor(dict_mode=False)
+        cursor.executemany(sql, list(params_list))
+        if cursor.rowcount > 0:
+            self._total_changes += cursor.rowcount
+        return cursor
+
+    def executescript(self, sql: str):
+        """按分号拆分执行多条语句，跳过 PRAGMA（PG 不支持）。"""
+        cursor = self._get_cursor(dict_mode=False)
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if not stmt:
+                continue
+            upper = stmt.upper()
+            # 跳过 PRAGMA 语句（PG 不支持）
+            if upper.startswith("PRAGMA"):
+                continue
+            cursor.execute(stmt)
+        return cursor
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        # 连接池模式下，归还连接而不是真正关闭
+        if _pg_pool is not None:
+            _pg_pool.putconn(self._conn)
+        else:
+            self._conn.close()
+
+    @property
+    def total_changes(self) -> int:
+        return self._total_changes

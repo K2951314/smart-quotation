@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from contextlib import closing
 from typing import Any
 
@@ -15,7 +14,7 @@ class AuditMixin:
 
     def audit(
         self,
-        conn: sqlite3.Connection,
+        conn,
         actor_id: str | None,
         action: str,
         target_type: str,

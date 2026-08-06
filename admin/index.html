@@ -22,6 +22,11 @@
       <input id="loginApiKeyInput" class="login-input" type="password" placeholder="Admin API Key" autocomplete="off" />
       <button id="loginBtn" type="button" class="login-btn">登录</button>
       <p class="login-hint">API Key 存储于 sessionStorage，关闭页签即失效。<br>本地开发可在 .env 中设 SQ_DEV=1 跳过认证。</p>
+      <p class="login-alt" style="margin-top:16px;text-align:center;font-size:13px;">
+        <a href="register.html" style="color:#3b82f6;text-decoration:none;">注册新账号</a>
+        <span style="color:#cbd5e1;margin:0 8px;">·</span>
+        <a href="login.html" style="color:#3b82f6;text-decoration:none;">邮箱密码登录</a>
+      </p>
     </div>
   </div>
 
@@ -72,7 +77,7 @@
             <button id="publishBtn" class="primary" type="button"><span aria-hidden="true">↑</span> 发布配置</button>
           </div>
           <div class="secondary-actions">
-            <button id="loadConfigBtn" type="button" title="从 Supabase 下载 config.json 覆盖当前草稿"><span aria-hidden="true">↻</span> 从 Supabase 恢复</button>
+            <button id="loadConfigBtn" type="button" title="从后端数据库加载已发布的配置覆盖当前草稿"><span aria-hidden="true">↻</span> 从后端恢复</button>
             <button id="saveDraftBtn" type="button" title="保存为草稿"><span aria-hidden="true">✓</span> 保存</button>
             <button id="logoutBtn" type="button" title="退出登录（清除 API Key）" onclick="logoutAdmin()" style="border:1px solid #e74c3c;color:#e74c3c;background:#fff;"><span aria-hidden="true">⏻</span> 退出</button>
           </div>

@@ -18,6 +18,12 @@
 - 如果需要写入密码或密钥，应在后端安全存储，不要硬编码到前端源码。
 - **源码中不得硬编码任何客户/部署相关的真实 URL**（Supabase 项目地址、后端域名等），一律改为环境变量或 admin 配置中心注入。
 - **后端启动必须设置 `ADMIN_API_KEY` 环境变量**（至少 16 字符）；本地开发可设 `SQ_DEV=1` 跳过校验。
+- **上传 config.json 到 Supabase 必须使用 `desensitizeConfigForPublic()` 统一脱敏函数**（`admin/lib/supabase-deploy.js`），不得手写脱敏逻辑，避免遗漏 rules/discount_rules 导致折扣规则泄露到公开桶。
+- **恢复配置走后端 API（`GET /api/config`）**，不从 Supabase 恢复（Supabase 上是脱敏版，无 rules，恢复后再保存会丢 rules）。
+- **一键同步全部**会上传全部 4 个文件（config.json + price.bundle.json + stock.bundle.json + version.json）。
+- **双数据库模式**：`DATABASE_URL` 以 `postgres://` 或 `postgresql://` 开头时走 PostgreSQL（SaaS 模式），否则走 SQLite（本地开发/测试）。psycopg2 懒加载，SQLite 模式零依赖。
+- **认证双模式**：`ADMIN_API_KEY`（超管）+ JWT（租户管理员，通过注册/登录获取）。`require_admin_api` 先检查 API Key，再尝试 JWT，最后开发模式兜底。
+- **注册/登录流程**：`admin/register.html` 填邮箱+密码+公司名 → `POST /api/auth/register` 自动创建公司+用户 → 返回 JWT → 跳转配置中心。`admin/login.html` 邮箱+密码登录。
 
 ## 客户门户 (apps/index.html)
 

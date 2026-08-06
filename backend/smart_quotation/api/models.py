@@ -42,6 +42,19 @@ class BundleGenerate(BaseModel):
 
 
 class BundleDeploy(BaseModel):
-    price_bundle: dict[str, Any]
-    stock_bundle: dict[str, Any]
+    price_bundle: dict[str, Any] = Field(default_factory=dict)
+    stock_bundle: dict[str, Any] = Field(default_factory=dict)
     anon_key: str
+
+
+class RegisterRequest(BaseModel):
+    """注册请求：创建租户管理员账号 + 公司。"""
+    email: str
+    password: str
+    company_name: str
+
+
+class LoginRequest(BaseModel):
+    """登录请求：邮箱 + 密码 → JWT。"""
+    email: str
+    password: str

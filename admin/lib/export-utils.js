@@ -11,6 +11,11 @@
   // 安全：部署到 Supabase public bucket 前，必须移除面价并预计算报价。
   // 敏感字段集必须与后端 base.py SENSITIVE_FIELDS 保持一致，否则 admin
   // 若在 config 里定义了 cost/margin 等字段，会泄露到公开 bucket。
+  //
+  // TODO 产品化建议：当前前端脱敏逻辑是后端 QuotationEngine.quote_row 的重写版，
+  // 如果后端引擎新增 action 类型（如 set_field/set_formula）或 condition op，
+  // 前端不会自动同步。建议迁移到后端 API 部署（POST /api/merger/bundle/generate
+  // with deploy=true），让后端统一脱敏，前端只触发不计算。
 
   var DEFAULT_SENSITIVE_FIELDS = [
     "face_price", "discount_percent", "discount",

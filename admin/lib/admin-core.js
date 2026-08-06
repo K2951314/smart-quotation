@@ -57,12 +57,17 @@ let g_AdminEventsBound = false;
 let sbAnonKeyInput = null;    // Supabase anon key input（在 bind() 中赋值）
 let sbBaseUrlInput = null;    // Supabase base URL input（在 bind() 中赋值）
 
-// ─── Admin API Key 管理（sessionStorage，不持久化）─────────
-// 安全策略：API Key 不硬编码在源码中，通过登录界面输入，存于 sessionStorage。
-// 页签关闭即失效，避免长期暴露。额外安全：30 分钟无操作自动登出。
-const ADMIN_SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟
+// ─── 认证管理（API Key + JWT 双模式）─────────────────────────
+// API Key 模式：超管通过登录界面输入 ADMIN_API_KEY，存于 sessionStorage（页签关闭即失效）
+// JWT 模式：租户管理员通过 register.html/login.html 登录获取 JWT，存于 localStorage（7 天有效）
+// 优先级：JWT > API Key（JWT 用户自动登录，不需要再输入 API Key）
+const ADMIN_SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟无操作自动登出（仅 API Key 模式）
 let ADMIN_API_KEY = (function () {
   try { return sessionStorage.getItem("sq_admin_api_key") || ""; } catch (e) { return ""; }
+})();
+// JWT 令牌（注册/登录后存入 localStorage，跨页签共享）
+let JWT_TOKEN = (function () {
+  try { return localStorage.getItem("sq_jwt_token") || ""; } catch (e) { return ""; }
 })();
 let _adminSessionTimer = null;
 
@@ -79,6 +84,19 @@ function setAdminApiKey(key) {
   } catch (e) { }
 }
 
+function setJwtToken(token) {
+  JWT_TOKEN = token || "";
+  try {
+    if (token) localStorage.setItem("sq_jwt_token", token);
+    else localStorage.removeItem("sq_jwt_token");
+  } catch (e) { }
+}
+
+// 获取当前认证 token（JWT 优先，API Key 兜底）
+function getAuthToken() {
+  return JWT_TOKEN || ADMIN_API_KEY;
+}
+
 function _resetSessionTimer() {
   if (_adminSessionTimer) clearTimeout(_adminSessionTimer);
   _adminSessionTimer = setTimeout(function () {
@@ -90,11 +108,12 @@ function _resetSessionTimer() {
 }
 
 function isAdminAuthenticated() {
-  return Boolean(ADMIN_API_KEY);
+  return Boolean(JWT_TOKEN || ADMIN_API_KEY);
 }
 
 function logoutAdmin() {
   setAdminApiKey("");
+  setJwtToken("");
   showLoginOverlay();
 }
 
@@ -133,7 +152,7 @@ async function tryLogin() {
       if (typeof bind === "function") bind();
       if (typeof initApp === "function") initApp();
     } else if (response.status === 429) {
-      if (errDiv) { errDiv.textContent = "尝试次数过多，请 5 分钟后再试（或清除 quotation.db 中的 security_events 表）"; errDiv.style.display = "block"; }
+      if (errDiv) { errDiv.textContent = "尝试次数过多，请 5 分钟后再试"; errDiv.style.display = "block"; }
     } else if (response.status === 401) {
       if (errDiv) { errDiv.textContent = "API Key 无效，请检查后重试"; errDiv.style.display = "block"; }
     } else {
@@ -197,10 +216,10 @@ function escapeHtml(value) {
 async function request(path, options) {
   if (!isAdminAuthenticated()) {
     showLoginOverlay();
-    throw new Error("未登录，请输入 API Key");
+    throw new Error("未登录，请输入 API Key 或通过登录页登录");
   }
   const headers = { "Content-Type": "application/json", ...(options && options.headers ? options.headers : {}) };
-  headers["Authorization"] = "Bearer " + ADMIN_API_KEY;
+  headers["Authorization"] = "Bearer " + getAuthToken();
   path = withCompany(path);
   const response = await fetch(apiBase + path, {
     headers: headers,
@@ -208,8 +227,9 @@ async function request(path, options) {
   });
   if (response.status === 401) {
     setAdminApiKey("");
+    setJwtToken("");
     showLoginOverlay();
-    throw new Error("API Key 无效或已过期，请重新登录");
+    throw new Error("认证失效，请重新登录");
   }
   const text = await response.text();
   let data;
