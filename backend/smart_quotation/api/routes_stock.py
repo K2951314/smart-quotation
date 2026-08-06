@@ -7,6 +7,7 @@ import os
 from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
+from ..license import get_quota, has_feature
 from ..mitsubishi_stock import get_engine as get_stock_engine
 from ..observability import capture_event, capture_exception
 from .auth import verify_stock_key
@@ -41,6 +42,13 @@ def register(app) -> None:
           防止令牌泄露后被刷爆三菱账号配额。
         - admin/stock-key 共享配额，防止 admin key 滥用。
         """
+        # 0. 功能门控：stock_query 是付费功能，免费版不开放
+        daily_limit = get_quota("stock_query_daily_limit", 0)
+        if daily_limit <= 0 or not has_feature("stock_query"):
+            raise HTTPException(
+                status_code=403,
+                detail="库存查询是付费功能，请升级到个人版或专业版订阅。",
+            )
         # 1. 认证 + 获取配额键
         quota_key = verify_stock_key(request)
         # 2. 频率限制（短窗口：60s/30 次）
@@ -50,10 +58,10 @@ def register(app) -> None:
             today_count = store.count_stock_queries_today(quota_key)
         except Exception:
             today_count = 0  # DB 异常不阻塞查询，仅记录 warning
-        if today_count >= STOCK_QUERY_DAILY_LIMIT:
+        if today_count >= daily_limit:
             raise HTTPException(
                 status_code=429,
-                detail=f"今日库存查询次数已达上限（{STOCK_QUERY_DAILY_LIMIT} 次），请明天再试或联系管理员",
+                detail=f"今日库存查询次数已达上限（{daily_limit} 次），请明天再试或升级订阅。",
             )
 
         try:

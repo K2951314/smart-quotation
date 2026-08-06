@@ -35,17 +35,35 @@ class AuditMixin:
             (company_id, actor_id, action, target_type, target_id, json.dumps(audit_payload, ensure_ascii=False), self.now()),
         )
 
-    def list_audit(self, limit: int = 50, company_id: str = DEFAULT_COMPANY_ID) -> list[dict[str, Any]]:
-        """查询审计日志（按 ID 降序，最多 limit 条）。"""
+    def list_audit(
+        self, limit: int = 50, company_id: str = DEFAULT_COMPANY_ID, days: int | None = None
+    ) -> list[dict[str, Any]]:
+        """查询审计日志（按 ID 降序，最多 limit 条）。
+
+        days 参数：只返回最近 N 天的日志（None 表示不过滤）。
+        """
         with closing(self.connect()) as conn:
-            rows = conn.execute(
-                """
-                select id, company_id, actor_id, action, target_type, target_id, payload_json, created_at
-                from audit_events
-                where company_id = ?
-                order by id desc
-                limit ?
-                """,
-                (company_id, limit),
-            ).fetchall()
+            if days is not None and days > 0:
+                # SQLite: datetime('now', '-N days') 算出截止时间
+                rows = conn.execute(
+                    """
+                    select id, company_id, actor_id, action, target_type, target_id, payload_json, created_at
+                    from audit_events
+                    where company_id = ? and created_at >= datetime('now', ?)
+                    order by id desc
+                    limit ?
+                    """,
+                    (company_id, f"-{days} days", limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    select id, company_id, actor_id, action, target_type, target_id, payload_json, created_at
+                    from audit_events
+                    where company_id = ?
+                    order by id desc
+                    limit ?
+                    """,
+                    (company_id, limit),
+                ).fetchall()
         return [dict(row) for row in rows]

@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import Depends, File, HTTPException, Query, UploadFile
 
+from ..license import has_feature
 from ..observability import capture_exception
 from ..store import DEFAULT_COMPANY_ID
 from .auth import resolve_company_id
@@ -70,6 +71,11 @@ def register(app) -> None:
         }
 
         if payload.deploy:
+            if not has_feature("supabase_deploy"):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Supabase 部署是付费功能，请升级到个人版或专业版订阅。",
+                )
             if not payload.anon_key:
                 raise HTTPException(status_code=422, detail="部署到 Supabase 需要提供 anon_key")
             try:
@@ -95,6 +101,11 @@ def register(app) -> None:
 
         安全策略：从数据库重建脱敏 bundle，忽略客户端传入的 price_bundle。
         """
+        if not has_feature("supabase_deploy"):
+            raise HTTPException(
+                status_code=403,
+                detail="Supabase 部署是付费功能，请升级到个人版或专业版订阅。",
+            )
         if not payload.anon_key:
             raise HTTPException(status_code=422, detail="anon_key is required")
         try:

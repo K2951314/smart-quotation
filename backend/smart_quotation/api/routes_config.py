@@ -13,6 +13,7 @@ from typing import Any, Literal
 from fastapi import Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
+from ..license import get_quota
 from ..observability import capture_event
 from ..store import DEFAULT_COMPANY_ID
 from .auth import require_admin_api, resolve_company_id
@@ -37,6 +38,18 @@ def register(app) -> None:
 
     @app.post("/api/config")
     def save_config(payload: ConfigSave, company_id: str = Depends(resolve_company_id)) -> dict[str, Any]:
+        # 版本历史上限检查：超出时自动删除最旧版本（-1 表示不限）
+        max_revs = get_quota("max_config_revisions", -1)
+        if max_revs >= 0:
+            existing = store.list_configs(company_id=company_id)
+            # list_configs 按时间倒序，最旧在末尾
+            while len(existing) >= max_revs:
+                oldest = existing[-1]
+                try:
+                    store.delete_config(oldest["revision"], company_id=company_id)
+                except LookupError:
+                    break
+                existing = store.list_configs(company_id=company_id)
         try:
             return store.save_config(payload.config, status=payload.status, company_id=company_id)
         except ValueError as exc:
@@ -103,4 +116,6 @@ def register(app) -> None:
         limit: int = Query(50, ge=1, le=200),
         company_id: str = Depends(resolve_company_id),
     ) -> list[dict[str, Any]]:
-        return store.list_audit(limit, company_id=company_id)
+        # 按订阅档位过滤审计日志保留天数（-1 或 0 表示不过滤）
+        days = get_quota("audit_log_days", 7)
+        return store.list_audit(limit, company_id=company_id, days=days if days > 0 else None)

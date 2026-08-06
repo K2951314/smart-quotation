@@ -11,6 +11,7 @@ from fastapi import Depends, File, HTTPException, Query, UploadFile
 
 import logging
 
+from ..license import get_quota
 from ..observability import capture_event
 from .auth import resolve_company_id
 from .models import ItemsReplace
@@ -19,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 # 文件上传大小上限：10MB（Excel 文件通常不超过此大小）
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+
+
+def _check_sku_quota(count: int) -> None:
+    """检查 SKU 数量是否超出 license 上限。-1 表示不限。"""
+    max_skus = get_quota("max_skus", -1)
+    if max_skus >= 0 and count > max_skus:
+        raise HTTPException(
+            status_code=402,
+            detail=f"SKU 数量（{count}）超出当前订阅上限（{max_skus}），请升级订阅。",
+        )
 
 
 def register(app) -> None:
@@ -32,6 +43,7 @@ def register(app) -> None:
 
     @app.post("/api/items")
     def replace_items(payload: ItemsReplace, company_id: str = Depends(resolve_company_id)) -> dict[str, int | str]:
+        _check_sku_quota(len(payload.rows))
         store.replace_items(payload.data_revision, payload.rows, company_id=company_id)
         capture_event("items.replaced", company_id=company_id, data_revision=payload.data_revision, count=len(payload.rows))
         return {"count": len(payload.rows)}
@@ -63,6 +75,7 @@ def register(app) -> None:
             raise HTTPException(status_code=422, detail="文件解析异常，请检查文件是否损坏") from exc
 
         if write:
+            _check_sku_quota(len(rows))
             rev = data_revision or (filename.rsplit(".", 1)[0] + "_" + store.now()[:10])
             store.replace_items(rev, rows, company_id=company_id)
             return {"action": "written", "data_revision": rev, "count": len(rows), "report": report}

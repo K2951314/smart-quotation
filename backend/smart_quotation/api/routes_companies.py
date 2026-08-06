@@ -90,6 +90,12 @@ def register(app) -> None:
         自动设置 parent_company_id = admin_id，成员公司继承管理员的配置/数据/折扣/bundle。
         可通过 meta.tier 指定初始 Tier 分组。
         """
+        from ..license import has_feature
+        if not has_feature("admin_member_inheritance"):
+            raise HTTPException(
+                status_code=403,
+                detail="管理员-成员配置继承是专业版功能，请升级订阅。",
+            )
         if admin_id == DEFAULT_COMPANY_ID:
             raise HTTPException(status_code=422, detail="default 公司不能作为管理员添加成员")
         # 验证管理员公司存在
