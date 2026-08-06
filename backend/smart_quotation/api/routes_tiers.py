@@ -13,7 +13,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..store import DEFAULT_COMPANY_ID
-from .auth import require_superadmin, resolve_company_id
+from .auth import require_admin_api, require_superadmin, resolve_company_id
 
 
 class TierItem(BaseModel):
@@ -54,12 +54,16 @@ def register(app) -> None:
     def update_tiers(
         payload: TiersUpdate,
         company_id: str = Depends(resolve_company_id),
+        auth: dict[str, Any] = Depends(require_admin_api),
     ) -> dict[str, Any]:
         """替换数据归属公司的 Tier 列表（写入 meta.tiers）。
 
-        在成员公司上调用时，自动定位到其 parent 写入。
+        成员公司不能修改 parent 的 Tier（利润率是管理员公司独有）。
+        只有 admin 公司自己（company_id == data_company_id）或超管可以修改。
         """
         data_company_id = store.resolve_data_company_id(company_id)
+        if auth["role"] == "tenant" and company_id != data_company_id:
+            raise HTTPException(status_code=403, detail="成员公司不能修改管理员的 Tier 配置")
         try:
             company = store.get_company(data_company_id)
         except LookupError as exc:

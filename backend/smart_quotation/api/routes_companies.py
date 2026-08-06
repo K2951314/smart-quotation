@@ -131,6 +131,15 @@ def register(app) -> None:
         auth: dict[str, Any] = Depends(require_admin_api),
     ) -> dict[str, Any]:
         _ensure_company_access(auth, company_id)
+        # 租户不能自行修改敏感 meta 字段（防提权）：
+        # - is_admin：设为 True 会在 require_company_access 中获得 admin 角色，看到面价/折扣
+        # - parent_company_id：设为其他公司会继承该公司的配置/数据/tier 利润率
+        # - access_token / token_created_at：篡改令牌破坏认证
+        if payload.meta is not None and auth["role"] == "tenant":
+            meta = dict(payload.meta)
+            for key in ("is_admin", "parent_company_id", "access_token", "token_created_at", "token_expires_days"):
+                meta.pop(key, None)
+            payload = CompanyUpdate(name=payload.name, meta=meta)
         try:
             return store.update_company(company_id, payload.name, payload.meta)
         except LookupError as exc:
