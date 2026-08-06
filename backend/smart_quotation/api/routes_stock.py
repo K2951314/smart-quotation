@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
@@ -18,12 +16,8 @@ def register(app) -> None:
     auth = app.state.auth
     store = app.state.store
     STOCK_QUERY_MAX_LINES = 50
-    # 每日配额（24h 滚动窗口）：默认 500 次/天/公司
-    # 通过环境变量 STOCK_QUERY_DAILY_LIMIT 配置
-    try:
-        STOCK_QUERY_DAILY_LIMIT = int(os.environ.get("STOCK_QUERY_DAILY_LIMIT", "500"))
-    except ValueError:
-        STOCK_QUERY_DAILY_LIMIT = 500
+    # 日配额从 license 的 stock_query_daily_limit 读取（按订阅档位）
+    # 环境变量 STOCK_QUERY_DAILY_LIMIT 已废弃，由 license 统一管理
 
     @app.post("/api/stock-query")
     async def stock_query(request: Request):
