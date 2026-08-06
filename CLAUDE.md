@@ -17,12 +17,13 @@
 - 配置文件 `config.example.json` 仅用于示例，**不应包含密钥、密码、Token 或任何机密值**。
 - 如果需要写入密码或密钥，应在后端安全存储，不要硬编码到前端源码。
 - **源码中不得硬编码任何客户/部署相关的真实 URL**（Supabase 项目地址、后端域名等），一律改为环境变量或 admin 配置中心注入。
-- **后端启动必须设置 `ADMIN_API_KEY` 环境变量**（至少 16 字符）；本地开发可设 `SQ_DEV=1` 跳过校验。
+- **后端启动必须设置 `ADMIN_API_KEY` 环境变量**（至少 16 字符）和 `JWT_SECRET`（至少 32 字符）；本地开发可设 `SQ_DEV=1` 跳过校验（JWT_SECRET 自动生成随机密钥）。
 - **上传 config.json 到 Supabase 必须使用 `desensitizeConfigForPublic()` 统一脱敏函数**（`admin/lib/supabase-deploy.js`），不得手写脱敏逻辑，避免遗漏 rules/discount_rules 导致折扣规则泄露到公开桶。
 - **恢复配置走后端 API（`GET /api/config`）**，不从 Supabase 恢复（Supabase 上是脱敏版，无 rules，恢复后再保存会丢 rules）。
 - **一键同步全部**会上传全部 4 个文件（config.json + price.bundle.json + stock.bundle.json + version.json）。
 - **双数据库模式**：`DATABASE_URL` 以 `postgres://` 或 `postgresql://` 开头时走 PostgreSQL（SaaS 模式），否则走 SQLite（本地开发/测试）。psycopg2 懒加载，SQLite 模式零依赖。
-- **认证双模式**：`ADMIN_API_KEY`（超管）+ JWT（租户管理员，通过注册/登录获取）。`require_admin_api` 先检查 API Key，再尝试 JWT，最后开发模式兜底。
+- **认证双模式**：`ADMIN_API_KEY`（超管，全平台权限）+ JWT（租户管理员，绑定 `company_id`）。`require_admin_api` 先检查 API Key，再尝试 JWT，最后开发模式兜底。返回 `{"role": "superadmin"|"tenant"|"dev", "company_id": ...}` 供下游依赖使用。
+- **租户隔离三依赖**：`require_admin_api`（认证）→ `resolve_company_id`（租户强制使用 JWT 中的 `company_id`）→ `require_superadmin`（公司创建/删除/assign-tier 等平台级操作限超管）。所有接受 `company_id` 查询参数的 admin 路由必须用 `Depends(resolve_company_id)` 而非 `Query(DEFAULT_COMPANY_ID)`，否则 JWT 用户可越权。
 - **注册/登录流程**：`admin/register.html` 填邮箱+密码+公司名 → `POST /api/auth/register` 自动创建公司+用户 → 返回 JWT → 跳转配置中心。`admin/login.html` 邮箱+密码登录。
 
 ## 客户门户 (apps/index.html)
@@ -54,7 +55,7 @@
 - **Supabase 项目地址**通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
 - **CSP**：`script-src 'self' https://browser.sentry-cdn.com`（SheetJS 已自托管至 `admin/lib/`，仅保留 Sentry SDK CDN 白名单）；`connect-src` 白名单：`*.supabase.co`/`.in`/`.net` + `*.sentry.io` + `*.railway.app` + `*.render.com`（`netlify.toml`，已移除 `https:` 通配防 XSS 外泄）
 - **静态文件缓存策略**（`StaticCacheControlMiddleware` in `factory.py`）：HTML → `no-cache, must-revalidate`（每次通过 ETag 校验，部署后立即生效）；CSS/JS → `public, max-age=31536000, immutable`（永久缓存，靠 `?v=` 查询参数失效）；图片/字体 → `public, max-age=86400`。**改静态文件服务时不能删此中间件**——否则手机浏览器启用启发式缓存，部署后看不到更新。Netlify 部署时 `netlify.toml` 的 `[[headers]]` 提供等价策略。
-- **生产环境必填**：`ADMIN_API_KEY`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份安全降级并打 warning（静默丢数据风险，需看日志确认）
+- **生产环境必填**：`ADMIN_API_KEY`、`JWT_SECRET`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份安全降级并打 warning（静默丢数据风险，需看日志确认）
 
 ## 运行与验证
 
