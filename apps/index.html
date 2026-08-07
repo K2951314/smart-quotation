@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#f7f3ec">
 <title>智能询价系统</title>
-<link rel="stylesheet" href="./styles/base.css?v=19">
-<link rel="stylesheet" href="./styles/layout.css?v=19">
-<link rel="stylesheet" href="./styles/forms.css?v=19">
-<link rel="stylesheet" href="./styles/results.css?v=19">
-<link rel="stylesheet" href="./styles/modals.css?v=19">
-<link rel="stylesheet" href="./styles/responsive.css?v=19">
+<link rel="stylesheet" href="./styles/base.css?v=20">
+<link rel="stylesheet" href="./styles/layout.css?v=20">
+<link rel="stylesheet" href="./styles/forms.css?v=20">
+<link rel="stylesheet" href="./styles/results.css?v=20">
+<link rel="stylesheet" href="./styles/modals.css?v=20">
+<link rel="stylesheet" href="./styles/responsive.css?v=20">
 </head>
 <body>
 <div id="authGate" class="auth-gate-overlay" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;">
@@ -224,8 +224,16 @@
 </div>
 
 <!-- 免费版水印（auth.js 根据 profile.watermark 控制 display） -->
+<!-- 支持自定义内容：文字 + 电话（点击拨号）+ 微信二维码（点击放大长按识别） -->
 <div id="sqWatermark" class="sq-watermark" style="display:none;">
-  Powered by <a href="https://smart-quotation.example.com" target="_blank" rel="noopener">智能询价</a>
+  <span class="sq-watermark-text">Powered by 智能询价</span>
+  <a href="tel:18863995420" class="sq-watermark-phone" style="display:none;">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:2px;"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57-.35-.11-.74-.03-1.02.24l-2.2 2.2c-2.83-1.44-5.15-3.75-6.59-6.59l2.2-2.21c.28-.27.36-.66.25-1.01-.37-1.12-.57-2.32-.57-3.57 0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.49c0-.55-.45-1-1-1z"/></svg>
+    <span class="sq-watermark-phone-text">18863995420</span>
+  </a>
+  <a href="#" class="sq-watermark-qr" style="display:none;" title="点击查看微信二维码">
+    <img class="sq-watermark-qr-img" src="" alt="微信" width="16" height="16" style="vertical-align:-3px;border-radius:2px;" />
+  </a>
 </div>
 
 <button id="btnBackToTop" class="mobile-back-top" type="button">回到顶部</button>
@@ -241,7 +249,7 @@
 <script src="./lib/copy-clipboard.js?v=18"></script>
 <script src="./lib/discount-config.js?v=18"></script>
 <script src="./lib/stock-query.js?v=18"></script>
-<script src="./lib/auth.js?v=20"></script>
+<script src="./lib/auth.js?v=21"></script>
 <script src="./lib/profit-config.js?v=18"></script>
 <script src="./lib/data-load.js?v=18"></script>
 <script src="./app.js?v=19"></script>

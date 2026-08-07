@@ -103,6 +103,27 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
             "如果这是本地开发，请删除 ALLOW_ORIGINS 环境变量。"
         )
 
+    # 公网部署架构断言：生产环境必须用 PostgreSQL，不能用 SQLite
+    # 原因：Railway/Render 免费版重启后文件系统重置，SQLite 数据丢失。
+    #   db_backup.py 的 Supabase 备份是补丁方案，不是正解——
+    #   高频写入时备份延迟 10 分钟，期间数据丢失不可恢复。
+    # 正解：公网部署 = 必须设置 DATABASE_URL 指向 PostgreSQL（Supabase/Neon/其他）。
+    # 例外：DB_PATH 指向持久化 Volume 挂载点时允许 SQLite（Railway Volume / Render Disk）。
+    if not is_dev:
+        from .pg_adapter import is_pg_mode
+        db_path = os.environ.get("DB_PATH", "").strip()
+        has_persistent_volume = bool(db_path) and db_path != "quotation.db"
+        if not is_pg_mode() and not has_persistent_volume:
+            raise RuntimeError(
+                "架构断言失败：生产环境未设置 DATABASE_URL（PostgreSQL），也未配置 DB_PATH 持久化卷。\n"
+                "SQLite 仅适用于本地开发——Railway/Render 免费版重启后文件系统重置，数据全部丢失。\n"
+                "\n"
+                "解决方案（任选其一）：\n"
+                "  1. 设置 DATABASE_URL=postgresql://... （推荐，Supabase/Neon 免费 PG）\n"
+                "  2. 设置 DB_PATH=/data/quotation.db 并挂载持久化 Volume（Railway Volume / Render Disk）\n"
+                "  3. 本地开发设 SQ_DEV=1 跳过此检查\n"
+            )
+
     if raw:
         origins = [o.strip() for o in raw.split(",") if o.strip()]
         allow_credentials = True

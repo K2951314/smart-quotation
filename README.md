@@ -63,6 +63,10 @@ copy .env.example .env
 | `SQ_SUPABASE_PROJECT_URL` | 持久化必填 | Supabase 项目根地址（`https://<ref>.supabase.co`），用于私有 bucket 备份 SQLite；缺失时备份安全降级仅告警 |
 | `SQ_SUPABASE_SERVICE_KEY` | 持久化必填 | service role key（非 anon key），私有 bucket 读写凭证，严禁进前端 |
 | `DB_BACKUP_BUCKET` / `DB_BACKUP_PATH` | 可选 | 备份目标，默认 `sq-db-backup` / `quotation.db` |
+| `DATABASE_URL` | 生产必填 | PostgreSQL 连接串（`postgresql://...`）；未设 `SQ_DEV` 时后端拒绝启动（SQLite 仅本地开发） |
+| `WATERMARK_TEXT` | 可选 | 免费版水印文字，留空用默认「Powered by 智能询价」 |
+| `WATERMARK_PHONE` | 可选 | 免费版水印联系电话（点击可拨号），如 `18863995420` |
+| `WATERMARK_WECHAT_QR` | 可选 | 免费版水印微信二维码图片 URL（点击放大长按识别添加好友） |
 
 生成强随机密钥：
 
@@ -264,11 +268,13 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 
 - **ADMIN_API_KEY 强校验**：未设置或弱值拒绝启动（本地开发用 `SQ_DEV=1` 跳过）
 - **secrets.compare_digest**：所有 key 比较使用恒定时间比较，防时序攻击
-- **频率限制**：三菱库存查询 60s/30 次/IP
+- **频率限制**：三菱库存查询 60s/30 次/IP，注册/登录限流
 - **单次条数上限**：三菱库存查询单次最多 50 条
 - **CSP 安全响应头**：`netlify.toml` 配置 X-Content-Type-Options / X-Frame-Options / Referrer-Policy / CSP（`script-src` 白名单：self + SheetJS + Sentry CDN）
 - **多租户隔离**：所有业务表 `company_id` 过滤，删除公司级联清理
 - **源码无硬编码 URL**：Supabase/Railway 地址全部通过环境变量或 admin 配置中心注入
+- **生产架构断言**：未设 `SQ_DEV` 时必须用 PostgreSQL（`DATABASE_URL`）或持久化 Volume（`DB_PATH`），SQLite 文件在容器重启后丢失，禁止用于生产
+- **配额强制**：`max_companies` / `max_users` / `max_brands` / `max_skus` / `max_config_revisions` 在后端路由层强制检查，前端做前置阻断避免保存时才报错
 
 ## 订阅档位
 

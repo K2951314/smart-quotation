@@ -109,7 +109,10 @@ class CompaniesMixin:
 
         供 /api/public/company/{id} 使用。
         watermark 来自 license 配额（免费版强制显示水印，个人版/专业版无水印）。
+        watermark_config 提供自定义水印内容（联系方式/二维码），从环境变量读取。
         """
+        watermark = self._resolve_watermark()
+        watermark_config = self._resolve_watermark_config() if watermark else None
         try:
             company = self.get_company(company_id)
         except LookupError:
@@ -121,7 +124,8 @@ class CompaniesMixin:
                     "profit_margin": DEFAULT_PROFIT_MARGIN,
                     "tier": None,
                     "parent_company_id": None,
-                    "watermark": self._resolve_watermark(),
+                    "watermark": watermark,
+                    "watermark_config": watermark_config,
                 }
             raise
         meta = company.get("meta") or {}
@@ -134,16 +138,35 @@ class CompaniesMixin:
             "profit_margin": profit_margin,
             "tier": meta.get("tier"),
             "parent_company_id": meta.get("parent_company_id"),
-            "watermark": self._resolve_watermark(),
+            "watermark": watermark,
+            "watermark_config": watermark_config,
         }
 
     def _resolve_watermark(self) -> bool:
         """从 license 获取 watermark 标志（免费版 True，个人版/专业版 False）。
 
-        客户门户根据此字段决定是否显示「Powered by 智能询价」水印。
+        客户门户根据此字段决定是否显示水印。
         """
         from ..license import get_quota
         return bool(get_quota("watermark", True))
+
+    @staticmethod
+    def _resolve_watermark_config() -> dict[str, str | None]:
+        """从环境变量读取自定义水印内容。
+
+        返回包含以下字段的 dict（均为可选，未设置时为 None）：
+        - text: 水印文字（如 "Powered by 智能询价"），未设时前端用默认文案
+        - phone: 联系电话（点击可拨号），如 "18863995420"
+        - wechat_qr: 微信二维码图片 URL（点击放大长按识别）
+
+        所有值来自环境变量，不硬编码在源码中（安全 + 可部署时配置）。
+        """
+        import os
+        return {
+            "text": os.environ.get("WATERMARK_TEXT", "").strip() or None,
+            "phone": os.environ.get("WATERMARK_PHONE", "").strip() or None,
+            "wechat_qr": os.environ.get("WATERMARK_WECHAT_QR", "").strip() or None,
+        }
 
     def list_companies(self) -> list[dict[str, Any]]:
         """列出所有公司（按创建时间降序），确保 default 始终在列表中。"""

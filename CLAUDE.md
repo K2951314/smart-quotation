@@ -21,7 +21,7 @@
 - **上传 config.json 到 Supabase 必须使用 `desensitizeConfigForPublic()` 统一脱敏函数**（`admin/lib/supabase-deploy.js`），不得手写脱敏逻辑，避免遗漏 rules/discount_rules 导致折扣规则泄露到公开桶。
 - **恢复配置走后端 API（`GET /api/config`）**，不从 Supabase 恢复（Supabase 上是脱敏版，无 rules，恢复后再保存会丢 rules）。
 - **一键同步全部**会上传全部 4 个文件（config.json + price.bundle.json + stock.bundle.json + version.json）。
-- **双数据库模式**：`DATABASE_URL` 以 `postgres://` 或 `postgresql://` 开头时走 PostgreSQL（SaaS 模式），否则走 SQLite（本地开发/测试）。psycopg2 懒加载，SQLite 模式零依赖。
+- **双数据库模式**：`DATABASE_URL` 以 `postgres://` 或 `postgresql://` 开头时走 PostgreSQL（SaaS 模式），否则走 SQLite（本地开发/测试）。psycopg2 懒加载，SQLite 模式零依赖。**生产环境架构断言**：未设 `SQ_DEV` 时，必须设置 `DATABASE_URL`（PostgreSQL）或 `DB_PATH`（指向持久化 Volume），否则后端拒绝启动——SQLite 文件在 Railway/Render 免费版重启后丢失。
 - **认证双模式**：`ADMIN_API_KEY`（超管，全平台权限）+ JWT（租户管理员，绑定 `company_id`）。`require_admin_api` 先检查 API Key，再尝试 JWT，最后开发模式兜底。返回 `{"role": "superadmin"|"tenant"|"dev", "company_id": ...}` 供下游依赖使用。
 - **租户隔离三依赖**：`require_admin_api`（认证）→ `resolve_company_id`（租户强制使用 JWT 中的 `company_id`）→ `require_superadmin`（公司创建/删除/assign-tier 等平台级操作限超管）。所有接受 `company_id` 查询参数的 admin 路由必须用 `Depends(resolve_company_id)` 而非 `Query(DEFAULT_COMPANY_ID)`，否则 JWT 用户可越权。
 - **注册/登录流程**：`admin/register.html` 填邮箱+密码+公司名 → `POST /api/auth/register` 自动创建公司+用户 → 返回 JWT → 跳转配置中心。`admin/login.html` 邮箱+密码登录。
@@ -115,7 +115,7 @@ node --test tests/*.test.js
 | `POST /api/merger/bundle/generate` (有密码) | bundle_encryption 功能 | `features` |
 | `PUT /api/tiers` | tier_profit_grouping 功能 | `features` |
 | `POST /api/companies/{id}/members` | admin_member_inheritance 功能 | `features` |
-| `POST /api/auth/register` / `POST /api/companies` | 公司数量上限 | `max_companies` |
+| `POST /api/auth/register` / `POST /api/companies` | 公司数量上限 + 用户数上限 | `max_companies` + `max_users` |
 | `GET /api/audit` | audit_log 功能门控 + 按天数过滤 | `audit_log` feature + `audit_log_days` |
 
 ### 前端功能门控
@@ -123,7 +123,7 @@ node --test tests/*.test.js
 - **`data-feature` 属性**：HTML 元素加 `data-feature="xxx"`，`session-panel.js` 的 `applyFeatureGating()` 根据当前档位自动显示/隐藏。
 - **`hasFeature(feat)` 全局函数**：动态渲染的 UI（如成员创建按钮、Tier 管理面板）在 JS 中调用此函数判断是否渲染。
 - **配额前置阻断**：`window.SQ_QUOTA`（由 `/api/auth/session` 注入）供前端在用户操作前检查（如添加规则时检查 `max_brands`），避免保存时才报错。
-- **水印**：免费版 `watermark=True`，`/api/public/company/{id}` 返回此字段，`apps/index.html` 条件渲染水印层。
+- **水印**：免费版 `watermark=True`，`/api/public/company/{id}` 返回 `watermark` + `watermark_config` 字段。`watermark_config` 从环境变量读取（`WATERMARK_TEXT` / `WATERMARK_PHONE` / `WATERMARK_WECHAT_QR`），支持自定义文字 + 电话（点击拨号）+ 微信二维码（点击放大长按识别）。`apps/index.html` 条件渲染水印层。
 
 ### License 生成
 

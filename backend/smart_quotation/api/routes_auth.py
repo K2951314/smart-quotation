@@ -139,7 +139,7 @@ def register(app) -> None:
             raise HTTPException(status_code=422, detail="密码至少 8 位")
 
         # License 检查：注册即创建公司，不能超过授权上限
-        from ..license import verify_license
+        from ..license import verify_license, get_quota
         license_payload = verify_license()
         if license_payload is not None:
             max_companies = int(license_payload.get("max_companies", 1))
@@ -149,6 +149,18 @@ def register(app) -> None:
                     status_code=402,
                     detail=f"已达到 license 授权上限（{max_companies} 家公司），请联系供应商升级。",
                 )
+            # max_users 全局上限：所有注册用户不能超过 license 授权
+            # （每公司 1 个注册用户时等价于 max_companies，但防止未来
+            #   开放「邀请用户加入已有公司」后无限制注册）
+            max_users = int(license_payload.get("max_users", -1))
+            if max_users > 0:
+                with closing(store.connect()) as conn:
+                    total_users = conn.execute("select count(*) as n from users").fetchone()["n"]
+                if total_users >= max_users:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"已达到用户数上限（{max_users} 个），请联系供应商升级。",
+                    )
 
         # 检查邮箱唯一性
         with closing(store.connect()) as conn:

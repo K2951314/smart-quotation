@@ -55,12 +55,79 @@ function applyAdminMode() {
   document.body.classList.remove("is-company");
 }
 
-// 免费版强制显示水印（Powered by 智能询价）
+// 免费版强制显示水印（Powered by 智能询价 + 联系方式 + 微信二维码）
 // profile.watermark === true 时显示，false 或未定义时隐藏
-function applyWatermark(show) {
+// profile.watermark_config 提供自定义内容（text/phone/wechat_qr）
+function applyWatermark(show, config) {
   var el = document.getElementById("sqWatermark");
   if (!el) return;
-  el.style.display = show ? "" : "none";
+  if (!show) {
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "";
+
+  // 动态填充水印内容
+  var cfg = config || {};
+  var textEl = el.querySelector(".sq-watermark-text");
+  var phoneEl = el.querySelector(".sq-watermark-phone");
+  var qrEl = el.querySelector(".sq-watermark-qr");
+  var qrImg = el.querySelector(".sq-watermark-qr-img");
+
+  // 水印文字
+  if (textEl) {
+    textEl.textContent = cfg.text || "Powered by 智能询价";
+  }
+
+  // 联系电话（点击拨号）
+  if (phoneEl) {
+    if (cfg.phone) {
+      phoneEl.style.display = "";
+      phoneEl.href = "tel:" + cfg.phone;
+      phoneEl.textContent = cfg.phone;
+    } else {
+      phoneEl.style.display = "none";
+    }
+  }
+
+  // 微信二维码（点击放大）
+  if (qrEl && qrImg) {
+    if (cfg.wechat_qr) {
+      qrEl.style.display = "";
+      qrImg.src = cfg.wechat_qr;
+      qrEl.onclick = function(e) {
+        e.preventDefault();
+        showQrOverlay(cfg.wechat_qr);
+      };
+    } else {
+      qrEl.style.display = "none";
+    }
+  }
+}
+
+// 微信二维码放大浮层（长按识别添加好友）
+function showQrOverlay(src) {
+  var existing = document.getElementById("sqQrOverlay");
+  if (existing) existing.remove();
+  var overlay = document.createElement("div");
+  overlay.id = "sqQrOverlay";
+  overlay.style.cssText =
+    "position:fixed;top:0;left:0;width:100%;height:100%;" +
+    "background:rgba(0,0,0,0.8);z-index:99999;display:flex;" +
+    "flex-direction:column;align-items:center;justify-content:center;" +
+    "cursor:pointer;-webkit-tap-highlight-color:transparent;";
+  var img = document.createElement("img");
+  img.src = src;
+  img.style.cssText =
+    "max-width:70%;max-height:60vh;border-radius:12px;background:#fff;padding:12px;";
+  var hint = document.createElement("p");
+  hint.textContent = "长按二维码识别添加微信好友";
+  hint.style.cssText =
+    "color:#fff;margin-top:16px;font-size:14px;opacity:0.9;";
+  overlay.appendChild(img);
+  overlay.appendChild(hint);
+  overlay.onclick = function() { overlay.remove(); };
+  document.body.appendChild(overlay);
 }
 
 // ─── 认证网关 ──────────────────────────────────────────────
@@ -323,8 +390,8 @@ async function loadCompanyProfile(companyId) {
         profitMargin: profile.profit_margin,
         watermark: profile.watermark,
       });
-      // 免费版强制显示水印（Powered by 智能询价）
-      applyWatermark(profile.watermark);
+      // 免费版强制显示水印（Powered by 智能询价 + 联系方式 + 微信二维码）
+      applyWatermark(profile.watermark, profile.watermark_config);
       if (role === "company") {
         applyCompanyMode(getAuthProfile());
       } else {

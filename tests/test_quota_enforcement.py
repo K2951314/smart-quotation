@@ -537,6 +537,70 @@ class QuotaEnforcementTest(unittest.TestCase):
         )
         self.assertEqual(len(resp.json()), 3)
 
+    # ─── watermark_config 自定义内容 ──────────────────────────
+
+    def test_watermark_config_from_env_vars(self):
+        """免费版 watermark=True 时应返回 watermark_config（从环境变量读取）。"""
+        import os as _os
+        _os.environ["WATERMARK_PHONE"] = "18863995420"
+        _os.environ["WATERMARK_TEXT"] = "Powered by 智能询价"
+        _os.environ["WATERMARK_WECHAT_QR"] = "https://example.com/qr.png"
+        try:
+            set_dev_tier_override("free")
+            resp = self.client.get(
+                "/api/public/company/default",
+                headers={"Authorization": f"Bearer {self.admin_key}"},
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertTrue(data["watermark"])
+            self.assertIn("watermark_config", data)
+            cfg = data["watermark_config"]
+            self.assertEqual(cfg["phone"], "18863995420")
+            self.assertEqual(cfg["text"], "Powered by 智能询价")
+            self.assertEqual(cfg["wechat_qr"], "https://example.com/qr.png")
+        finally:
+            _os.environ.pop("WATERMARK_PHONE", None)
+            _os.environ.pop("WATERMARK_TEXT", None)
+            _os.environ.pop("WATERMARK_WECHAT_QR", None)
+
+    def test_watermark_config_null_when_pro(self):
+        """个人版 watermark=False 时 watermark_config 应为 None（不显示水印）。"""
+        set_dev_tier_override("pro")
+        resp = self.client.get(
+            "/api/public/company/default",
+            headers={"Authorization": f"Bearer {self.admin_key}"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertFalse(data["watermark"])
+        # pro 版不返回 watermark_config（前端不需要渲染水印内容）
+        self.assertIsNone(data.get("watermark_config"))
+
+    # ─── max_users 配额门控 ────────────────────────────────────
+
+    def test_max_users_rejects_excess_registration(self):
+        """免费版 max_users=1 时，已有 1 个用户后再注册应返回 402。"""
+        set_dev_tier_override("free")
+        # 先插入 1 个用户到 default 公司（模拟已有用户）
+        from contextlib import closing
+        import secrets as _secrets
+        with closing(self.store.connect()) as conn:
+            conn.execute(
+                "insert into users(id, email, password_hash, company_id, created_at) "
+                "values(?, ?, ?, ?, ?)",
+                (_secrets.token_urlsafe(8), "existing@test.com", "hash", "default", self.store.now()),
+            )
+            conn.commit()
+
+        # 再注册应被拒绝（max_users=1，已有 1 个）
+        resp = self.client.post(
+            "/api/auth/register",
+            json={"email": "new@test.com", "password": "password123", "company_name": "测试公司"},
+        )
+        self.assertEqual(resp.status_code, 402)
+        self.assertIn("用户数上限", resp.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()
