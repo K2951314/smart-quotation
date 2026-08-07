@@ -271,18 +271,81 @@ _DEV_PAYLOAD: dict[str, Any] = {
     "issued_at": "dev",
 }
 
+# 开发模式 tier 覆盖（仅 SQ_DEV=1 时生效，用于本地测试不同订阅档位）
+# 设为 None 时走默认逻辑；设为 "free"/"pro"/"team" 时返回对应档位的 payload
+_dev_tier_override: str | None = None
+
+
+def set_dev_tier_override(tier: str | None) -> bool:
+    """设置开发模式 tier 覆盖（仅 SQ_DEV=1 时生效）。
+
+    用于本地测试不同订阅档位——无需重启后端，调用此函数即可切换。
+    生产环境调用此函数是 no-op（返回 False）。
+
+    Args:
+        tier: "free" / "pro" / "team" / None（None = 清除覆盖，恢复默认）
+
+    Returns:
+        True = 覆盖成功，False = 非开发模式，拒绝覆盖
+    """
+    global _dev_tier_override, _license_cache, _license_verified_at
+    is_dev = os.environ.get("SQ_DEV", "0") == "1"
+    if not is_dev:
+        return False
+    if tier is not None and tier not in TIER_PRESETS:
+        raise ValueError(f"未知档位: {tier}，可选: {list(TIER_PRESETS.keys())}")
+    _dev_tier_override = tier
+    # 清除缓存，让下次 verify_license 重新生成
+    _license_cache = None
+    _license_verified_at = 0
+    logger.info("开发模式 tier 覆盖已设置为: %s", tier)
+    return True
+
+
+def get_dev_tier_override() -> str | None:
+    """获取当前开发模式 tier 覆盖值（None = 未覆盖）。"""
+    return _dev_tier_override
+
+
+def _build_dev_payload_for_tier(tier: str) -> dict[str, Any]:
+    """根据 tier 构建开发模式 payload（基于 TIER_PRESETS，但放宽过期时间）。"""
+    preset = dict(TIER_PRESETS[tier])
+    return {
+        "product": "smart-quotation",
+        "customer": f"DEV-{tier.upper()}",
+        "tier": tier,
+        "expires_at": "2099-12-31T23:59:59Z",
+        "features": preset["features"],
+        "max_companies": preset["max_companies"],
+        "max_users": preset["max_users"],
+        "max_skus": preset["max_skus"],
+        "max_brands": preset["max_brands"],
+        "max_config_revisions": preset["max_config_revisions"],
+        "stock_query_daily_limit": preset["stock_query_daily_limit"],
+        "audit_log_days": preset["audit_log_days"],
+        "watermark": preset["watermark"],
+        "issued_at": "dev",
+    }
+
 
 def verify_license(force: bool = False) -> dict[str, Any] | None:
     """校验当前环境中的 license。
 
     返回 license payload（包含 customer、tier、features、quota 等），无效则返回 None。
     本地开发（SQ_DEV=1）时如果没设 license，返回开发用 payload（全功能）。
+
+    开发模式 tier 覆盖：如果 set_dev_tier_override() 设置了覆盖值，
+    返回对应档位的 payload（用于本地测试不同订阅）。
     """
     global _license_cache, _license_verified_at
 
     is_dev = os.environ.get("SQ_DEV", "0") == "1"
 
-    # 本地开发：无 license 时返回开发 payload
+    # 开发模式 tier 覆盖优先级最高（用于本地测试不同档位）
+    if is_dev and _dev_tier_override is not None:
+        return _build_dev_payload_for_tier(_dev_tier_override)
+
+    # 本地开发：无 license 且无覆盖时返回开发 payload
     if is_dev and not os.environ.get("SQ_LICENSE", "").strip():
         return dict(_DEV_PAYLOAD)
 

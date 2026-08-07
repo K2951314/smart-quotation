@@ -53,8 +53,8 @@ function bind() {
     const target = event.target.closest("button");
     if (!target) return;
 
-    if (target.dataset.removeField) { state.config.fields.splice(Number(target.dataset.removeField), 1); renderAll(); return; }
-    if (target.dataset.removeRule) { state.config.rules.splice(Number(target.dataset.removeRule), 1); renderAll(); return; }
+    if (target.dataset.removeField) { state.config.fields.splice(Number(target.dataset.removeField), 1); renderAll(); if (window.refreshQuotaIndicators) window.refreshQuotaIndicators(); return; }
+    if (target.dataset.removeRule) { state.config.rules.splice(Number(target.dataset.removeRule), 1); renderAll(); if (window.refreshQuotaIndicators) window.refreshQuotaIndicators(); return; }
     if (target.dataset.removeCopy) { state.config.copy.columns.splice(Number(target.dataset.removeCopy), 1); renderAll(); return; }
 
     if (target.dataset.rollback) { run(() => rollbackToRevision(target.dataset.rollback)); return; }
@@ -67,16 +67,28 @@ function bind() {
   $("publishBtn").addEventListener("click", () => run(() => saveConfig("published")));
   $("validateConfigBtn").addEventListener("click", () => run(validateConfig));
 
-  // ── 字段/规则/复制列 添加 ──
+  // ── 字段/规则/复制列 添加（含配额前置阻断）──
   $("addFieldBtn").addEventListener("click", () => {
     if (!Array.isArray(state.config.fields)) state.config.fields = [];
     state.config.fields.push({ key: "", label: "", type: "text", source: "price", excel_aliases: [], searchable: false, copyable: false, required: false, result_area: "detail" });
     renderAll();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
   });
   $("addRuleBtn").addEventListener("click", () => {
     if (!Array.isArray(state.config.rules)) state.config.rules = [];
+    // 配额前置阻断：免费版只能加 max_brands 条规则（默认 2）
+    // 不让用户超限添加，而非保存时才报错（体验更好）
+    var quota = window.SQ_QUOTA;
+    if (quota && quota.max_brands >= 0 && state.config.rules.length >= quota.max_brands) {
+      setStatus(
+        "报价规则已达当前订阅上限（" + quota.max_brands + " 条），请升级订阅或删除多余规则",
+        true,
+      );
+      return;
+    }
     state.config.rules.push({ id: "new_rule", label: "新规则", priority: 100, when: { all: [{ field: "spec", op: "contains", value: "" }] }, actions: [{ type: "set_discount", percent: 55 }] });
     renderAll();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
   });
   $("addCopyColumnBtn").addEventListener("click", () => {
     if (!state.config.copy || typeof state.config.copy !== "object") state.config.copy = {};

@@ -150,7 +150,9 @@ async function tryLogin() {
       setAdminApiKey(key);
       hideLoginOverlay();
       if (typeof bind === "function") bind();
-      if (typeof initApp === "function") initApp();
+      run(loadCompanies);
+      // 加载会话面板（角色 + 档位 + 开发模式切换器）
+      if (window.loadLicenseBadge) run(window.loadLicenseBadge);
     } else if (response.status === 429) {
       if (errDiv) { errDiv.textContent = "尝试次数过多，请 5 分钟后再试"; errDiv.style.display = "block"; }
     } else if (response.status === 401) {

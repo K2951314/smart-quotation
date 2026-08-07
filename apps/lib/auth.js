@@ -55,6 +55,14 @@ function applyAdminMode() {
   document.body.classList.remove("is-company");
 }
 
+// 免费版强制显示水印（Powered by 智能询价）
+// profile.watermark === true 时显示，false 或未定义时隐藏
+function applyWatermark(show) {
+  var el = document.getElementById("sqWatermark");
+  if (!el) return;
+  el.style.display = show ? "" : "none";
+}
+
 // ─── 认证网关 ──────────────────────────────────────────────
 
 function initAuthGate() {
@@ -313,13 +321,16 @@ async function loadCompanyProfile(companyId) {
         role: role,
         companyName: profile.name,
         profitMargin: profile.profit_margin,
+        watermark: profile.watermark,
       });
+      // 免费版强制显示水印（Powered by 智能询价）
+      applyWatermark(profile.watermark);
       if (role === "company") {
         applyCompanyMode(getAuthProfile());
       } else {
         applyAdminMode();
       }
-      console.log("[authGate] 已加载公司 profile:", profile.name, "角色", role, "利润率", profile.profit_margin + "%");
+      console.log("[authGate] 已加载公司 profile:", profile.name, "角色", role, "利润率", profile.profit_margin + "%", "水印", profile.watermark ? "开" : "关");
       return true;
     }
   } catch (err) {

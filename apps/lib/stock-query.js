@@ -284,7 +284,14 @@ async function doMitsubishiStockQuery() {
     });
 
     if (!resp.ok) {
-      var errHint = resp.status === 401 ? "（未授权：请登录或填写库存查询密钥）" : "";
+      var errHint = "";
+      if (resp.status === 401) {
+        errHint = "（未授权：请登录或填写库存查询密钥）";
+      } else if (resp.status === 403) {
+        errHint = "（库存查询是付费功能，请联系供应商升级订阅）";
+      } else if (resp.status === 429) {
+        errHint = "（今日查询次数已达上限，请明天再试或升级订阅）";
+      }
       showToast("库存服务异常: " + resp.status + errHint);
       selected.forEach(function (row) { updateCardStock(row, null); });
       setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");

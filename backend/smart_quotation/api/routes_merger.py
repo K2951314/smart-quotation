@@ -60,6 +60,13 @@ def register(app) -> None:
         - 预览模式允许 admin 角色。
         """
         effective_role = "company" if payload.deploy else payload.role
+        # 功能门控：bundle_encryption 是付费功能（pro/team），免费版不能加密价格包
+        if payload.password and payload.password.strip():
+            if not has_feature("bundle_encryption"):
+                raise HTTPException(
+                    status_code=403,
+                    detail="价格包加密是付费功能，请升级到个人版或专业版订阅。",
+                )
         price_bundle = store.build_price_bundle(
             password=payload.password, company_id=company_id, role=effective_role
         )

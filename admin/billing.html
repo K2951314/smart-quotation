@@ -114,9 +114,11 @@
       <div>
         <span class="label">当前订阅：</span>
         <span class="tier-name" id="currentTierName">—</span>
+        <span style="margin-left:16px;font-size:13px;color:#95a5a6;" id="currentTierRole"></span>
       </div>
       <div class="expires" id="currentTierExpires"></div>
     </div>
+    <div id="devModeNotice" style="display:none;background:#fff3cd;border:1px solid #ffeaa7;border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:13px;color:#856404;"></div>
 
     <div class="plans">
       <div class="plan">
@@ -241,22 +243,50 @@
   </div>
 
   <script>
-    // 加载当前 license 状态（超管模式才有效）
+    // 加载当前会话状态（所有认证用户可访问）
     (async function () {
       try {
-        const apiBase = window.getApiBase ? window.getApiBase() : "";
-        const token = window.getAuthToken ? window.getAuthToken() : "";
+        let apiBase = window.SQ_PROD_API_BASE || "";
+        if (!apiBase) {
+          const params = new URLSearchParams(location.search);
+          apiBase = params.get("api") || localStorage.getItem("sq_admin_api_base") || "";
+          if (!apiBase) {
+            if (location.protocol === "file:") apiBase = "http://127.0.0.1:8001";
+            else apiBase = location.origin;
+          }
+        }
+        const token = localStorage.getItem("sq_jwt_token") || sessionStorage.getItem("sq_admin_api_key") || "";
         if (!token) return;
-        const resp = await fetch(apiBase + "/api/license/info", {
+        const resp = await fetch(apiBase + "/api/auth/session", {
           headers: { Authorization: "Bearer " + token },
         });
         if (!resp.ok) return;
-        const info = await resp.json();
-        if (!info || !info.valid) return;
+        const session = await resp.json();
+        if (!session) return;
         const labels = { free: "免费版", pro: "个人版", team: "专业版" };
-        document.getElementById("currentTierName").textContent = labels[info.tier] || info.tier;
-        document.getElementById("currentTierExpires").textContent =
-          info.expires_at ? "到期：" + info.expires_at.split("T")[0] : "";
+        const tierName = labels[session.tier] || session.tier;
+        document.getElementById("currentTierName").textContent = tierName;
+
+        // 显示角色信息
+        const roleLabels = { superadmin: "超级管理员", tenant: "租户用户", dev: "开发模式" };
+        const roleEl = document.getElementById("currentTierRole");
+        if (roleEl) {
+          roleEl.textContent = roleLabels[session.role] || session.role;
+          if (session.email) {
+            roleEl.textContent += " · " + session.email;
+          }
+        }
+
+        // 开发模式提示
+        if (session.is_dev) {
+          const devEl = document.getElementById("devModeNotice");
+          if (devEl) {
+            devEl.style.display = "block";
+            devEl.innerHTML = "⚠️ <strong>开发模式已开启</strong>（SQ_DEV=1）。" +
+              "可在配置中心侧边栏的「测试档位切换」中一键切换 free/pro/team 档位，无需重启后端。";
+          }
+        }
+
         document.getElementById("currentTierInfo").style.display = "flex";
       } catch (e) {
         // 静默

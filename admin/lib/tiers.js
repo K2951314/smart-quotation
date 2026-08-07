@@ -20,6 +20,14 @@
  */
 function renderTierManagerForAdmin(container, adminId) {
   if (!container) return;
+
+  // 功能门控：tier_profit_grouping 是 team 档位功能，低档位显示升级提示
+  if (window.hasFeature && !window.hasFeature("tier_profit_grouping")) {
+    container.innerHTML = '<div style="padding:10px;border:1px dashed #ddd;border-radius:5px;text-align:center;color:#bbb;font-size:11px;background:#fff;">' +
+      '🔒 利润率分组是专业版功能。<br>升级后可创建分组并为成员公司分配不同利润率。</div>';
+    return;
+  }
+
   var tiers = (g_TiersCache && g_TiersCache[adminId]) || [];
 
   var header = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +

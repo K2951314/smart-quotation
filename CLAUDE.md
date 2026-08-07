@@ -26,6 +26,8 @@
 - **租户隔离三依赖**：`require_admin_api`（认证）→ `resolve_company_id`（租户强制使用 JWT 中的 `company_id`）→ `require_superadmin`（公司创建/删除/assign-tier 等平台级操作限超管）。所有接受 `company_id` 查询参数的 admin 路由必须用 `Depends(resolve_company_id)` 而非 `Query(DEFAULT_COMPANY_ID)`，否则 JWT 用户可越权。
 - **注册/登录流程**：`admin/register.html` 填邮箱+密码+公司名 → `POST /api/auth/register` 自动创建公司+用户 → 返回 JWT → 跳转配置中心。`admin/login.html` 邮箱+密码登录。
 - **订阅档位系统**：三档预设 `free`/`pro`/`team`，每档定义 `features`（功能开关）+ `quota`（用量上限）。License payload 包含 `tier` 字段 + 所有 quota 字段。功能门控通过 `has_feature()` / `get_quota()` 在路由层检查，未授权返回 403。生成 license 用 `py scripts/generate_license.py --tier pro --customer "客户A"`。
+- **会话信息端点**：`GET /api/auth/session`（所有认证用户可访问）返回 `{role, is_dev, tier, features, email, company_id, dev_tier_override}`，供前端显示角色徽标 + 档位徽标 + 开发模式标记。与 `GET /api/license/info`（超管专属，返回完整 license 详情含 customer/过期时间）互补。
+- **开发模式档位切换**：`POST /api/dev/set-tier`（仅 `SQ_DEV=1` 时可用）可一键切换 free/pro/team 档位，无需重启后端。用于本地测试不同订阅的功能门控和配额限制。生产环境调用返回 403。前端在 admin topbar 显示切换器（`admin/lib/session-panel.js`）。
 
 ## 客户门户 (apps/index.html)
 
@@ -71,7 +73,7 @@ py -m backend.smart_quotation
 测试命令：
 
 ```powershell
-# Python 测试（主力，当前 67/67 全绿）
+# Python 测试（主力，当前 87/87 全绿）
 py -m pytest tests/ -v
 
 # 兼容旧命令
@@ -102,15 +104,26 @@ node --test tests/*.test.js
 
 ### 门控点
 
-| 端点 | 检查 | quota 字段 |
+| 端点 | 检查 | quota/feature 字段 |
 |------|------|-----------|
+| `POST /api/config` | 规则数量 + 版本历史上限（超限自动删最旧） | `max_brands` + `max_config_revisions` |
+| `POST /api/config/import` | 规则数量 + 版本历史上限（与 save 一致） | `max_brands` + `max_config_revisions` |
+| `POST /api/config/{revision}/publish` | 回滚时检查规则数量 + 版本历史上限 | `max_brands` + `max_config_revisions` |
 | `POST /api/items` / upload | SKU 数量 | `max_skus` |
-| `POST /api/config` | 版本历史上限（超限自动删最旧） | `max_config_revisions` |
-| `POST /api/stock-query` | 功能开关 + 日配额 | `stock_query_daily_limit` |
-| `POST /api/merger/bundle/*` (deploy) | supabase_deploy 功能 | `features` |
+| `POST /api/stock-query` | 功能开关 + 日配额 | `stock_query` feature + `stock_query_daily_limit` |
+| `POST /api/merger/bundle/generate` (deploy) | supabase_deploy 功能 | `features` |
+| `POST /api/merger/bundle/generate` (有密码) | bundle_encryption 功能 | `features` |
 | `PUT /api/tiers` | tier_profit_grouping 功能 | `features` |
 | `POST /api/companies/{id}/members` | admin_member_inheritance 功能 | `features` |
-| `GET /api/audit` | 按天数过滤 | `audit_log_days` |
+| `POST /api/auth/register` / `POST /api/companies` | 公司数量上限 | `max_companies` |
+| `GET /api/audit` | audit_log 功能门控 + 按天数过滤 | `audit_log` feature + `audit_log_days` |
+
+### 前端功能门控
+
+- **`data-feature` 属性**：HTML 元素加 `data-feature="xxx"`，`session-panel.js` 的 `applyFeatureGating()` 根据当前档位自动显示/隐藏。
+- **`hasFeature(feat)` 全局函数**：动态渲染的 UI（如成员创建按钮、Tier 管理面板）在 JS 中调用此函数判断是否渲染。
+- **配额前置阻断**：`window.SQ_QUOTA`（由 `/api/auth/session` 注入）供前端在用户操作前检查（如添加规则时检查 `max_brands`），避免保存时才报错。
+- **水印**：免费版 `watermark=True`，`/api/public/company/{id}` 返回此字段，`apps/index.html` 条件渲染水印层。
 
 ### License 生成
 
@@ -142,7 +155,7 @@ py scripts/generate_license.py --tier pro --customer "客户A" --expires 2027-12
 
 ### P2（后续）
 
-- [x] 前端模块化重构（app.js 拆分）— apps/ 拆为 14 模块（含 profit-config.js），admin/ 拆为 12 模块；CSS 已拆分为 `styles/` 下 6 个功能模块（base/layout/forms/results/modals/responsive），拆分工具 `scripts/split_css.py`
+- [x] 前端模块化重构（app.js 拆分）— apps/ 拆为 14 模块（含 profit-config.js），admin/ 拆为 14 模块（含 session-panel.js、tiers.js）；CSS 已拆分为 `styles/` 下 6 个功能模块（base/layout/forms/results/modals/responsive），拆分工具 `scripts/split_css.py`
 - [x] 部署文档（本地 `_DEPLOYMENT-STEPS.md` + `_LOCAL-GUIDE.md`，README 部署章节同步）
 - [ ] 产品官网 + 文档站
 - [ ] 多租户客户登录（customers / customer_sessions 表 + API）
@@ -151,7 +164,7 @@ py scripts/generate_license.py --tier pro --customer "客户A" --expires 2027-12
 - [x] 消除 admin 源码真实折扣泄露（admin/lib/config-core.js 硬编码 32/36 → 改为中性 55）
 - [x] 日志规范化（6 处 print() 改 logging）
 - [x] 管理员公司 UI 标记（admin/lib/companies.js toggleAdminFlag + 前端 role 脱敏）
-- [x] **管理员-成员配置继承 + Tier 利润率分组**（parent_company_id 配置/数据/bundle 继承 + tier 拖拽分配 + 93 测试全绿）
+- [x] **管理员-成员配置继承 + Tier 利润率分组**（parent_company_id 配置/数据/bundle 继承 + tier 拖拽分配 + 配额门控测试全绿）
 - [ ] 三菱 GWT-RPC 常量外置 + 并发查询
 
 ## 管理员-成员配置继承 + Tier 利润率分组
@@ -182,6 +195,9 @@ py scripts/generate_license.py --tier pro --customer "客户A" --expires 2027-12
 | GET | `/api/tiers?company_id=X` | Bearer (Admin) | 获取 Tier 列表（成员公司自动从 parent 读取） |
 | PUT | `/api/tiers?company_id=X` | Bearer (Admin) | 替换 Tier 列表（写入 admin meta.tiers） |
 | POST | `/api/companies/{id}/assign-tier` | Bearer (Admin) | 分配公司到 Tier（设置 meta.tier + parent_company_id） |
+| GET | `/api/auth/session` | Bearer (Any) | 获取会话信息（role/tier/features/is_dev/email），所有认证用户可访问 |
+| POST | `/api/dev/set-tier` | Bearer (Admin) | 开发模式 tier 覆盖（仅 SQ_DEV=1），一键切换 free/pro/team 测试 |
+| GET | `/api/license/info` | Bearer (Superadmin) | 获取完整 license 详情（customer/过期时间/配额），超管专属 |
 
 ### Admin UI
 

@@ -142,28 +142,33 @@ py -m backend.smart_quotation
 │   ├── app.js                   # bootstrap
 │   ├── merger-app.js            # 数据拼接
 │   ├── styles/                  # CSS 模块（6 文件，与 apps/ 同结构）
-│   └── lib/                     # 12 个模块
+│   └── lib/                     # 14 个模块（含 session-panel.js）
 │       ├── config-core.js       # 与 apps/lib/config-core.js 同步（见 scripts/sync-config-core.py）
+│       ├── session-panel.js     # 会话面板 + 档位徽标 + 功能门控
 │       ├── bundle-utils.js      # Bundle 生成/加密
-│       ├── admin-core.js / companies.js / config-api.js ...
+│       ├── admin-core.js / companies.js / tiers.js / event-bindings.js ...
 ├── backend/                     # FastAPI 后端
 │   └── smart_quotation/
-│       ├── api/                 # API 层（9 个模块）
+│       ├── api/                 # API 层（12 个模块）
 │       │   ├── factory.py       # 应用工厂（CORS、静态挂载）
 │       │   ├── auth.py          # 认证 + 频率限制
+│       │   ├── routes_auth.py   # 注册/登录/session/dev-set-tier
 │       │   ├── routes_public.py # 公开端点（config/data 代理）
 │       │   ├── routes_companies.py  # 公司 CRUD + 令牌管理
-│       │   ├── routes_config.py     # 配置 CRUD（save/publish/rollback）
+│       │   ├── routes_config.py     # 配置 CRUD（save/publish/rollback + 配额）
 │       │   ├── routes_items.py      # 商品数据 CRUD
 │       │   ├── routes_merger.py     # 品牌识别 + Bundle 生成/部署
 │       │   ├── routes_stock.py      # 三菱库存查询
+│       │   ├── routes_tiers.py      # Tier 管理 + assign-tier
 │       │   ├── models.py / supabase.py
-│       ├── store/               # 存储层（9 个模块）
+│       ├── store/               # 存储层（10 个模块）
 │       │   ├── base.py          # Schema、索引、迁移、ConfigCache
 │       │   ├── configs.py       # 配置 CRUD
 │       │   ├── items.py         # 商品数据 CRUD
-│       │   ├── companies.py     # 公司管理
+│       │   ├── companies.py     # 公司管理 + 配置继承
 │       │   ├── bundles.py       # AES-GCM 价格包加密
+│       │   ├── pg_adapter.py    # PostgreSQL 适配（SaaS 模式）
+│       │   ├── db_backup.py     # SQLite 自动备份到 Supabase
 │       │   ├── audit.py / security.py / excel.py
 │       ├── engine.py            # 报价引擎（规则匹配 + AST 安全公式求值）
 │       ├── config.py            # 配置规范化
@@ -176,7 +181,7 @@ py -m backend.smart_quotation
 │   ├── split_css.py             # CSS 按功能模块拆分（base/layout/forms/results/modals/responsive）
 │   ├── verify_css_split.py      # 验证拆分后括号完整性
 │   └── analyze_css.py           # 分析 CSS 各功能模块行数分布
-├── tests/                       # 67 个 Python 测试 + 5 个 JS 测试文件
+├── tests/                       # 87 个 Python 测试 + 5 个 JS 测试文件
 ├── config.example.json           # 配置示例（不含敏感值）
 ├── .env.example                  # 环境变量示例
 ├── requirements.txt
@@ -249,6 +254,9 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 | POST | `/api/merger/bundle/deploy` | Bearer (Admin) | Bundle 部署到 Supabase（从数据库重建脱敏 bundle） |
 | POST | `/api/stock-query` | X-Stock-Key | 三菱库存查询（频率限制 60s/30 次，单次上限 50 条） |
 | GET | `/api/audit?company_id=X` | Bearer (Admin) | 审计日志（按公司隔离） |
+| GET | `/api/auth/session` | Bearer (Any) | 会话信息（角色 + 档位 + 功能 + 开发模式标记） |
+| POST | `/api/dev/set-tier` | Bearer (Admin) | 开发模式档位切换（仅 SQ_DEV=1，一键测试 free/pro/team） |
+| GET | `/api/license/info` | Bearer (Superadmin) | 完整 license 详情（customer/过期时间/配额） |
 
 ---
 

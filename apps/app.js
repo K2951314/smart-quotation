@@ -32,6 +32,13 @@ async function startApp() {
     // 安全：生产环境下不允许无 company_id 时自动降级为 admin 角色
     if (isLocalDev) {
       saveAuthProfile({ role: "admin" });
+      // 本地开发模式：加载 default 公司 profile 以获取 watermark 标志
+      // （免费版显示「Powered by 智能询价」水印，个人版/专业版无水印）
+      try {
+        await loadCompanyProfile("default");
+      } catch (e) {
+        // 静默失败：加载 profile 失败不应阻塞应用启动
+      }
     } else {
       var stockKey = getStockQueryKey();
       if (stockKey) {

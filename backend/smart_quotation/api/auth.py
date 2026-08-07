@@ -207,7 +207,12 @@ def require_admin_api(
         from .routes_auth import _decode_jwt
         payload = _decode_jwt(token)
         if payload and "sub" in payload and "company_id" in payload:
-            return {"role": "tenant", "company_id": payload["company_id"]}
+            return {
+                "role": "tenant",
+                "company_id": payload["company_id"],
+                "email": payload.get("email", ""),
+                "user_id": payload.get("sub", ""),
+            }
     except Exception:
         pass
 

@@ -183,10 +183,13 @@ function renderAdminCard(admin, members) {
   // 操作按钮区
   var actions = document.createElement("div");
   actions.style.cssText = "display:flex;align-items:center;gap:4px;padding:6px 8px;flex-shrink:0;flex-wrap:wrap;";
-  actions.appendChild(makeActionBtn("添加成员", "#38a169", "在该管理员下创建成员公司（继承配置/数据）", function (e) {
-    e.stopPropagation();
-    showAddMemberForm(admin.id);
-  }));
+  // 功能门控：成员公司创建是 admin_member_inheritance 功能（pro/team）
+  if (window.hasFeature && window.hasFeature("admin_member_inheritance")) {
+    actions.appendChild(makeActionBtn("添加成员", "#38a169", "在该管理员下创建成员公司（继承配置/数据）", function (e) {
+      e.stopPropagation();
+      showAddMemberForm(admin.id);
+    }));
+  }
   if (meta.access_token) {
     actions.appendChild(makeActionBtn("复制", "#2c5282", "复制客户访问链接", function (e) {
       e.stopPropagation();

@@ -105,9 +105,10 @@ class CompaniesMixin:
         return (company.get("meta") or {}).get("tiers") or []
 
     def resolve_company_profile(self, company_id: str) -> dict[str, Any]:
-        """解析公司完整 profile（含 tier 解析后的 profit_margin + parent 信息）。
+        """解析公司完整 profile（含 tier 解析后的 profit_margin + parent 信息 + watermark）。
 
         供 /api/public/company/{id} 使用。
+        watermark 来自 license 配额（免费版强制显示水印，个人版/专业版无水印）。
         """
         try:
             company = self.get_company(company_id)
@@ -120,6 +121,7 @@ class CompaniesMixin:
                     "profit_margin": DEFAULT_PROFIT_MARGIN,
                     "tier": None,
                     "parent_company_id": None,
+                    "watermark": self._resolve_watermark(),
                 }
             raise
         meta = company.get("meta") or {}
@@ -132,7 +134,16 @@ class CompaniesMixin:
             "profit_margin": profit_margin,
             "tier": meta.get("tier"),
             "parent_company_id": meta.get("parent_company_id"),
+            "watermark": self._resolve_watermark(),
         }
+
+    def _resolve_watermark(self) -> bool:
+        """从 license 获取 watermark 标志（免费版 True，个人版/专业版 False）。
+
+        客户门户根据此字段决定是否显示「Powered by 智能询价」水印。
+        """
+        from ..license import get_quota
+        return bool(get_quota("watermark", True))
 
     def list_companies(self) -> list[dict[str, Any]]:
         """列出所有公司（按创建时间降序），确保 default 始终在列表中。"""

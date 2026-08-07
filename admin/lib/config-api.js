@@ -17,6 +17,7 @@ async function loadConfigFromBackend() {
     config.status = "draft";
     state.config = normalizeAdminConfig(config);
     renderAll();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
     setStatus("已加载「" + cid + "」的配置");
     autoFillSupabaseUrl();
     return true;
@@ -31,6 +32,7 @@ async function loadConfigFromBackend() {
         }
       } catch { }
       renderAll();
+      if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
       setStatus("「" + cid + "」尚未发布配置，当前显示默认模板。填写配置后点击「保存」即可创建。", "warn");
       autoFillSupabaseUrl();
       return false;
@@ -59,6 +61,7 @@ async function loadConfig() {
     state.config = normalizeAdminConfig(config);
     renderAll();
     autoFillSupabaseUrl();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
     setStatus("已从后端恢复「" + getCurrentCompanyId() + "」的配置");
   } catch (err) {
     if (err.status === 404) {
@@ -216,6 +219,7 @@ async function importJson() {
       body: JSON.stringify({ content, fmt: "json" }),
     }));
     renderAll();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
     setStatus("配置已导入为草稿");
   } catch (err) {
     setStatus("导入失败: " + (err.message || err), true);

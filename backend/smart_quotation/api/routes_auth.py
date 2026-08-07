@@ -244,3 +244,92 @@ def register(app) -> None:
                 "company_id": user["company_id"],
             }
         }
+
+    @app.get("/api/auth/session")
+    async def get_session(auth: dict[str, Any] = Depends(require_admin_api)) -> dict[str, Any]:
+        """获取当前会话信息（所有认证用户可访问）。
+
+        返回统一的会话上下文，供前端显示角色、档位、功能权限：
+        - role: "superadmin" | "tenant" | "dev"
+        - tier: "free" | "pro" | "team"（来自 license）
+        - features: 授权功能列表
+        - quota: 配额数字对象（供前端做前置阻断，如 max_brands/max_skus 等）
+        - is_dev: 是否开发模式
+        - email / company_id: JWT 用户才有
+
+        与 /api/license/info 的区别：
+        - /api/license/info 需超管权限，返回完整 license 详情（customer、过期时间）
+        - /api/auth/session 所有认证用户可访问，只返回安全子集（tier + features + quota）
+        """
+        from ..license import verify_license, get_dev_tier_override, get_quota
+        license_payload = verify_license()
+        is_dev = os.environ.get("SQ_DEV", "0") == "1"
+
+        tier = "free"
+        features: list[str] = []
+        if license_payload:
+            tier = license_payload.get("tier", "free")
+            features = license_payload.get("features", [])
+
+        # 返回配额数字供前端做前置阻断（UI 上不允许超限添加，而非保存时才报错）
+        quota = {
+            "max_companies": get_quota("max_companies", 1),
+            "max_users": get_quota("max_users", 1),
+            "max_skus": get_quota("max_skus", 500),
+            "max_brands": get_quota("max_brands", 2),
+            "max_config_revisions": get_quota("max_config_revisions", 3),
+            "stock_query_daily_limit": get_quota("stock_query_daily_limit", 0),
+            "audit_log_days": get_quota("audit_log_days", 7),
+            "watermark": get_quota("watermark", True),
+        }
+
+        # JWT 用户的 email/company_id 已由 require_admin_api 解码并放入 auth context
+        email = auth.get("email") if auth["role"] == "tenant" else None
+        company_id = auth.get("company_id") if auth["role"] == "tenant" else None
+
+        return {
+            "role": auth["role"],
+            "is_dev": is_dev,
+            "tier": tier,
+            "features": features,
+            "quota": quota,
+            "email": email,
+            "company_id": company_id,
+            "dev_tier_override": get_dev_tier_override() if is_dev else None,
+        }
+
+    @app.post("/api/dev/set-tier")
+    async def dev_set_tier(
+        payload: dict[str, Any],
+        auth: dict[str, Any] = Depends(require_admin_api),
+    ) -> dict[str, Any]:
+        """开发模式 tier 覆盖（仅 SQ_DEV=1 时生效）。
+
+        用于本地测试不同订阅档位——无需重启后端，POST 即可切换。
+        生产环境调用返回 403。
+
+        请求体：{"tier": "free" | "pro" | "team" | null}
+        """
+        is_dev = os.environ.get("SQ_DEV", "0") == "1"
+        if not is_dev:
+            raise HTTPException(status_code=403, detail="此端点仅在开发模式（SQ_DEV=1）下可用")
+
+        from ..license import set_dev_tier_override, TIER_PRESETS
+        tier = payload.get("tier")
+        if tier is not None and tier not in TIER_PRESETS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"未知档位: {tier}，可选: {list(TIER_PRESETS.keys())}",
+            )
+        success = set_dev_tier_override(tier)
+        if not success:
+            raise HTTPException(status_code=403, detail="设置失败（非开发模式）")
+
+        from ..license import verify_license
+        new_payload = verify_license(force=True)
+        return {
+            "ok": True,
+            "tier": tier,
+            "message": f"已切换到 {tier or '默认（无覆盖）'} 档位" if tier else "已清除 tier 覆盖，恢复默认",
+            "features": new_payload.get("features", []) if new_payload else [],
+        }
