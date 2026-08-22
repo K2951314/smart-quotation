@@ -63,6 +63,10 @@ copy .env.example .env
 | `SQ_SUPABASE_PROJECT_URL` | 持久化必填 | Supabase 项目根地址（`https://<ref>.supabase.co`），用于私有 bucket 备份 SQLite；缺失时备份安全降级仅告警 |
 | `SQ_SUPABASE_SERVICE_KEY` | 持久化必填 | service role key（非 anon key），私有 bucket 读写凭证，严禁进前端 |
 | `DB_BACKUP_BUCKET` / `DB_BACKUP_PATH` | 可选 | 备份目标，默认 `sq-db-backup` / `quotation.db` |
+| `DATABASE_URL` | 生产必填 | PostgreSQL 连接串（`postgresql://...`）；未设 `SQ_DEV` 时后端拒绝启动（SQLite 仅本地开发） |
+| `WATERMARK_TEXT` | 可选 | 免费版水印文字，留空用默认「Powered by 智能询价」 |
+| `WATERMARK_PHONE` | 可选 | 免费版水印联系电话（点击可拨号），如 `18863995420` |
+| `WATERMARK_WECHAT_QR` | 可选 | 免费版水印微信二维码图片 URL（点击放大长按识别添加好友） |
 
 生成强随机密钥：
 
@@ -142,28 +146,33 @@ py -m backend.smart_quotation
 │   ├── app.js                   # bootstrap
 │   ├── merger-app.js            # 数据拼接
 │   ├── styles/                  # CSS 模块（6 文件，与 apps/ 同结构）
-│   └── lib/                     # 12 个模块
+│   └── lib/                     # 14 个模块（含 session-panel.js）
 │       ├── config-core.js       # 与 apps/lib/config-core.js 同步（见 scripts/sync-config-core.py）
+│       ├── session-panel.js     # 会话面板 + 档位徽标 + 功能门控
 │       ├── bundle-utils.js      # Bundle 生成/加密
-│       ├── admin-core.js / companies.js / config-api.js ...
+│       ├── admin-core.js / companies.js / tiers.js / event-bindings.js ...
 ├── backend/                     # FastAPI 后端
 │   └── smart_quotation/
-│       ├── api/                 # API 层（9 个模块）
+│       ├── api/                 # API 层（12 个模块）
 │       │   ├── factory.py       # 应用工厂（CORS、静态挂载）
 │       │   ├── auth.py          # 认证 + 频率限制
+│       │   ├── routes_auth.py   # 注册/登录/session/dev-set-tier
 │       │   ├── routes_public.py # 公开端点（config/data 代理）
 │       │   ├── routes_companies.py  # 公司 CRUD + 令牌管理
-│       │   ├── routes_config.py     # 配置 CRUD（save/publish/rollback）
+│       │   ├── routes_config.py     # 配置 CRUD（save/publish/rollback + 配额）
 │       │   ├── routes_items.py      # 商品数据 CRUD
 │       │   ├── routes_merger.py     # 品牌识别 + Bundle 生成/部署
 │       │   ├── routes_stock.py      # 三菱库存查询
+│       │   ├── routes_tiers.py      # Tier 管理 + assign-tier
 │       │   ├── models.py / supabase.py
-│       ├── store/               # 存储层（9 个模块）
+│       ├── store/               # 存储层（10 个模块）
 │       │   ├── base.py          # Schema、索引、迁移、ConfigCache
 │       │   ├── configs.py       # 配置 CRUD
 │       │   ├── items.py         # 商品数据 CRUD
-│       │   ├── companies.py     # 公司管理
+│       │   ├── companies.py     # 公司管理 + 配置继承
 │       │   ├── bundles.py       # AES-GCM 价格包加密
+│       │   ├── pg_adapter.py    # PostgreSQL 适配（SaaS 模式）
+│       │   ├── db_backup.py     # SQLite 自动备份到 Supabase
 │       │   ├── audit.py / security.py / excel.py
 │       ├── engine.py            # 报价引擎（规则匹配 + AST 安全公式求值）
 │       ├── config.py            # 配置规范化
@@ -176,7 +185,7 @@ py -m backend.smart_quotation
 │   ├── split_css.py             # CSS 按功能模块拆分（base/layout/forms/results/modals/responsive）
 │   ├── verify_css_split.py      # 验证拆分后括号完整性
 │   └── analyze_css.py           # 分析 CSS 各功能模块行数分布
-├── tests/                       # 67 个 Python 测试 + 5 个 JS 测试文件
+├── tests/                       # 87 个 Python 测试 + 5 个 JS 测试文件
 ├── config.example.json           # 配置示例（不含敏感值）
 ├── .env.example                  # 环境变量示例
 ├── requirements.txt
@@ -224,8 +233,9 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 - **静态文件缓存**：后端 `StaticCacheControlMiddleware` 和 `netlify.toml` 一致设置 — HTML `no-cache`（每次 ETag 校验）；CSS/JS `immutable, max-age=31536000`（靠 `?v=` 失效）；更新前端后必须递增 `index.html` 中的 `?v=` 版本号
 
 **数据源**（Supabase Storage）：
-- 通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`
-- 或通过 `window.SQ_SUPABASE_BASE_URL` 前端注入
+- 通过「公司管理」→「数据源」按钮设置 `meta.supabase_base_url`（每公司独立）
+- 或环境变量 `SQ_SUPABASE_BASE_URL`（全局默认，权威）
+- admin 上传 bundle 时通过 `/api/settings/datasource` 获取有效地址（环境变量优先 → 公司 meta 回退）
 
 ---
 
@@ -249,6 +259,9 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 | POST | `/api/merger/bundle/deploy` | Bearer (Admin) | Bundle 部署到 Supabase（从数据库重建脱敏 bundle） |
 | POST | `/api/stock-query` | X-Stock-Key | 三菱库存查询（频率限制 60s/30 次，单次上限 50 条） |
 | GET | `/api/audit?company_id=X` | Bearer (Admin) | 审计日志（按公司隔离） |
+| GET | `/api/auth/session` | Bearer (Any) | 会话信息（角色 + 档位 + 功能 + 开发模式标记） |
+| POST | `/api/dev/set-tier` | Bearer (Admin) | 开发模式档位切换（仅 SQ_DEV=1，一键测试 free/pro/team） |
+| GET | `/api/license/info` | Bearer (Superadmin) | 完整 license 详情（customer/过期时间/配额） |
 
 ---
 
@@ -256,11 +269,34 @@ FastAPI 同源代理 `apps/` 和 `admin/`，前后端同一端口。
 
 - **ADMIN_API_KEY 强校验**：未设置或弱值拒绝启动（本地开发用 `SQ_DEV=1` 跳过）
 - **secrets.compare_digest**：所有 key 比较使用恒定时间比较，防时序攻击
-- **频率限制**：三菱库存查询 60s/30 次/IP
+- **频率限制**：三菱库存查询 60s/30 次/IP，注册/登录限流
 - **单次条数上限**：三菱库存查询单次最多 50 条
 - **CSP 安全响应头**：`netlify.toml` 配置 X-Content-Type-Options / X-Frame-Options / Referrer-Policy / CSP（`script-src` 白名单：self + SheetJS + Sentry CDN）
 - **多租户隔离**：所有业务表 `company_id` 过滤，删除公司级联清理
 - **源码无硬编码 URL**：Supabase/Railway 地址全部通过环境变量或 admin 配置中心注入
+- **生产架构断言**：未设 `SQ_DEV` 时必须用 PostgreSQL（`DATABASE_URL`）或持久化 Volume（`DB_PATH`），SQLite 文件在容器重启后丢失，禁止用于生产
+- **配额强制**：`max_companies` / `max_users` / `max_brands` / `max_skus` / `max_config_revisions` 在后端路由层强制检查，前端做前置阻断避免保存时才报错
+
+## 订阅档位
+
+| 档位 | 价格 | 公司数 | SKU | 库存查询/天 | 关键功能 |
+|------|------|--------|-----|------------|----------|
+| 免费版 | ¥0 | 1 | 500 | — | core + customer_portal（带水印） |
+| 个人版 | ¥99/月 | 1 | 5000 | 50 | + stock_query + bundle_encryption + supabase_deploy |
+| 专业版 | ¥399/月 | 5 | 不限 | 500 | + admin_member_inheritance + tier_profit_grouping |
+
+生成 License：
+
+```powershell
+# 推荐：RSA 非对称签发（私钥只在供应商侧）
+py scripts/generate_license.py --tier pro --customer "客户A" --expires 2027-12-31 --private-key keys/license_private.pem
+```
+
+> 订阅档位已下沉到「每租户 plan」：管理员在 admin 后台给每个客户公司分配档位（`company.meta.plan`），
+> 决定该客户的功能/配额/水印；全局 license 退化为「部署总授权」（总租户数上限 + 允许分配的最高档位）。
+> 未分配 plan 的普通客户公司 fail-closed 到免费版。db_backup / custom_branding 为部署级能力（环境变量启用），非租户订阅功能。
+
+定价详情见 `admin/billing.html`。
 
 ---
 

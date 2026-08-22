@@ -146,29 +146,24 @@ def get_client_id(request: Request) -> str:
 
 ### P1-8: License 校验机制
 
-**安全属性**：HMAC-SHA256 签名 + 过期检查 + 功能授权
+**安全属性**：RSA 非对称签名（RS256，私钥签/公钥验）+ HMAC 向后兼容（HS256）+ 过期宽限期 + 功能授权
 
 | 测试 | 攻击向量 | 预期 | 结果 |
 |---|---|---|---|
 | 8.1 | 有效 license | 验签通过 | ✅ |
 | 8.2 | **篡改 payload（改 customer 名）** | 验签失败 | ✅ |
 | 8.3 | **错误密钥签的 license** | 验签失败 | ✅ |
-| 8.4 | **过期 license** | 拒绝 | ✅ |
+| 8.4 | **过期 license** | 拒绝（宽限期后） | ✅ |
 | 8.5 | 缓存命中（改 SQ_LICENSE 后 5min 内仍用旧值） | 缓存生效 | ✅ |
 
 **密码学保证**：
-- HMAC-SHA256：签名密钥未知时无法伪造
-- `hmac.compare_digest()`：签名比较恒定时间，防时序攻击
-- 过期检查：`expires_at` 字段，过期后 `verify_license()` 返回 None
+- RSA（RS256）：私钥只在供应商侧，公钥（`SQ_LICENSE_PUBLIC_KEY`）部署侧验签——公钥泄露无法伪造
+- HMAC（HS256）：向后兼容旧 license，`hmac.compare_digest()` 恒定时间比较
+- 过期检查：`expires_at` 字段 + 7 天宽限期（宽限期内放行并打 error 告警，超期 fail-closed 到免费档）；过期状态每次请求检查，不缓存
 
-**已知限制（8.5，LOW 级）**：
-- License 验证结果缓存 5 分钟（`_LICENSE_REVERIFY_INTERVAL = 300`）
-- 吊销 license 后 5 分钟内仍可用（可通过 `verify_license(force=True)` 立即重验）
-- HMAC 是对称签名，`SQ_LICENSE_SECRET` 泄露后客户可伪造 license
-
-**生产建议**：
-- 升级为 RSA 非对称签名（私钥签，公钥验），公钥可公开
-- 或建立 license 吊销列表（blacklist）
+**已知限制**：
+- License 验签结果缓存 5 分钟（`_LICENSE_REVERIFY_INTERVAL = 300`）；吊销后 5 分钟内仍可用（`verify_license(force=True)` 立即重验）
+- HMAC 是对称签名，仅向后兼容用；新 license 应用 RSA 签发
 
 ---
 

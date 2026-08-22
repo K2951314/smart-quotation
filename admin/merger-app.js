@@ -96,6 +96,15 @@
     var taxResult = DataUtils.applyTaxConversion(merged, cfg, taxOpt);
     state.priceRows = taxResult.rows;
     updateCounters();
+    // 面价映射诊断：面价字段未匹配到任何 Excel 列时，脱敏预计算报价会是 0。
+    // 此前静默失败，用户上传后客户端价格直接显示 0，排查成本极高。
+    var missingFields = DataUtils.diagnosePriceMapping(state.priceRows, cfg);
+    if (missingFields) {
+      var missingLabels = missingFields.map(function (f) { return f.label || f.key; }).join("、");
+      setStatus("⚠️ 警告：" + missingLabels + " 字段未匹配到 Excel 列！报价将被计算为 0。" +
+        "请检查「字段配置」中该字段的 Excel 别名（多别名用逗号/顿号/分号分隔）与价格表列名是否一致", "error");
+      return;
+    }
     if (taxResult.applied && taxResult.converted > 0) {
       setStatus("已加载并合并 " + state.priceRows.length + " 行（面价已从未税转为含税，转换 " + taxResult.converted + " 行，税率 " + taxResult.taxRate + "%）", "ok");
     } else {
@@ -128,7 +137,9 @@
 
     var password = $("merger-pricePassword").value.trim();
     var cfg = getConfigFromEditor();
-    var result = await ExportUtils.createPriceBundleScript(state.priceRows, password, cfg);
+    // 安全：导出/上传到公开存储前必须脱敏（移除面价、预计算报价），
+    // 否则公开桶泄露面价，成员公司也会因拿到原始面价而报价错误。
+    var result = await ExportUtils.createPriceBundleScript(state.priceRows, password, cfg, { desensitize: true });
     window._mergerBundles = window._mergerBundles || {};
     window._mergerBundles.price = result.script;
     triggerDownload("price.bundle.json", result.script, "application/json;charset=utf-8");
@@ -161,7 +172,8 @@
 
     var password = $("merger-pricePassword").value.trim();
     var cfg = getConfigFromEditor();
-    var price = await ExportUtils.createPriceBundleScript(state.priceRows, password, cfg);
+    // 安全：价格包必须脱敏（移除面价、预计算报价），防止公开存储泄露面价
+    var price = await ExportUtils.createPriceBundleScript(state.priceRows, password, cfg, { desensitize: true });
     var stock = ExportUtils.createStockBundleScript(state.stockRows, cfg);
 
     window._mergerBundles = { price: price.script, stock: stock.script };
@@ -187,6 +199,30 @@
   }
 
   function bindEvents() {
+    // 文件选择按钮：点击触发隐藏的 file input
+    var priceBtn = $("merger-priceFilesBtn");
+    var priceInput = $("merger-priceFiles");
+    if (priceBtn && priceInput) {
+      priceBtn.onclick = function () { priceInput.click(); };
+      priceInput.onchange = function () {
+        var names = [];
+        for (var i = 0; i < priceInput.files.length; i++) names.push(priceInput.files[i].name);
+        var el = $("merger-priceFileName");
+        if (el) el.textContent = names.length ? names.join("、") : "未选择文件";
+      };
+    }
+    var stockBtn = $("merger-stockFilesBtn");
+    var stockInput = $("merger-stockFiles");
+    if (stockBtn && stockInput) {
+      stockBtn.onclick = function () { stockInput.click(); };
+      stockInput.onchange = function () {
+        var names = [];
+        for (var i = 0; i < stockInput.files.length; i++) names.push(stockInput.files[i].name);
+        var el = $("merger-stockFileName");
+        if (el) el.textContent = names.length ? names.join("、") : "未选择文件";
+      };
+    }
+
     $("merger-loadPriceBtn").onclick = function () {
       loadPriceFiles().catch(function (err) { setStatus("加载失败: " + err.message, "error"); });
     };

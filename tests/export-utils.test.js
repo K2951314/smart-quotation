@@ -116,6 +116,35 @@ test("desensitizePriceDataset falls back to default rule when no condition match
   assert.equal(row.fields.quote_price, "45.0");
 });
 
+test("desensitizePriceDataset applies every configured rounding mode after the discounted quote crosses threshold", async () => {
+  const expectedByMode = { ceil: "42", floor: "41", round: "41" };
+  for (const [mode, expected] of Object.entries(expectedByMode)) {
+    const config = {
+      schema_version: 3,
+      fields: [
+        { key: "spec", label: "规格型号", source: "price", excel_aliases: ["规格型号"], required: true },
+        { key: "face_price", label: "面价", type: "number", source: "price", excel_aliases: ["面价"] },
+      ],
+      merger: { primary_field: "spec" },
+      pricing: { decimal_places: 1, rounding: { mode, integer_above: 40 } },
+      rules: [
+        { id: "default", label: "默认", priority: 9999, default: true, actions: [{ type: "set_discount", percent: 32 }] },
+      ],
+    };
+
+    const result = await ExportUtils.createPriceBundleScript(
+      [{ "规格型号": "A", "面价": "128.5" }],
+      "",
+      config,
+      { desensitize: true }
+    );
+    const payload = JSON.parse(BundleUtils.decodePlainPayload(result.bundle.payload));
+
+    // 128.5 × 32% = 41.12；先按模式保留一位小数，超过阈值 40 后再按同模式取整为整数。
+    assert.equal(payload.rows[0].fields.quote_price, expected, mode);
+  }
+});
+
 test("desensitizePriceDataset removes all sensitive fields, not just face_price", async () => {
   // 回归：前端 SENSITIVE_FIELDS 曾只有 2 个字段，后端有 15 个。
   // 若 admin 在 config 里定义了 cost/margin 等字段，会泄露到 Supabase public bucket。

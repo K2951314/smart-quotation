@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 — 智能询价系统</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+.login-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 16px rgba(0,0,0,.08); padding: 40px; width: 400px; max-width: 90vw; }
+.login-card h1 { font-size: 24px; color: #1a1a2e; margin-bottom: 8px; }
+.login-card .subtitle { color: #6b7280; font-size: 14px; margin-bottom: 32px; }
+.form-group { margin-bottom: 20px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+.form-group input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; transition: border-color .2s; }
+.form-group input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
+.btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background .2s; }
+.btn-primary { background: #3b82f6; color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+.error-msg { color: #dc2626; font-size: 13px; margin-top: 8px; min-height: 18px; }
+.register-link { text-align: center; margin-top: 24px; font-size: 13px; color: #6b7280; }
+.register-link a { color: #3b82f6; text-decoration: none; }
+.register-link a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <h1>登录</h1>
+  <p class="subtitle">使用邮箱和密码登录您的账户</p>
+
+  <form id="loginForm">
+    <div class="form-group">
+      <label for="email">邮箱</label>
+      <input type="email" id="email" required placeholder="admin@company.com">
+    </div>
+    <div class="form-group">
+      <label for="password">密码</label>
+      <input type="password" id="password" required placeholder="密码">
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:6px;margin-bottom:12px;">
+      <input type="checkbox" id="keepLoggedIn" style="width:auto;">
+      <label for="keepLoggedIn" style="margin:0;font-weight:400;font-size:13px;">保持登录（7 天内免登录，仅建议在私人设备勾选）</label>
+    </div>
+    <div class="error-msg" id="errorMsg"></div>
+    <button type="submit" class="btn btn-primary" id="submitBtn">登录</button>
+  </form>
+
+  <div class="register-link">
+    没有账户？<a href="register.html">注册</a> &nbsp;|&nbsp; <a href="index.html">API Key 登录</a>
+  </div>
+</div>
+
+<script>
+document.getElementById("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById("submitBtn");
+  const errEl = document.getElementById("errorMsg");
+  errEl.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "登录中...";
+
+  const body = {
+    email: document.getElementById("email").value.trim(),
+    password: document.getElementById("password").value,
+  };
+
+  try {
+    let apiBase = window.SQ_PROD_API_BASE || "";
+    if (!apiBase) {
+      const params = new URLSearchParams(location.search);
+      apiBase = params.get("api") || localStorage.getItem("sq_admin_api_base") || "";
+      if (!apiBase) {
+        if (location.protocol === "file:") apiBase = "http://127.0.0.1:8001";
+        else apiBase = location.origin;
+      }
+    }
+
+    const resp = await fetch(apiBase + "/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      throw new Error(data.detail || `HTTP ${resp.status}`);
+    }
+
+    const keepLoggedIn = document.getElementById("keepLoggedIn").checked;
+    const storage = keepLoggedIn ? localStorage : sessionStorage;
+    const other = keepLoggedIn ? sessionStorage : localStorage;
+    storage.setItem("sq_jwt_token", data.token);
+    storage.setItem("sq_user_email", data.user.email);
+    storage.setItem("sq_admin_company_id", data.user.company_id);
+    // 清理另一种存储，避免旧 token 残留导致读取到过期凭证
+    other.removeItem("sq_jwt_token");
+    other.removeItem("sq_user_email");
+    other.removeItem("sq_admin_company_id");
+    window.location.href = "index.html";
+  } catch (err) {
+    errEl.textContent = err.message;
+    btn.disabled = false;
+    btn.textContent = "登录";
+  }
+});
+</script>
+</body>
+</html>

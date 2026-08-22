@@ -27,15 +27,24 @@ window.addEventListener("error", (event) => {
 // ─── 启动逻辑（认证优先）────────────────────────────────────
 window.addEventListener("DOMContentLoaded", function () {
   if (isAdminAuthenticated()) {
-    // 已有 session key，验证是否仍有效
-    fetch(apiBase + "/api/companies", { headers: { "Authorization": "Bearer " + ADMIN_API_KEY } })
+    // 已有 token（JWT 或 API Key），验证是否仍有效
+    fetch(apiBase + "/api/companies", { headers: { "Authorization": "Bearer " + getAuthToken() } })
       .then(function (resp) {
         if (resp.ok) {
           hideLoginOverlay();
+          // JWT 用户：从 storage 恢复 company_id（sessionStorage 优先）
+          if (JWT_TOKEN) {
+            var savedCid = sessionStorage.getItem("sq_admin_company_id") || localStorage.getItem("sq_admin_company_id");
+            if (savedCid) setCurrentCompanyId(savedCid);
+          }
           bind();
           run(loadCompanies);
+          // 加载 license 档位徽标（超管模式才有效，非超管静默跳过）
+          if (window.loadLicenseBadge) run(window.loadLicenseBadge);
         } else {
+          // token 失效，清除并显示登录
           setAdminApiKey("");
+          setJwtToken("");
           showLoginOverlay();
         }
       })
@@ -46,6 +55,7 @@ window.addEventListener("DOMContentLoaded", function () {
         run(loadCompanies);
       });
   } else {
+    // 未登录，检查是否有注册/登录页的入口
     showLoginOverlay();
   }
 });

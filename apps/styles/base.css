@@ -235,3 +235,62 @@ body.is-company .discount-manual,
     min-width: 1.6rem;
   }
 }
+
+/* ─── 免费版水印（文字 + 电话 + 微信二维码）────────────────── */
+.sq-watermark {
+  position: fixed;
+  bottom: 8px;
+  right: 12px;
+  z-index: 9000;
+  font-size: 11px;
+  color: rgba(124, 135, 142, 0.7);
+  background: rgba(255, 250, 242, 0.85);
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(94, 78, 54, 0.1);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sq-watermark-text {
+  white-space: nowrap;
+}
+
+.sq-watermark a {
+  color: var(--accent, #0f766e);
+  text-decoration: none;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sq-watermark a:hover {
+  text-decoration: underline;
+}
+
+.sq-watermark-phone {
+  white-space: nowrap;
+}
+
+.sq-watermark-qr {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.sq-watermark-qr-img {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .sq-watermark {
+    bottom: 4px;
+    right: 4px;
+    font-size: 10px;
+    padding: 2px 8px;
+  }
+}

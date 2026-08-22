@@ -167,7 +167,7 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 | 三菱库存查询 | ✅ | GWT-RPC 直连，频率限制 |
 | 含税/未税切换 | ✅ | 每步独立取整 |
 | 移动端响应式 | ✅ | 720px 以下适配 |
-| License 授权 | ✅ | HMAC-SHA256 签名 + max_companies 强制 |
+| License 授权 | ✅ | RSA 非对称签名（RS256，私钥签/公钥验）+ 每租户订阅档位（plan）+ max_companies 强制 |
 | Sentry 错误监控 | ✅ | 骨架已集成 |
 | 前端模块化 | ✅ | apps/ 13 模块 + admin/ 12 模块 |
 | 管理员公司标记 | ✅ | UI 一键设置 `meta.is_admin`，前端据角色脱敏 |
@@ -303,7 +303,9 @@ https://你的域名/#company_id=acme&token=xxxxxxxx
 | `ADMIN_API_KEY` | ✅ | Admin 后台密钥（≥16 字符） |
 | `STOCK_QUERY_KEY` | 生产必填 | 三菱库存查询专用密钥（独立于 Admin Key） |
 | `MMC_USERNAME` / `MMC_PASSWORD` | 可选 | 三菱官网凭据 |
-| `SQ_SUPABASE_BASE_URL` | 可选 | Supabase Storage 地址（也可在 admin 配置） |
+| `SQ_SUPABASE_BASE_URL` | 可选 | Supabase Storage 公开桶地址（全局默认，优先级高于公司级 `meta.supabase_base_url`；调试切换 bucket 改此变量并重启后端） |
+| `SQ_LICENSE` | 生产必填 | License 令牌（RS256 或 HS256 签发的 base64 字符串） |
+| `SQ_LICENSE_PUBLIC_KEY` | RSA 必填 | RSA 验签公钥（PEM）；私钥只在供应商侧，勿下发 |
 | `SQ_PROD_API_BASE` | 可选 | 生产后端 API 地址（前端也可通过 `?api=` 注入） |
 | `ALLOW_ORIGINS` | 生产 | CORS 允许来源 |
 | `SQ_DEV` | 本地开发 | 设为 `1` 跳过密钥强校验 |

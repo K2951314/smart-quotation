@@ -81,12 +81,15 @@ class AdminGuiTest(unittest.TestCase):
         # merger UI 元素（当前命名）
         for elem_id in ["merger-priceFiles", "merger-stockFiles", "merger-exportPriceBtn", "merger-exportStockBtn"]:
             self.assertIn(elem_id, html, f"HTML 中未找到数据拼接元素: {elem_id}")
+        # 文件选择按钮（替代原生 file input 的自定义按钮）
+        for elem_id in ["merger-priceFilesBtn", "merger-stockFilesBtn", "merger-priceFileName", "merger-stockFileName"]:
+            self.assertIn(elem_id, html, f"HTML 中未找到文件选择按钮元素: {elem_id}")
 
-    def test_admin_gui_has_data_source_config(self):
-        """数据来源配置区"""
+    def test_admin_gui_data_source_removed(self):
+        """数据来源配置区已移除（base_url 改由公司管理配置）"""
         html, _ = self._read()
         for elem_id in ["dsBaseUrl", "dsConfigFile", "dsPriceFile", "dsStockFile", "dsVersionFile", "dsCacheName"]:
-            self.assertIn(elem_id, html, f"HTML 中未找到数据来源元素: {elem_id}")
+            self.assertNotIn(elem_id, html, f"数据来源元素 {elem_id} 应已移除")
 
     def test_admin_gui_has_labels_config(self):
         """标签文案配置区"""

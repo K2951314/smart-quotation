@@ -4,24 +4,35 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>智能询价 · 管理后台</title>
-  <link rel="stylesheet" href="./styles/base.css?v=10">
-  <link rel="stylesheet" href="./styles/layout.css?v=10">
-  <link rel="stylesheet" href="./styles/forms.css?v=10">
-  <link rel="stylesheet" href="./styles/results.css?v=10">
-  <link rel="stylesheet" href="./styles/modals.css?v=10">
-  <link rel="stylesheet" href="./styles/responsive.css?v=10">
+  <link rel="stylesheet" href="./styles/base.css?v=12">
+  <link rel="stylesheet" href="./styles/layout.css?v=12">
+  <link rel="stylesheet" href="./styles/forms.css?v=12">
+  <link rel="stylesheet" href="./styles/results.css?v=12">
+  <link rel="stylesheet" href="./styles/modals.css?v=13">
+  <link rel="stylesheet" href="./styles/responsive.css?v=12">
 </head>
 <body>
   <!-- 登录遮罩层 -->
   <div id="loginOverlay" class="login-overlay" style="display:none;">
     <div class="login-card">
       <div class="login-logo">SQ</div>
-      <h2>管理后台登录</h2>
-      <p class="login-sub">请输入 Admin API Key</p>
+      <h2>智能询价 · 管理后台</h2>
+      <p class="login-sub">选择登录方式</p>
       <div id="loginError" class="login-error"></div>
-      <input id="loginApiKeyInput" class="login-input" type="password" placeholder="Admin API Key" autocomplete="off" />
-      <button id="loginBtn" type="button" class="login-btn">登录</button>
-      <p class="login-hint">API Key 存储于 sessionStorage，关闭页签即失效。<br>本地开发可在 .env 中设 SQ_DEV=1 跳过认证。</p>
+      <input id="loginApiKeyInput" class="login-input" type="password" placeholder="Admin API Key（超管密钥）" autocomplete="off" />
+      <button id="loginBtn" type="button" class="login-btn">🔑 超管登录</button>
+      <p class="login-hint">超管 API Key 存于 sessionStorage，关闭页签即失效。<br>本地开发可设 <code>SQ_DEV=1</code> 跳过认证。</p>
+      <div class="login-divider"><span>或</span></div>
+      <div class="login-alt-buttons">
+        <a href="login.html" class="login-alt-btn">
+          <strong>邮箱密码登录</strong>
+          <small>租户用户（已注册公司）</small>
+        </a>
+        <a href="register.html" class="login-alt-btn register">
+          <strong>注册新账号</strong>
+          <small>创建公司 + 管理员</small>
+        </a>
+      </div>
     </div>
   </div>
 
@@ -53,7 +64,8 @@
         <a href="#merger">🔀 数据拼接</a>
         <a href="#publish">🚀 发布配置</a>
         <a href="#history">📚 版本历史</a>
-        <a href="#audit">📝 审计日志</a>
+        <a href="#audit" data-feature="audit_log">📝 审计日志</a>
+        <a href="billing.html" target="_blank">💳 订阅方案</a>
       </nav>
     </aside>
 
@@ -72,7 +84,7 @@
             <button id="publishBtn" class="primary" type="button"><span aria-hidden="true">↑</span> 发布配置</button>
           </div>
           <div class="secondary-actions">
-            <button id="loadConfigBtn" type="button" title="从 Supabase 下载 config.json 覆盖当前草稿"><span aria-hidden="true">↻</span> 从 Supabase 恢复</button>
+            <button id="loadConfigBtn" type="button" title="从后端数据库加载已发布的配置覆盖当前草稿"><span aria-hidden="true">↻</span> 从后端恢复</button>
             <button id="saveDraftBtn" type="button" title="保存为草稿"><span aria-hidden="true">✓</span> 保存</button>
             <button id="logoutBtn" type="button" title="退出登录（清除 API Key）" onclick="logoutAdmin()" style="border:1px solid #e74c3c;color:#e74c3c;background:#fff;"><span aria-hidden="true">⏻</span> 退出</button>
           </div>
@@ -114,11 +126,14 @@
 </div>
 </section>
 
-<!-- 字段配置 -->
-<section id="fields" class="band" style="scroll-margin-top:130px;">
+      <!-- 字段配置 -->
+      <section id="fields" class="band" style="scroll-margin-top:130px;">
         <div class="section-head">
           <h2>字段配置</h2>
-          <button id="addFieldBtn" type="button"><span aria-hidden="true">＋</span>添加字段</button>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span id="fieldQuota" class="quota-counter quota-unlimited">字段：0 / 不限</span>
+            <button id="addFieldBtn" type="button"><span aria-hidden="true">＋</span>添加字段</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -145,7 +160,10 @@
       <section id="rules" class="band" style="scroll-margin-top:130px;">
         <div class="section-head">
           <h2>报价规则</h2>
-          <button id="addRuleBtn" type="button"><span aria-hidden="true">＋</span>添加规则</button>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span id="ruleQuota" class="quota-counter">规则：0 / 2</span>
+            <button id="addRuleBtn" type="button"><span aria-hidden="true">＋</span>添加规则</button>
+          </div>
         </div>
         <p class="hint">规则分为“条件规则”和“默认规则”。默认规则应当提供一个兜底折扣，确保所有报价都能计算到结果。</p>
         <div id="ruleRows" class="rule-list"></div>
@@ -193,19 +211,7 @@
           </select><small>标注价格表面价的含税属性，确保未税价不被误当含税价处理</small></label>
         </div>
 
-        <!-- 数据来源配置 -->
-        <details style="margin-top:16px;cursor:pointer;">
-          <summary style="font-weight:600;color:var(--accent);"><span aria-hidden="true">📡</span> 数据来源（data_source）</summary>
-          <div class="form-grid" style="margin-top:12px;">
-            <label class="wide">Base URL<input id="dsBaseUrl" placeholder="https://xxx.supabase.co/storage/v1/object/public/s-q"></label>
-            <label>Config 文件<input id="dsConfigFile" value="config.json"></label>
-            <label>价格包文件<input id="dsPriceFile" value="price.bundle.json"></label>
-            <label>库存包文件<input id="dsStockFile" value="stock.bundle.json"></label>
-            <label>版本文件<input id="dsVersionFile" value="version.json"></label>
-            <label>缓存名称<input id="dsCacheName" value="quotation-cache-v3"></label>
-          </div>
-        </details>
-
+        <!-- 数据来源配置已移除：base_url 在公司管理「数据源」按钮配置，其余文件名走默认值 -->
         <!-- 标签文案配置 -->
         <details style="margin-top:12px;cursor:pointer;">
           <summary style="font-weight:600;color:var(--accent);"><span aria-hidden="true">🏷</span> 标签文案（labels）</summary>
@@ -254,14 +260,17 @@
                     </div>
                   </div>
                   <div class="mcard-body">
-                    <label class="mcard-label">报价 Excel 文件
-                      <input id="merger-priceFiles" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
-                    </label>
+                    <div class="mcard-label">报价 Excel 文件</div>
+                    <div class="file-picker">
+                      <button type="button" class="file-picker-btn" id="merger-priceFilesBtn">📁 选择文件</button>
+                      <span class="file-picker-name" id="merger-priceFileName">未选择文件</span>
+                      <input id="merger-priceFiles" type="file" accept=".xlsx,.xls" multiple hidden>
+                    </div>
                     <div class="mcard-meta">
                       <span>文件数：<strong id="merger-fileCount">0</strong></span>
                       <span>总行数：<strong id="merger-rowCount">0</strong></span>
                     </div>
-                    <label class="mcard-label">价格包密码（可选）
+                    <label class="mcard-label" data-feature="bundle_encryption">价格包密码（可选）
                       <input id="merger-pricePassword" type="password" placeholder="为空则不加密" class="mcard-input">
                     </label>
                     <label class="mcard-label">面价含税属性
@@ -288,9 +297,12 @@
                     </div>
                   </div>
                   <div class="mcard-body">
-                    <label class="mcard-label">库存 Excel 文件
-                      <input id="merger-stockFiles" type="file" accept=".xlsx,.xls" multiple class="mcard-file">
-                    </label>
+                    <div class="mcard-label">库存 Excel 文件</div>
+                    <div class="file-picker">
+                      <button type="button" class="file-picker-btn" id="merger-stockFilesBtn">📁 选择文件</button>
+                      <span class="file-picker-name" id="merger-stockFileName">未选择文件</span>
+                      <input id="merger-stockFiles" type="file" accept=".xlsx,.xls" multiple hidden>
+                    </div>
                     <div class="mcard-meta">
                       <span>库存行数：<strong id="merger-stockCount">0</strong></span>
                     </div>
@@ -306,7 +318,7 @@
                 <input id="sb-stockFileInput" type="file" accept=".json" hidden>
 
 <!-- Supabase 部署（原独立报价单位置） -->
-<div class="mcard mcard--highlight">
+<div class="mcard mcard--highlight" data-feature="supabase_deploy">
   <div class="mcard-head">
     <span class="mcard-icon mcard-icon--accent">🗄️</span>
     <div>
@@ -315,10 +327,9 @@
     </div>
   </div>
   <div class="mcard-body">
-    <label class="mcard-label">Supabase Base URL
-      <input id="sb-baseUrl" type="text" placeholder="https://xxx.supabase.co/storage/v1/object/public/..." class="mcard-input">
-    </label>
-    <label class="mcard-label">Supabase Anon Key
+    <!-- Base URL 自动从公司数据源注入，无需手动填写 -->
+    <input id="sb-baseUrl" type="hidden">
+    <label class="mcard-label">Supabase Anon Key（上传凭证，仅本页签有效）
       <input id="sb-anonKey" type="password" placeholder="eyJhbGci..." class="mcard-input">
     </label>
   </div>
@@ -381,7 +392,7 @@
       </section>
 
       <!-- 审计日志 -->
-      <section id="audit" class="band" style="scroll-margin-top:130px;">
+      <section id="audit" class="band" data-feature="audit_log" style="scroll-margin-top:130px;">
         <div class="section-head">
           <h2>审计日志</h2>
           <button id="loadAuditBtn" type="button"><span aria-hidden="true">↻</span>加载日志</button>
@@ -407,20 +418,21 @@
 
 <!-- SheetJS 自托管（admin/lib/xlsx.full.min.js，官方 xlsx-0.20.2 版）：消除第三方 CDN 供应链风险 -->
 <script src="./lib/xlsx.full.min.js"></script>
-<script src="./lib/config-core.js?v=9"></script>
-<script src="./lib/data-utils.js?v=9"></script>
-<script src="./lib/bundle-utils.js?v=9"></script>
-<script src="./lib/export-utils.js?v=9"></script>
-<script src="./merger-app.js?v=14"></script>
-<script src="./lib/admin-core.js?v=15"></script>
-<script src="./lib/companies.js?v=15"></script>
-<script src="./lib/tiers.js?v=15"></script>
-<script src="./lib/supabase-deploy.js?v=15"></script>
-<script src="./lib/standalone-html.js?v=16"></script>
-<script src="./lib/config-collect.js?v=15"></script>
-<script src="./lib/config-render.js?v=15"></script>
-<script src="./lib/config-api.js?v=15"></script>
-<script src="./lib/event-bindings.js?v=15"></script>
-<script src="./app.js?v=15"></script>
+<script src="./lib/config-core.js?v=12"></script>
+<script src="./lib/data-utils.js?v=12"></script>
+<script src="./lib/bundle-utils.js?v=10"></script>
+<script src="./lib/export-utils.js?v=10"></script>
+<script src="./merger-app.js?v=17"></script>
+<script src="./lib/admin-core.js?v=21"></script>
+<script src="./lib/session-panel.js?v=5"></script>
+<script src="./lib/companies.js?v=19"></script>
+<script src="./lib/tiers.js?v=17"></script>
+<script src="./lib/supabase-deploy.js?v=19"></script>
+<script src="./lib/standalone-html.js?v=18"></script>
+<script src="./lib/config-collect.js?v=17"></script>
+<script src="./lib/config-render.js?v=18"></script>
+<script src="./lib/config-api.js?v=17"></script>
+<script src="./lib/event-bindings.js?v=18"></script>
+<script src="./app.js?v=17"></script>
 </body>
 </html>

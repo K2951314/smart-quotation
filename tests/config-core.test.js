@@ -158,3 +158,29 @@ test("validates config and reports missing required pieces", () => {
   assert.ok(result.errors.some((message) => message.includes("fields[1].key")));
   assert.ok(result.errors.some((message) => message.includes("discount_step.presets")));
 });
+
+test("normalizes nested pricing.rounding mode/integer_above", () => {
+  const config = ConfigCore.normalizeConfig({
+    schema_version: 2,
+    pricing: {
+      rounding: { mode: "floor", integer_above: 500 },
+    },
+  });
+
+  assert.equal(config.pricing.rounding.mode, "floor");
+  assert.equal(config.pricing.rounding.integer_above, 500);
+  assert.equal(config.pricing.rounding_threshold, 500);
+});
+
+test("normalizes legacy flat rounding_threshold into nested rounding", () => {
+  const config = ConfigCore.normalizeConfig({
+    schema_version: 2,
+    pricing: {
+      rounding_threshold: 200,
+    },
+  });
+
+  assert.equal(config.pricing.rounding.mode, "ceil");
+  assert.equal(config.pricing.rounding.integer_above, 200);
+  assert.equal(config.pricing.rounding_threshold, 200);
+});

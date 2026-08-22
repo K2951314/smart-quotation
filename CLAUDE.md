@@ -17,13 +17,28 @@
 - 配置文件 `config.example.json` 仅用于示例，**不应包含密钥、密码、Token 或任何机密值**。
 - 如果需要写入密码或密钥，应在后端安全存储，不要硬编码到前端源码。
 - **源码中不得硬编码任何客户/部署相关的真实 URL**（Supabase 项目地址、后端域名等），一律改为环境变量或 admin 配置中心注入。
-- **后端启动必须设置 `ADMIN_API_KEY` 环境变量**（至少 16 字符）；本地开发可设 `SQ_DEV=1` 跳过校验。
+- **后端启动必须设置 `ADMIN_API_KEY` 环境变量**（至少 16 字符）和 `JWT_SECRET`（至少 32 字符）；本地开发可设 `SQ_DEV=1` 跳过校验（JWT_SECRET 自动生成随机密钥）。
+- **上传 config.json 到 Supabase 必须使用 `desensitizeConfigForPublic()` 统一脱敏函数**（`admin/lib/supabase-deploy.js`），不得手写脱敏逻辑，避免遗漏 rules/discount_rules 导致折扣规则泄露到公开桶。
+- **上传 price.bundle.json 必须脱敏**：导出/上传价格包必须传 `{ desensitize: true }`（`admin/merger-app.js` / `event-bindings.js`），移除 `face_price` 并预计算 `quote_price`。未脱敏原始包会泄露面价，且成员公司会落回「面价 × 默认折扣」导致报价错乱。
+- **管理员价格通道（双 bundle）**：公开桶 `price.bundle.json` 是脱敏版（无 face_price），admin 角色直连会价格显示 0（admin 渲染依赖 face_price，company 有 quote_price 兜底）。因此一键同步/单独上传价格包时必须额外生成 `price.admin.bundle.json`——完整数据（含面价）用**当前公司 access_token** AES-GCM 加密（`event-bindings.js uploadAdminPriceBundle`）。apps 端 admin 角色自动改拉该文件并用本地登录令牌解密（`apps/lib/data-load.js`），令牌即密码，轮换后需重新一键同步。令牌泄露者本来就能登录管理员账号看面价，不扩大攻击面。**任何角色**在 face_price 缺失且 quote_price 存在时都用 quote_price 兜底显示（`search-render.js appendResultRow`），防止价格显示 0。后端代理路线（无 Supabase）无需双 bundle：`/price.bundle.json` 按 `require_company_access` 角色生成（is_admin 公司 token → 完整数据）；SQ_DEV 本地开发无凭证兜底为 admin 角色。
+- **Excel 别名分隔符（防报价静默变 0）**：字段 `excel_aliases` 的收集（`admin/lib/config-collect.js`）与后端归一化（`backend/smart_quotation/config.py _split_excel_alias`）必须使用同一分隔符集 `[,，、;；|｜\t\n\r]+`（逗号/顿号/分号/竖线/制表符/换行，**不含空格**——英文别名可含空格）。别名整串未拆分会导致 Excel 列名匹配失败 → `face_price` 缺失 → 脱敏预计算报价为 0（静默失败）。merger 加载价格表后有 `diagnosePriceMapping` 显式警告（`admin/lib/data-utils.js`），不得移除。存量坏数据修复用 `py scripts/fix_alias_separators.py --dry-run` 预览后执行。
+- **恢复配置走后端 API（`GET /api/config`）**，不从 Supabase 恢复（Supabase 上是脱敏版，无 rules，恢复后再保存会丢 rules）。
+- **一键同步全部**会上传全部 4 个文件（config.json + price.bundle.json + stock.bundle.json + version.json）。
+- **双数据库模式**：`DATABASE_URL` 以 `postgres://` 或 `postgresql://` 开头时走 PostgreSQL（SaaS 模式），否则走 SQLite（本地开发/测试）。psycopg2 懒加载，SQLite 模式零依赖。**生产环境架构断言**：未设 `SQ_DEV` 时，必须设置 `DATABASE_URL`（PostgreSQL）或 `DB_PATH`（指向持久化 Volume），否则后端拒绝启动——SQLite 文件在 Railway/Render 免费版重启后丢失。
+- **认证双模式**：`ADMIN_API_KEY`（超管，全平台权限）+ JWT（租户管理员，绑定 `company_id`）。`require_admin_api` 先检查 API Key，再尝试 JWT，最后开发模式兜底。返回 `{"role": "superadmin"|"tenant"|"dev", "company_id": ...}` 供下游依赖使用。
+- **租户隔离三依赖**：`require_admin_api`（认证）→ `resolve_company_id`（租户强制使用 JWT 中的 `company_id`）→ `require_superadmin`（公司创建/删除/assign-tier 等平台级操作限超管）。所有接受 `company_id` 查询参数的 admin 路由必须用 `Depends(resolve_company_id)` 而非 `Query(DEFAULT_COMPANY_ID)`，否则 JWT 用户可越权。
+- **注册/登录流程**：`admin/register.html` 填邮箱+密码+公司名 → `POST /api/auth/register` 自动创建公司+用户 → 返回 JWT → 跳转配置中心。`admin/login.html` 邮箱+密码登录。
+- **订阅档位系统（每租户 plan）**：三档预设 `free`/`pro`/`team`，每档定义 `features`（功能开关）+ `quota`（用量上限）。订阅档位已从「全局 license」下沉到「每租户 `company.meta.plan`」——每个客户公司的 `plan` 决定其功能/配额/水印；全局 license 退化为「部署总授权」（只管 `max_companies`/`max_users` + 允许分配的最高档位）。门控通过 `plan_has_feature()` / `get_plan_quota()` 按档位查询，未授权返回 403。生成 license 用 `py scripts/generate_license.py --tier pro --customer "客户A"`。**超管豁免**：`_validate_plan_within_license` 对 `role=superadmin`/`dev` 跳过档位上限检查——部署所有者可以分配任意档位（包括高于当前 license 档位的），不受自身 license 限制。
+- **License 签名（RS256 优先）**：默认 RSA 非对称（私钥签/公钥验，`alg=RS256`），私钥只在供应商侧、公钥发给客户部署侧（`SQ_LICENSE_PUBLIC_KEY`）；旧 HMAC（`alg=HS256`，`SQ_LICENSE_SECRET`）向后兼容。生成 RSA 密钥对用 `py scripts/generate_rsa_keys.py`，RSA 签发用 `--private-key`。**过期宽限期 7 天**：过期后 7 天内仍放行并打 error 告警，超期才 fail-closed 到免费档；过期状态每次请求检查（缓存只缓存验签，不缓存过期）。
+- **会话信息端点**：`GET /api/auth/session`（所有认证用户可访问）返回 `{role, is_dev, plan, tier, features, email, company_id, preview_plan, dev_tier_override}`，供前端显示角色徽标 + 档位徽标 + 开发模式标记。其中 `plan` 是订阅档位（推荐字段名），`tier` 是向后兼容别名（两者同值；注意 `tier` 在本系统另有「利润率分组」`company.meta.tier` 含义，勿混用）。`preview_plan` 非空时表示超管正在预览某档位。与 `GET /api/license/info`（超管专属，返回完整 license 详情含 customer/过期时间）互补。
+- **开发模式档位切换**：`POST /api/dev/set-tier`（仅 `SQ_DEV=1` 时可用）可一键切换 free/pro/team 档位，无需重启后端。用于本地测试不同订阅的功能门控和配额限制。生产环境调用返回 403。前端在 admin topbar 显示切换器（`admin/lib/session-panel.js`）。
+- **超管档位预览**：`POST /api/admin/preview-tier`（超管专属，不要求 `SQ_DEV=1`）可预览不同档位的功能门控和配额限制，不影响真实 license 校验（公开端点认证/限流照常工作），只影响 `/api/auth/session` 返回的 `plan`/`quota`/`features`。用于生产环境超管给客户演示高档位功能。与 `/api/dev/set-tier` 的区别：前者生产可用（超管专用），后者仅本地开发。两者都是内存级覆盖，重启后端后失效。
 
 ## 客户门户 (apps/index.html)
 
 - 入口：`apps/index.html`（统一入口，authGate 覆盖层）
 - 依赖 FastAPI 后端（配置/数据/库存查询）+ Supabase Storage（config.json + price/stock bundles）
-- **认证模式**（当前）：前端本地模式，凭证默认存 localStorage（「保持登录」默认勾选，可取消退回 sessionStorage；admin 令牌永不持久），页头「退出」按钮调 clearAllAuth()，401 自动清凭证；后端不提供 customer 登录端点
+- **认证模式**（当前）：前端本地模式，凭证默认存 localStorage（「保持登录」默认勾选，可取消退回 sessionStorage；admin 令牌永不持久）；URL 链接携带的 token/stockkey 落地时同样遵循「保持登录」偏好（公用电脑取消后只进 sessionStorage）。页头「退出」按钮调 clearAllAuth()，401 自动清凭证；后端不提供 customer 登录端点
 - **产品边界说明**：如需真正的多租户客户登录（服务端校验、密码哈希、会话令牌），需在 backend 中补全 `customers` / `customer_sessions` 表与相关 API 端点（见路线图）
 - 角色：admin 看完整数据（面价/折扣/报价），company 看脱敏数据（无面价/无折扣规则，防止反推成本）
 - 定价：品牌折扣规则定价（config rules），base = 面价 × 品牌折扣%，再叠加利润/税务
@@ -32,7 +47,8 @@
 - 面价隐藏：公司账号下 discount-panel 改造为利润步进器（不显示面价/折扣规则，防止反推成本）
 - 折扣弹窗：动态渲染，根据 `discount_rules` 配置自动生成任意数量品牌输入框
 - 三菱库存：`POST /api/stock-query`（需 `X-Stock-Key` 认证 + 频率限制），QueryEngine 通过 GWT-RPC 直连三菱官网；终端客户检测逻辑根据响应数组长度动态选择索引位置（标准格式用固定索引 46/47，扩展格式用倒数第3/4位）
-- `apps/login.html` → `apps/customer.html` 已废弃，统一使用 `apps/index.html` + authGate
+- **库存数据订阅门控**：免费版（plan=free）不显示静态库存快照（`appendResultRow` 删除 `fields.stock`，stock chip 与 rowData 一并失效），admin/stock_only 角色豁免；「库存查询」「三菱库存」两按钮也随 plan 隐藏。**架构边界**：静态 bundle（Supabase 公开桶）数据仍明文下发，DevTools 可见——这是 UI 层隔离，彻底隔离需 bundle 动态化/加密（架构级待办）。
+- 统一入口：`apps/index.html` + authGate（旧的 `apps/login.html`、`apps/customer.html` 已删除）
 
 ## 部署架构
 
@@ -45,10 +61,10 @@
   2. URL 参数 `?api=URL`（**仅本地开发**：localhost/127.0.0.1/file: 协议生效）
   3. `localStorage.sq_api_base` / `localStorage.sq_admin_api_base`
   4. 同源（默认）
-- **Supabase 项目地址**通过 admin 配置中心写入 `config.json` 的 `data_source.base_url`，或通过 `window.SQ_SUPABASE_BASE_URL` 覆盖
+- **Supabase 项目地址**优先级：环境变量 `SQ_SUPABASE_BASE_URL`（权威，调试/切换 bucket 时改 `.env` 即可，**改完需重启后端**）> 公司级 `meta.supabase_base_url`。后端 `_resolve_supabase_url` 统一解析，`/api/settings/datasource` 返回有效地址供 admin 上传 bundle——**配置中心已移除 `data_source` 卡片**，`base_url` 不再写入配置 JSON，避免多租户串读。
 - **CSP**：`script-src 'self' https://browser.sentry-cdn.com`（SheetJS 已自托管至 `admin/lib/`，仅保留 Sentry SDK CDN 白名单）；`connect-src` 白名单：`*.supabase.co`/`.in`/`.net` + `*.sentry.io` + `*.railway.app` + `*.render.com`（`netlify.toml`，已移除 `https:` 通配防 XSS 外泄）
 - **静态文件缓存策略**（`StaticCacheControlMiddleware` in `factory.py`）：HTML → `no-cache, must-revalidate`（每次通过 ETag 校验，部署后立即生效）；CSS/JS → `public, max-age=31536000, immutable`（永久缓存，靠 `?v=` 查询参数失效）；图片/字体 → `public, max-age=86400`。**改静态文件服务时不能删此中间件**——否则手机浏览器启用启发式缓存，部署后看不到更新。Netlify 部署时 `netlify.toml` 的 `[[headers]]` 提供等价策略。
-- **生产环境必填**：`ADMIN_API_KEY`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份安全降级并打 warning（静默丢数据风险，需看日志确认）
+- **生产环境必填**：`ADMIN_API_KEY`、`JWT_SECRET`、`SQ_LICENSE_SECRET`、`SQ_LICENSE`、`STOCK_QUERY_KEY`、`ALLOW_ORIGINS`（未设 `SQ_DEV` 时强制）；RSA 签名另需 `SQ_LICENSE_PUBLIC_KEY`（部署侧验签公钥，私钥只在供应商侧）。持久化备份另需 `SQ_SUPABASE_PROJECT_URL`（项目根地址）+ `SQ_SUPABASE_SERVICE_KEY` + `DB_BACKUP_BUCKET`，缺失时备份打 warning（去重）并可经 `GET /api/health/backup` 主动查询状态（configured/last_error 等），消除静默降级。**环境变量均启动时读一次，改动后须重启/重部署才生效**（开发模式订阅档位可用 `POST /api/dev/set-tier` 热切换，无需重启）。
 
 ## 运行与验证
 
@@ -63,7 +79,7 @@ py -m backend.smart_quotation
 测试命令：
 
 ```powershell
-# Python 测试（主力，当前 67/67 全绿）
+# Python 测试（主力，当前 119 全绿）
 py -m pytest tests/ -v
 
 # 兼容旧命令
@@ -82,7 +98,62 @@ node --test tests/*.test.js
 - `_DEPLOYMENT-STEPS.md`（本地）：部署步骤详记。
 - `_LOCAL-GUIDE.md`（本地）：本地开发指南。
 
-## 记忆原则
+## 功能门控（订阅档位）
+
+### 档位预设
+
+| 档位 | 公司数 | SKU | 库存查询/天 | 关键功能 |
+|------|--------|-----|------------|----------|
+| free | 1 | 500 | 0 | core + customer_portal（带水印） |
+| pro | 1 | 5000 | 50 | + stock_query + bundle_encryption + supabase_deploy + api_access |
+| team | 5 | 不限 | 500 | + admin_member_inheritance + tier_profit_grouping |
+
+### 每租户 plan 解析语义（`resolve_subscription_plan`）
+
+- **优先级**：显式 `company.meta.plan` → 供应商性质公司（`is_admin=true` 或 `default`）未设 plan 回退部署 license tier → 普通客户公司未设 plan **fail-closed 到 free**（防注册客户白嫖最高档）。
+- **配额归属**：数据配额（`max_skus`/`max_brands`/`max_config_revisions`）用**数据归属公司**（`resolve_data_company_id`）的 plan——成员公司数据写入 parent，配额须与之一致；访问功能（`stock_query` + 日配额 + 水印）用**访问者公司**的 plan。
+- **档位上限校验**：`_validate_plan_within_license(meta, auth)` 强制「分配的 plan ≤ 部署 license tier」（`get_license_tier()`），超档 402、非法档 422；**超管/开发模式豁免**（部署管理员可分配任意档位，如给客户演示高档位功能），此检查仅约束租户管理员（防 JWT 用户自我提权）；租户不可自改 `plan`/`tier`/`profit_margin`（黑名单过滤）。
+- **`has_feature()` / `get_quota()` 已废弃**（全局 license 门控），仅 `max_companies`/`max_users` 保留全局；其余功能/配额一律走 `plan_has_feature` / `get_plan_quota`。
+- **db_backup / custom_branding 为部署级能力**（环境变量启用，非租户 feature），已从 `TIER_PRESETS[team].features` 移除。
+
+### 门控点
+
+| 端点 | 检查 | quota/feature 字段 |
+|------|------|-----------|
+| `POST /api/config` | 规则数量 + 版本历史上限（超限自动删最旧） | `max_brands` + `max_config_revisions` |
+| `POST /api/config/import` | 规则数量 + 版本历史上限（与 save 一致） | `max_brands` + `max_config_revisions` |
+| `POST /api/config/{revision}/publish` | 回滚时检查规则数量 + 版本历史上限 | `max_brands` + `max_config_revisions` |
+| `POST /api/items` / upload | SKU 数量 | `max_skus` |
+| `POST /api/stock-query` | 功能开关 + 日配额 | `stock_query` feature + `stock_query_daily_limit` |
+| `POST /api/merger/bundle/generate` (deploy) | supabase_deploy 功能 | `features` |
+| `POST /api/merger/bundle/generate` (有密码) | bundle_encryption 功能 | `features` |
+| `PUT /api/tiers` | tier_profit_grouping 功能 | `features` |
+| `POST /api/companies/{id}/members` | admin_member_inheritance 功能 | `features` |
+| `POST /api/auth/register` / `POST /api/companies` | 公司数量上限 + 用户数上限 | `max_companies` + `max_users` |
+| `GET /api/audit` | audit_log 功能门控 + 按天数过滤 | `audit_log` feature + `audit_log_days` |
+
+### 前端功能门控
+
+- **`data-feature` 属性**：HTML 元素加 `data-feature="xxx"`，`session-panel.js` 的 `applyFeatureGating()` 根据当前档位自动显示/隐藏。**超管角色（`role=superadmin`）和开发模式（`is_dev`）豁免**——`has` 判断加 `|| isDev || isSuperadmin`，平台管理员在生产环境也能看所有功能按钮（不受订阅档位限制）。
+- **`hasFeature(feat)` 全局函数**：动态渲染的 UI（如成员创建按钮、Tier 管理面板）在 JS 中调用此函数判断是否渲染。`is_dev` 或 `role=superadmin` 返回 true。
+- **配额前置阻断**：`window.SQ_QUOTA`（由 `/api/auth/session` 注入）供前端在用户操作前检查（如添加规则时检查 `max_brands`），避免保存时才报错。
+- **水印**：免费版 `watermark=True`，`/api/public/company/{id}` 返回 `watermark` + `watermark_config` 字段。`watermark_config` 从环境变量读取（`WATERMARK_TEXT` / `WATERMARK_PHONE` / `WATERMARK_WECHAT_QR`），支持自定义文字 + 电话（点击拨号）+ 微信二维码（点击放大长按识别）。`apps/index.html` 条件渲染水印层。
+- **客户侧门控（apps）**：`applyPlanGating(plan)` 按 plan 隐藏/显示「库存查询」「三菱库存」两个按钮（free 隐藏，pro/team 显示）；admin 角色（供应商自己）豁免付费墙；profile 加载失败时 fail-closed（按 free 隐藏）。`applyPlanBadge(plan)` 在页头显示档位徽标（免费灰/个人蓝/专业紫）。后端已强制，前端仅体验优化。
+
+### License 生成
+
+```powershell
+# 1. 生成 RSA 密钥对（一次性）：私钥供应商保留，公钥发给客户部署侧
+py scripts/generate_rsa_keys.py
+
+# 2. RSA 签发 license（推荐，非对称）
+py scripts/generate_license.py --tier pro --customer "客户A" --expires 2027-12-31 --private-key keys/license_private.pem
+
+# 3. HMAC 签发（向后兼容，不推荐）
+py scripts/generate_license.py --tier pro --customer "客户A" --expires 2027-12-31
+```
+
+输出 base64 字符串，设为客户部署端环境变量 `SQ_LICENSE`。RSA 时客户侧另设 `SQ_LICENSE_PUBLIC_KEY`（公钥），`SQ_LICENSE_PRIVATE_KEY` 只在供应商侧（本地生成时用）。
 
 - 不要把历史变更记录写入本文件。
 - 本文件只保留项目架构、核心运行规则、重要边界和查阅指针。
@@ -106,16 +177,16 @@ node --test tests/*.test.js
 
 ### P2（后续）
 
-- [x] 前端模块化重构（app.js 拆分）— apps/ 拆为 14 模块（含 profit-config.js），admin/ 拆为 12 模块；CSS 已拆分为 `styles/` 下 6 个功能模块（base/layout/forms/results/modals/responsive），拆分工具 `scripts/split_css.py`
+- [x] 前端模块化重构（app.js 拆分）— apps/ 拆为 14 模块（含 profit-config.js），admin/ 拆为 14 模块（含 session-panel.js、tiers.js）；CSS 已拆分为 `styles/` 下 6 个功能模块（base/layout/forms/results/modals/responsive），拆分工具 `scripts/split_css.py`
 - [x] 部署文档（本地 `_DEPLOYMENT-STEPS.md` + `_LOCAL-GUIDE.md`，README 部署章节同步）
 - [ ] 产品官网 + 文档站
 - [ ] 多租户客户登录（customers / customer_sessions 表 + API）
 - [ ] PostgreSQL 迁移（多租户并发写入场景）
-- [x] 合并双份 config-core.js（apps/ 与 admin/ 内容已统一，以 apps 版为基准 + scripts/sync-config-core.py 同步）
+- [x] 合并双份 config-core.js（apps/ 与 admin/ 内容已统一，以 apps 版为基准 + scripts/sync-config-core.py 同步；新增 `tests/config-core-sync.test.js` 逐字节比对，纳入 node --test 防漂移）
 - [x] 消除 admin 源码真实折扣泄露（admin/lib/config-core.js 硬编码 32/36 → 改为中性 55）
 - [x] 日志规范化（6 处 print() 改 logging）
 - [x] 管理员公司 UI 标记（admin/lib/companies.js toggleAdminFlag + 前端 role 脱敏）
-- [x] **管理员-成员配置继承 + Tier 利润率分组**（parent_company_id 配置/数据/bundle 继承 + tier 拖拽分配 + 93 测试全绿）
+- [x] **管理员-成员配置继承 + Tier 利润率分组**（parent_company_id 配置/数据/bundle 继承 + tier 拖拽分配 + 配额门控测试全绿）
 - [ ] 三菱 GWT-RPC 常量外置 + 并发查询
 
 ## 管理员-成员配置继承 + Tier 利润率分组
@@ -146,6 +217,10 @@ node --test tests/*.test.js
 | GET | `/api/tiers?company_id=X` | Bearer (Admin) | 获取 Tier 列表（成员公司自动从 parent 读取） |
 | PUT | `/api/tiers?company_id=X` | Bearer (Admin) | 替换 Tier 列表（写入 admin meta.tiers） |
 | POST | `/api/companies/{id}/assign-tier` | Bearer (Admin) | 分配公司到 Tier（设置 meta.tier + parent_company_id） |
+| GET | `/api/auth/session` | Bearer (Any) | 获取会话信息（role/tier/features/is_dev/email），所有认证用户可访问 |
+| POST | `/api/dev/set-tier` | Bearer (Admin) | 开发模式 tier 覆盖（仅 SQ_DEV=1），一键切换 free/pro/team 测试 |
+| POST | `/api/admin/preview-tier` | Bearer (Superadmin) | 超管档位预览（生产可用），预览不同档位功能/配额，不影响真实 license |
+| GET | `/api/license/info` | Bearer (Superadmin) | 获取完整 license 详情（customer/过期时间/配额），超管专属 |
 
 ### Admin UI
 

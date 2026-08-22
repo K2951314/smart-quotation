@@ -83,7 +83,17 @@ class BackendV1Test(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["matched_rule"], "ex")
-        self.assertEqual(results[0]["fields"]["quote_price"], "33")
+        # 101 × 32% = 32.32；先 ceil 到一位小数为 32.4，折后价未超过阈值 100，不取整为整数。
+        self.assertEqual(results[0]["fields"]["quote_price"], "32.4")
+
+    def test_quote_rounding_modes_use_discounted_quote_for_threshold(self):
+        engine = QuotationEngine(store=None)
+        variables = {"face_price": 128.5, "discount_percent": 32}
+        formula = "face_price * discount_percent / 100"
+
+        self.assertEqual(engine.calculate_price(formula, variables, {"mode": "ceil", "integer_above": 40}, 1), "42")
+        self.assertEqual(engine.calculate_price(formula, variables, {"mode": "floor", "integer_above": 40}, 1), "41")
+        self.assertEqual(engine.calculate_price(formula, variables, {"mode": "round", "integer_above": 40}, 1), "41")
 
     def test_query_returns_only_requested_keys(self):
         """查询 A-001 不应返回 B-001"""
@@ -266,6 +276,22 @@ class BackendV1Test(unittest.TestCase):
 
         errors = engine.validate_config(config)
         self.assertEqual(errors, [])
+
+    def test_engine_formula_division_by_zero_returns_safe_zero(self):
+        """公式运行时除零（如 discount_percent=0）应兜底返回 0，而非抛 ZeroDivisionError。
+
+        回归：旧实现 visit_BinOp 直接 truediv，除数为 0 时抛 ZeroDivisionError，
+        quote 路径未捕获导致 500。
+        """
+        store = self.make_store()
+        engine = QuotationEngine(store)
+        result = engine.calculate_price(
+            "face_price / discount_percent",
+            {"face_price": 100, "discount_percent": 0},
+            {},
+            1,
+        )
+        self.assertEqual(result, "0.0")
 
     def test_detect_brands_by_filename_prefix(self):
         """detect_brands 按文件名前缀识别品牌"""

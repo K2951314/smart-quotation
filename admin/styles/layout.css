@@ -272,3 +272,171 @@
   padding: var(--sp-1) var(--sp-2);
   font-size: var(--text-sm);
 }
+
+/* ─── Session Panel（角色 + 档位 + 开发切换器）────────────────── */
+.session-panel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 8px;
+}
+
+.session-panel--compact {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.session-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+.session-badge:hover {
+  opacity: 0.88;
+  color: #fff;
+}
+
+.session-role {
+  cursor: default;
+}
+
+.session-tier {
+  cursor: pointer;
+}
+
+.session-email {
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── 开发模式 tier 切换器 ─── */
+.dev-tier-switcher {
+  position: relative;
+  display: inline-block;
+}
+
+.dev-tier-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #856404;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.dev-tier-trigger:hover {
+  background: #ffeea8;
+}
+
+.dev-tier-icon {
+  font-size: 10px;
+}
+
+.dev-tier-arrow {
+  font-size: 9px;
+  margin-left: 2px;
+}
+
+.dev-tier-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 200px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  z-index: 200;
+  padding: 4px;
+}
+
+.dev-tier-item {
+  padding: 8px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.dev-tier-item:hover {
+  background: var(--accent-soft);
+}
+
+.dev-tier-item.active {
+  background: #fff3cd;
+  font-weight: 600;
+}
+
+.dev-tier-item.active::after {
+  content: " ✓";
+  color: #f39c12;
+}
+
+.dev-tier-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.dev-tier-item-desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ─── 配额计数器（规则/字段等）─── */
+.quota-counter {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  margin-left: auto;
+}
+
+.quota-counter.quota-warning {
+  color: #856404;
+  background: #fff3cd;
+}
+
+.quota-counter.quota-exceeded {
+  color: #721c24;
+  background: #f8d7da;
+}
+
+.quota-counter.quota-unlimited {
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+}
+
+/* 达上限时按钮禁用样式 */
+.btn-quota-exceeded {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+  border-color: var(--line) !important;
+}

@@ -267,7 +267,7 @@ WNMG080408 含税86.4
 | **生成 Bundle** | 仅生成价格包 + 库存包，不部署（可在结果中预览数据量） |
 | **生成并部署到 Supabase** | 生成后直接上传到 Supabase Storage，报价台即时可用 |
 
-> **部署前提**：配置中必须包含 `data_source.base_url`（Supabase Storage 的 public URL）和 `data_source.price_bundle_file` / `data_source.stock_bundle_file`（文件名）。部署时会将 public URL 自动转换为写入 URL 并上传。
+> **部署前提**：Supabase Base URL 通过「公司管理」→「数据源」按钮设置（`meta.supabase_base_url`），或后端环境变量 `SQ_SUPABASE_BASE_URL`。admin 上传时自动从 `/api/settings/datasource` 获取有效地址，无需在配置中心填写。文件名（`price.bundle.json` / `stock.bundle.json` / `config.json` / `version.json`）走默认值。
 
 ---
 
