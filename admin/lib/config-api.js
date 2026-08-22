@@ -4,9 +4,22 @@
  * 依赖：admin-core.js（$、state、request、setStatus、run、defaultConfig）
  *       config-collect.js（collectConfig）
  *       config-render.js（renderAll）
- *       supabase-deploy.js（sbUploadFile、sbUpdateVersionJson、autoFillSupabaseUrl、sbAutoFillBaseUrl、sbGetBaseUrl）
+ *       supabase-deploy.js（desensitizeConfigForPublic、sbUploadFile、sbUpdateVersionJson、autoFillSupabaseUrl、sbAutoFillBaseUrl、sbGetBaseUrl）
  *       companies.js（getCurrentCompanyId）
  */
+
+// 环境变量权威：用后端 /api/settings/datasource 返回的 SQ_SUPABASE_BASE_URL
+// 覆盖配置中已写入的 data_source.base_url。调试/切换 bucket 时改 .env 即可，
+// 无需修改数据库里写死的历史 base_url。
+async function applyEnvSupabaseBaseUrl() {
+  try {
+    var settings = await request("/api/settings/datasource");
+    if (settings.supabase_base_url) {
+      state.config.data_source = state.config.data_source || {};
+      state.config.data_source.base_url = settings.supabase_base_url;
+    }
+  } catch { /* 后端不可用或未配置环境变量时忽略，保留配置原值 */ }
+}
 
 // 从后端 API 加载当前公司的配置
 async function loadConfigFromBackend() {
@@ -17,7 +30,9 @@ async function loadConfigFromBackend() {
     config.status = "draft";
     state.config = normalizeAdminConfig(config);
     renderAll();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
     setStatus("已加载「" + cid + "」的配置");
+    await applyEnvSupabaseBaseUrl();
     autoFillSupabaseUrl();
     return true;
   } catch (err) {
@@ -31,6 +46,7 @@ async function loadConfigFromBackend() {
         }
       } catch { }
       renderAll();
+      if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
       setStatus("「" + cid + "」尚未发布配置，当前显示默认模板。填写配置后点击「保存」即可创建。", "warn");
       autoFillSupabaseUrl();
       return false;
@@ -47,24 +63,27 @@ async function initApp() {
 }
 
 async function loadConfig() {
-  const confirmed = confirm("将从 Supabase 下载 config.json 覆盖当前草稿，未保存的修改会丢失。\n\n是否继续？");
+  // 安全修复：从后端 SQLite 恢复完整配置（含 rules/discount_rules），
+  // 不再从 Supabase 恢复（Supabase 上是脱敏版，无 rules，恢复后再保存会丢 rules）。
+  const confirmed = confirm("将从后端数据库加载已发布的配置覆盖当前草稿，未保存的修改会丢失。\n\n是否继续？");
   if (!confirmed) return;
 
-  sbAutoFillBaseUrl();
-  const baseUrl = sbGetBaseUrl();
-  const configUrl = baseUrl + "/config.json";
-
   try {
-    const resp = await fetch(configUrl + "?t=" + Date.now());
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const raw = await resp.json();
-      if (!raw.schema_version) raw.schema_version = 2;
-      raw.status = "draft";
-      state.config = normalizeAdminConfig(raw);
+    const config = await request("/api/config");
+    if (!config.schema_version) config.schema_version = 3;
+    config.status = "draft";
+    state.config = normalizeAdminConfig(config);
     renderAll();
-    setStatus("✅ 已从 Supabase 恢复 config.json");
+    await applyEnvSupabaseBaseUrl();
+    autoFillSupabaseUrl();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
+    setStatus("已从后端恢复「" + getCurrentCompanyId() + "」的配置");
   } catch (err) {
-    setStatus("❌ 从 Supabase 恢复失败: " + (err.message || err), true);
+    if (err.status === 404) {
+      setStatus("「" + getCurrentCompanyId() + "」尚未发布配置", "warn");
+    } else {
+      setStatus("加载失败: " + (err.message || err), true);
+    }
   }
 }
 
@@ -80,33 +99,10 @@ async function saveConfig(status) {
   // 发布时自动部署到 Supabase
   if (status === "published") {
     try {
-      // 上传 config.json — 安全：脱敏后上传（移除折扣规则、定价公式、data_source）
-      const frontendCfg = {};
-      for (const [k, v] of Object.entries(state.config)) {
-        if (k !== "data_source" && k !== "rules" && k !== "discount_rules") {
-          frontendCfg[k] = v;
-        }
-      }
-      if (frontendCfg.pricing) {
-        frontendCfg.pricing = { ...frontendCfg.pricing };
-        delete frontendCfg.pricing.default_formula;
-      }
-      await sbUploadFile("config.json", JSON.stringify(frontendCfg, null, 2), "application/json;charset=utf-8");
-
-      // 上传 version.json
-      let dataRev = "";
-      try {
-        const stats = await request("/api/items/stats");
-        dataRev = (stats && stats.data_revision) || "";
-      } catch (e) {
-        dataRev = state.config.revision || state.config.version || "";
-      }
-      const versionPayload = JSON.stringify({
-        version: dataRev,
-        updated_at: new Date().toISOString(),
-      }, null, 2);
-      await sbUploadFile("version.json", versionPayload, "application/json;charset=utf-8");
-
+      // 上传 config.json — 使用统一脱敏函数（移除 rules/discount_rules/default_formula）
+      const safeCfg = desensitizeConfigForPublic(state.config);
+      await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
+      await sbUpdateVersionJson();
       setStatus("配置已发布并同步到 Supabase");
     } catch (err) {
       console.error("Supabase 同步失败:", err);
@@ -151,8 +147,8 @@ async function loadHistory() {
         <td>${escapeHtml(cfg.published_at || "—")}</td>
         <td>${escapeHtml(cfg.created_at || "")}</td>
         <td>
-          <button type="button" class="small-btn" onclick="rollbackToRevision('${safeRev}')">发布此版本</button>
-          <button type="button" class="small-btn danger-btn" onclick="deleteConfigRevision('${safeRev}')">删除</button>
+          <button type="button" class="small-btn" data-rollback="${safeRev}">发布此版本</button>
+          <button type="button" class="small-btn danger-btn" data-deleteRevision="${safeRev}">删除</button>
         </td>
       </tr>`;
     }).join("");
@@ -168,25 +164,11 @@ async function rollbackToRevision(revision) {
   setStatus(`已回滚到版本 ${revision}`);
 
   try {
-    const frontendCfg = {};
-    for (const [k, v] of Object.entries(config)) {
-      if (k !== "data_source") {
-        frontendCfg[k] = v;
-      }
-    }
-    await sbUploadFile("config.json", JSON.stringify(frontendCfg, null, 2), "application/json;charset=utf-8");
-    let dataRev = "";
-    try {
-      const stats = await request("/api/items/stats");
-      dataRev = (stats && stats.data_revision) || config.revision || "";
-    } catch (e) {
-      dataRev = config.revision || "";
-    }
-    const versionPayload = JSON.stringify({
-      version: dataRev,
-      updated_at: new Date().toISOString(),
-    }, null, 2);
-    await sbUploadFile("version.json", versionPayload, "application/json;charset=utf-8");
+    // 安全修复：使用统一脱敏函数（原代码只移除 data_source，漏了 rules/discount_rules，
+    // 导致折扣规则泄露到 Supabase 公开桶）
+    const safeCfg = desensitizeConfigForPublic(config);
+    await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
+    await sbUpdateVersionJson();
     setStatus("已回滚并同步到 Supabase");
   } catch (err) {
     console.error("Supabase 同步失败:", err);
@@ -225,7 +207,9 @@ async function exportConfig(fmt) {
   const revision = $("revision").value.trim();
   if (!revision) { setStatus("请先在顶部填写版本号", true); return; }
   try {
-    const response = await fetch(withCompany(`${apiBase}/api/config/${encodeURIComponent(revision)}/export?fmt=${fmt}`));
+    const response = await fetch(withCompany(`${apiBase}/api/config/${encodeURIComponent(revision)}/export?fmt=${fmt}`), {
+      headers: { "Authorization": "Bearer " + getAuthToken() }
+    });
     if (!response.ok) throw new Error("HTTP " + response.status);
     const text = await response.text();
     const blob = new Blob([text], { type: fmt === "yaml" ? "text/yaml" : "application/json" });
@@ -250,6 +234,7 @@ async function importJson() {
       body: JSON.stringify({ content, fmt: "json" }),
     }));
     renderAll();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
     setStatus("配置已导入为草稿");
   } catch (err) {
     setStatus("导入失败: " + (err.message || err), true);

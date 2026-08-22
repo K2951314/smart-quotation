@@ -55,6 +55,121 @@ function applyAdminMode() {
   document.body.classList.remove("is-company");
 }
 
+// 订阅档位功能门控：根据公司 plan 隐藏/显示功能入口（后端已强制，前端仅做体验优化）
+function applyPlanGating(plan) {
+  var hasStockQuery = plan === "pro" || plan === "team";
+  // 库存查询 + 三菱库存同属 stock_query 付费功能，免费版一并隐藏
+  var stockBtns = ["btnRegexConvert", "btnMmc"];
+  stockBtns.forEach(function (id) {
+    var btn = document.getElementById(id);
+    if (btn) btn.style.display = hasStockQuery ? "" : "none";
+  });
+}
+
+// 订阅档位徽标：在页头显示当前公司订阅档位（免费版/个人版/专业版）
+// 配色与 admin 侧 session-panel 徽标保持一致
+var PLAN_LABELS = { free: "免费版", pro: "个人版", team: "专业版" };
+var PLAN_COLORS = { free: "#95a5a6", pro: "#3498db", team: "#9b59b6" };
+
+function applyPlanBadge(plan) {
+  var el = document.getElementById("planBadge");
+  if (!el) return;
+  var label = PLAN_LABELS[plan] || PLAN_LABELS.free;
+  var color = PLAN_COLORS[plan] || PLAN_COLORS.free;
+  el.textContent = "◈ " + label;
+  el.style.background = color;
+  el.title = "当前订阅：" + label;
+  el.style.display = "";
+}
+
+// 静态库存快照（bundle 里的 stock 字段）是否对当前用户可见：
+// - admin（供应商自己）与 stock_only（纯库存模式）豁免
+// - company 角色按订阅档位：pro/team 可见，free 不可见
+// 注意：这是 UI 层隔离——静态 bundle 数据仍明文下发（架构边界见 CLAUDE.md），
+// 彻底隔离需 bundle 动态化/加密（已列架构级待办）。
+function shouldShowStockData() {
+  var p = getAuthProfile();
+  if (!p) return false;
+  if (p.role === "admin" || p.role === "stock_only") return true;
+  var plan = p.plan || "free";
+  return plan === "pro" || plan === "team";
+}
+
+// 免费版强制显示水印（Powered by 智能询价 + 联系方式 + 微信二维码）
+// profile.watermark === true 时显示，false 或未定义时隐藏
+// profile.watermark_config 提供自定义内容（text/phone/wechat_qr）
+function applyWatermark(show, config) {
+  var el = document.getElementById("sqWatermark");
+  if (!el) return;
+  if (!show) {
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "";
+
+  // 动态填充水印内容
+  var cfg = config || {};
+  var textEl = el.querySelector(".sq-watermark-text");
+  var phoneEl = el.querySelector(".sq-watermark-phone");
+  var qrEl = el.querySelector(".sq-watermark-qr");
+  var qrImg = el.querySelector(".sq-watermark-qr-img");
+
+  // 水印文字
+  if (textEl) {
+    textEl.textContent = cfg.text || "Powered by 智能询价";
+  }
+
+  // 联系电话（点击拨号）
+  if (phoneEl) {
+    if (cfg.phone) {
+      phoneEl.style.display = "";
+      phoneEl.href = "tel:" + cfg.phone;
+      phoneEl.textContent = cfg.phone;
+    } else {
+      phoneEl.style.display = "none";
+    }
+  }
+
+  // 微信二维码（点击放大）
+  if (qrEl && qrImg) {
+    if (cfg.wechat_qr) {
+      qrEl.style.display = "";
+      qrImg.src = cfg.wechat_qr;
+      qrEl.onclick = function(e) {
+        e.preventDefault();
+        showQrOverlay(cfg.wechat_qr);
+      };
+    } else {
+      qrEl.style.display = "none";
+    }
+  }
+}
+
+// 微信二维码放大浮层（长按识别添加好友）
+function showQrOverlay(src) {
+  var existing = document.getElementById("sqQrOverlay");
+  if (existing) existing.remove();
+  var overlay = document.createElement("div");
+  overlay.id = "sqQrOverlay";
+  overlay.style.cssText =
+    "position:fixed;top:0;left:0;width:100%;height:100%;" +
+    "background:rgba(0,0,0,0.8);z-index:99999;display:flex;" +
+    "flex-direction:column;align-items:center;justify-content:center;" +
+    "cursor:pointer;-webkit-tap-highlight-color:transparent;";
+  var img = document.createElement("img");
+  img.src = src;
+  img.style.cssText =
+    "max-width:70%;max-height:60vh;border-radius:12px;background:#fff;padding:12px;";
+  var hint = document.createElement("p");
+  hint.textContent = "长按二维码识别添加微信好友";
+  hint.style.cssText =
+    "color:#fff;margin-top:16px;font-size:14px;opacity:0.9;";
+  overlay.appendChild(img);
+  overlay.appendChild(hint);
+  overlay.onclick = function() { overlay.remove(); };
+  document.body.appendChild(overlay);
+}
+
 // ─── 认证网关 ──────────────────────────────────────────────
 
 function initAuthGate() {
@@ -296,7 +411,6 @@ async function loadCompanyProfile(companyId) {
   try {
     var apiBase = getApiBase();
     var url = apiBase + "/api/public/company/" + encodeURIComponent(companyId);
-    url = withToken(url);
     var resp = await fetch(url, { cache: "no-store", headers: withAuthHeaders() });
     if (resp.status === 401) {
       // token 已轮换/失效：清空本地凭证并提示重新索取链接（token 轮换出口）
@@ -313,17 +427,31 @@ async function loadCompanyProfile(companyId) {
         role: role,
         companyName: profile.name,
         profitMargin: profile.profit_margin,
+        watermark: profile.watermark,
+        plan: profile.plan || "free",
       });
+      // 免费版强制显示水印（Powered by 智能询价 + 联系方式 + 微信二维码）
+      applyWatermark(profile.watermark, profile.watermark_config);
       if (role === "company") {
         applyCompanyMode(getAuthProfile());
       } else {
         applyAdminMode();
       }
-      console.log("[authGate] 已加载公司 profile:", profile.name, "角色", role, "利润率", profile.profit_margin + "%");
+      // 按订阅档位渲染功能（免费版隐藏库存查询等付费功能入口）
+      // admin 角色（供应商自己）豁免付费墙，始终显示完整功能
+      if (role === "company") {
+        applyPlanGating(profile.plan);
+      }
+      // 页头显示订阅档位徽标
+      applyPlanBadge(profile.plan);
+      console.log("[authGate] 已加载公司 profile:", profile.name, "角色", role, "档位", profile.plan, "利润率", profile.profit_margin + "%", "水印", profile.watermark ? "开" : "关");
       return true;
     }
   } catch (err) {
     console.warn("[authGate] 获取公司 profile 失败:", err);
   }
+  // profile 加载失败时 fail-closed：按免费版门控隐藏付费功能入口，
+  // 避免免费版用户经「profile 拉取失败」绕过前端门控（后端仍 403 兜底）
+  applyPlanGating("free");
   return false;
 }

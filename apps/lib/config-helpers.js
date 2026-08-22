@@ -114,8 +114,16 @@ function syncPricingControlsFromConfig() {
   const decimalsInput = document.getElementById("decimals");
   const thresholdInput = document.getElementById("threshold");
   const stepInput = document.getElementById("discountStep");
+  const roundingModeInput = document.getElementById("roundingMethod");
   if (decimalsInput) decimalsInput.value = String(cfg.pricing?.decimal_places ?? 1);
-  if (thresholdInput) thresholdInput.value = String(cfg.pricing?.rounding_threshold ?? 100);
+  if (thresholdInput) {
+    const r = cfg.pricing?.rounding || {};
+    thresholdInput.value = String(r.integer_above ?? cfg.pricing?.rounding_threshold ?? 100);
+  }
+  if (roundingModeInput) {
+    const mode = (cfg.pricing?.rounding || {}).mode;
+    if (mode && ["ceil", "round", "floor"].includes(String(mode))) roundingModeInput.value = String(mode);
+  }
   if (stepInput) stepInput.value = formatCompactNumber(cfg.pricing?.discount_step?.default ?? DiscountEngine.DEFAULT_STEP_PERCENT);
 }
 

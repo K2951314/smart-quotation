@@ -273,6 +273,13 @@ function normalizeDiscountPercent(value, fallback) {
   return Math.min(100, Math.max(0, Math.round(num * 100) / 100));
 }
 
+function clampProfitMargin(value) {
+  // 公司模式利润率钳制 [0,100]，防止步进器连点超出 100% 或减到负值报负价
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.min(100, Math.max(0, Math.round(num * 100) / 100));
+}
+
 function flashPriceCell(priceCell) {
   if (!priceCell) return;
   if (priceCell._flashFrame) window.cancelAnimationFrame(priceCell._flashFrame);
@@ -297,7 +304,9 @@ function refreshRowPrice(row, flash) {
     var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
     var factor = Math.pow(10, settings.decimals);
     var method = getRoundingMethod();
-    var base = calculateBaseDiscountedPrice(row.facePrice, 1.0, settings.decimals, settings.threshold);
+    // 用 row.discountPercent 而非写死 1.0：脱敏包 discountPercent=100（quote_price 已含折扣），
+    // 若拿到未脱敏原始包则 discountPercent=预设折扣，重渲染与首渲染保持一致，避免改利润率时价格跳变。
+    var base = calculateBaseDiscountedPrice(row.facePrice, (row.discountPercent !== undefined ? row.discountPercent : 100) / 100, settings.decimals, settings.threshold);
     var rawWithProfit = base.value * (1 + profit / 100);
     var withProfit = applyRounding(rawWithProfit * factor, 1, method) / factor;
     if (withProfit > settings.threshold && settings.decimals > 0) {
@@ -305,8 +314,8 @@ function refreshRowPrice(row, flash) {
     }
     priceInfo = calculateDisplayedPrice(withProfit, settings, useUntaxed, tax);
   } else {
-    // 管理员版：正常折扣计算
-    var baseResult = calculateBaseDiscountedPrice(row.facePrice, row.discountPercent / 100, settings.decimals, settings.threshold);
+    // 管理员版：正常折扣计算（discountPercent 缺失时兜底 100，与公司模式分支一致，防 NaN）
+    var baseResult = calculateBaseDiscountedPrice(row.facePrice, (row.discountPercent !== undefined ? row.discountPercent : 100) / 100, settings.decimals, settings.threshold);
     var useUntaxed = document.getElementById("chkUntaxedQuote")?.checked ?? false;
     priceInfo = calculateDisplayedPrice(baseResult.value, settings, useUntaxed, getTaxRate());
   }
@@ -361,7 +370,7 @@ function applyManualDiscount(id, rawValue) {
   if (isCompanyMode()) {
     row.hasCustomDiscount = true;
     var num = parseFloat(rawValue);
-    row.profitMargin = Number.isFinite(num) ? Math.round(num * 100) / 100 : 0;
+    row.profitMargin = clampProfitMargin(num);
     refreshRowPrice(row, true);
     return;
   }
@@ -385,6 +394,10 @@ function getDiscountButtonMarkup(rowId, direction) {
 function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runtimeConfig) {
   const coreRow = toCoreRow(matchKey, item);
   const fields = { ...(coreRow.fields || {}) };
+  // 订阅门控：免费版不显示静态库存快照（stock chip / rowData.stock 一并失效）
+  if (typeof shouldShowStockData === "function" && !shouldShowStockData()) {
+    delete fields.stock;
+  }
   if (!runtimeConfig) runtimeConfig = getRuntimeAppConfig();
   const rules = (g_AppConfig && g_AppConfig.discount_rules) || g_RemoteDiscountRules || [];
   const preset = window.ConfigCore
@@ -392,9 +405,11 @@ function appendResultRow(resultList, matchKey, item, shouldCheck, isExact, runti
     : DiscountEngine.getDefaultDiscountPreset({ spec: matchKey, special: item.s || "", brand: item.b || "", name: item.n || "" }, getDefaultDiscountConfig(), rules);
   const settings = getCurrentPriceSettings();
   // 安全修复：company 模式下 face_price 已被服务端脱敏移除，
-  // 前端必须使用服务端预计算的 quote_price 作为基础价
+  // 前端必须使用服务端预计算的 quote_price 作为基础价。
+  // 放宽到所有角色：admin 角色若拿到脱敏包（管理员加密包未生成/回退场景），
+  // 同样用 quote_price 兜底显示报价，避免价格显示 0（此时无面价、折扣不可调）。
   var facePrice, effectiveDiscountPercent;
-  if (isCompanyMode() && fields.quote_price !== undefined && fields.face_price === undefined) {
+  if (fields.quote_price !== undefined && fields.face_price === undefined) {
     facePrice = Number(fields.quote_price) || 0;
     effectiveDiscountPercent = 100;
   } else {
@@ -543,7 +558,7 @@ function adjustRowDiscount(id, direction, flash) {
     var step = getCurrentDiscountStep();
     if (direction < 0) row.profitMargin = (row.profitMargin !== undefined ? row.profitMargin : 0) - step;
     else row.profitMargin = (row.profitMargin !== undefined ? row.profitMargin : 0) + step;
-    row.profitMargin = Math.round(row.profitMargin * 100) / 100;
+    row.profitMargin = clampProfitMargin(row.profitMargin);
     var input = document.querySelector('.discount-manual[data-profit-id="' + id + '"]');
     if (input) input.value = formatCompactNumber(row.profitMargin);
     refreshRowPrice(row, flash !== false);

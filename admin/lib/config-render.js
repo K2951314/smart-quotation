@@ -69,12 +69,7 @@ function renderAll() {
   const ds = state.config.data_source || {};
   $("configVersion").value = state.config.version || "";
 
-  $("dsBaseUrl").value = ds.base_url || "";
-  $("dsConfigFile").value = ds.config_file || "config.json";
-  $("dsPriceFile").value = ds.price_bundle_file || "price.bundle.json";
-  $("dsStockFile").value = ds.stock_bundle_file || "stock.bundle.json";
-  $("dsVersionFile").value = ds.version_file || "version.json";
-  $("dsCacheName").value = ds.cache_name || "quotation-cache-v3";
+  // data_source DOM 元素已移除（base_url 在公司管理配置），无需渲染
 
   const labels = state.config.labels || {};
   $("lblSearchBtn").value = labels.search_button || "";
@@ -100,6 +95,16 @@ function renderAll() {
   renderPricing();
   updateAdvancedJson();
   updatePreview();
+  // 同步配置到 merger-app.js 的隐藏 textarea，使数据拼接区加载文件时
+  // 使用配置中心编辑的最新 fields/rules/pricing（而非 ConfigCore fallback 默认）
+  var appConfigEl = $("merger-appConfig");
+  if (appConfigEl && window.ConfigCore) {
+    try {
+      var normalized = ConfigCore.normalizeConfig(state.config);
+      appConfigEl.value = JSON.stringify(normalized, null, 2);
+      if (typeof renderConfigPreview === "function") renderConfigPreview(normalized);
+    } catch (e) { /* 配置非合法 JSON 时静默，不影响其他渲染 */ }
+  }
 }
 
 function renderFieldRows() {
@@ -109,7 +114,7 @@ function renderFieldRows() {
       <td><input data-label value="${escapeHtml(field.label || "")}"></td>
       <td><select data-type>${fieldTypeOptions.map((item) => option(item.value, item.label, field.type || "text")).join("")}</select></td>
       <td><select data-source>${fieldSourceOptions.map((item) => option(item.value, item.label, field.source || "price")).join("")}</select></td>
-      <td><input data-aliases value="${escapeHtml((field.excel_aliases || []).join(", "))}"></td>
+      <td><input data-aliases value="${escapeHtml((field.excel_aliases || []).join(", "))}" placeholder="如: 销售单价、面价、目录价（逗号/顿号/分号分隔）"></td>
       <td><input data-searchable type="checkbox"${field.searchable ? " checked" : ""}></td>
       <td><input data-copyable type="checkbox"${field.copyable ? " checked" : ""}></td>
       <td><input data-required type="checkbox"${field.required ? " checked" : ""} title="必填"></td>

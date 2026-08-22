@@ -11,6 +11,11 @@
   // 安全：部署到 Supabase public bucket 前，必须移除面价并预计算报价。
   // 敏感字段集必须与后端 base.py SENSITIVE_FIELDS 保持一致，否则 admin
   // 若在 config 里定义了 cost/margin 等字段，会泄露到公开 bucket。
+  //
+  // TODO 产品化建议：当前前端脱敏逻辑是后端 QuotationEngine.quote_row 的重写版，
+  // 如果后端引擎新增 action 类型（如 set_field/set_formula）或 condition op，
+  // 前端不会自动同步。建议迁移到后端 API 部署（POST /api/merger/bundle/generate
+  // with deploy=true），让后端统一脱敏，前端只触发不计算。
 
   var DEFAULT_SENSITIVE_FIELDS = [
     "face_price", "discount_percent", "discount",
@@ -96,6 +101,13 @@
     return defaultDiscount;
   }
 
+  function _roundPrice(value, decimals, mode) {
+    var factor = Math.pow(10, decimals);
+    if (mode === "floor") return Math.floor(value * factor + 1e-9) / factor;
+    if (mode === "round") return Math.round(value * factor) / factor;
+    return Math.ceil(value * factor - 1e-9) / factor;
+  }
+
   function _desensitizeFields(fields, config) {
     var safe = {};
     for (var key in fields) {
@@ -109,21 +121,18 @@
     var rounding = pricing.rounding || {};
     var decimals = Math.max(parseInt(pricing.decimal_places || 1, 10), 0);
 
-    // 与后端 engine.py calculate_price 对齐：
-    // - ceil 模式：先按小数位向上取整；若面价 > integer_above，再取整到整数
-    // - 其他模式：按小数位格式化（保留尾随零，如 32.0 而非 32）
-    if (rounding.mode === "ceil") {
-      var factor = Math.pow(10, decimals);
-      basePrice = Math.ceil(basePrice * factor) / factor;
-      var integerAbove = parseFloat(rounding.integer_above || 0) || 0;
-      if (facePrice > integerAbove) {
-        // 面价超阈值 → 报价取整到整数（后端 return str(int(value))）
-        safe.quote_price = String(Math.ceil(basePrice));
-      } else {
-        safe.quote_price = basePrice.toFixed(decimals);
-      }
+    var mode = String(rounding.mode || "ceil");
+    var roundedPrice = _roundPrice(basePrice, decimals, mode);
+    // 兼容嵌套 rounding.integer_above 与旧扁平 pricing.rounding_threshold；
+    // 缺失时 fallback 100（与 config-core.js normalizeConfig 一致），
+    // 避免阈值被当 0 导致所有报价被取整为整数（如 70.7 误变 71）。
+    var integerAbove = Number(rounding.integer_above);
+    if (!Number.isFinite(integerAbove)) integerAbove = Number(pricing.rounding_threshold);
+    if (!Number.isFinite(integerAbove)) integerAbove = 100;
+    if (roundedPrice > integerAbove) {
+      safe.quote_price = String(_roundPrice(basePrice, 0, mode));
     } else {
-      safe.quote_price = basePrice.toFixed(decimals);
+      safe.quote_price = roundedPrice.toFixed(decimals);
     }
 
     var sensitiveFields = _getSensitiveFields(config);

@@ -76,10 +76,11 @@ function clearAllAuth() {
 
 // ─── 公司访问令牌（token）──────────────────────────────────
 // 安全策略：
-// - 凭证存储位置由 _authWrite 按 sq_keep_login 路由（默认 localStorage 持久化）。
-// - 链接即凭证：URL 携带的 token 一律强制写 localStorage（忽略 sq_keep_login）。
+// - 凭证存储位置由 _authWrite 按 sq_keep_login 路由（默认 localStorage 持久化，
+//   用户在登录页取消「保持登录」后改走 sessionStorage，公用电脑友好）。
+// - 链接即凭证：URL 携带的 token 落地时同样走 _authWrite，尊重用户偏好。
 // - 首次传递优先使用 URL fragment（#token=xxx），因为 fragment 不会发送到服务器。
-// - 向后端传输只用 X-Company-Token 头，不走 URL query（防日志泄露）。
+// - 向后端传输只用 X-Company-Token 头，不走 URL query（防日志泄露）
 
 function getCompanyToken() {
   var hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -87,9 +88,8 @@ function getCompanyToken() {
   if (hashToken) {
     var token = hashToken.trim();
     if (token) {
-      // 链接即凭证：URL 进入一律强制持久化到 localStorage（忽略 sq_keep_login）
-      try { localStorage.setItem("sq_company_token", token); } catch (e) {}
-      try { sessionStorage.removeItem("sq_company_token"); } catch (e) {}
+      // 链接即凭证：落地时走 _authWrite，尊重「保持登录」偏好（公用电脑已取消保持登录时只进 sessionStorage）
+      _authWrite("sq_company_token", token);
       _stripTokenFromUrl();
       return token;
     }
@@ -98,8 +98,7 @@ function getCompanyToken() {
   if (urlParam) {
     var token = urlParam.trim();
     if (token) {
-      try { localStorage.setItem("sq_company_token", token); } catch (e) {}
-      try { sessionStorage.removeItem("sq_company_token"); } catch (e) {}
+      _authWrite("sq_company_token", token);
       _stripTokenFromUrl();
       return token;
     }
@@ -141,12 +140,6 @@ function _stripTokenFromUrl() {
   }
 }
 
-// withToken 已废弃。token 统一通过 X-Company-Token 头传输。
-// 保留函数签名仅为向后兼容，不再向 URL 追加 token。
-function withToken(url) {
-  return url;
-}
-
 function withAuthHeaders(extra) {
   var headers = extra || {};
   var token = getCompanyToken();
@@ -170,9 +163,8 @@ function getStockQueryKey() {
   if (hashKey) {
     var key = hashKey.trim();
     if (key) {
-      // 链接即凭证：强制持久化（同 getCompanyToken）
-      try { localStorage.setItem("sq_stock_key", key); } catch (e) {}
-      try { sessionStorage.removeItem("sq_stock_key"); } catch (e) {}
+      // 链接即凭证：落地时走 _authWrite（同 getCompanyToken）
+      _authWrite("sq_stock_key", key);
       _stripTokenFromUrl();
       return key;
     }
@@ -181,8 +173,7 @@ function getStockQueryKey() {
   if (urlKey) {
     var key = urlKey.trim();
     if (key) {
-      try { localStorage.setItem("sq_stock_key", key); } catch (e) {}
-      try { sessionStorage.removeItem("sq_stock_key"); } catch (e) {}
+      _authWrite("sq_stock_key", key);
       _stripTokenFromUrl();
       return key;
     }
@@ -284,7 +275,14 @@ async function doMitsubishiStockQuery() {
     });
 
     if (!resp.ok) {
-      var errHint = resp.status === 401 ? "（未授权：请登录或填写库存查询密钥）" : "";
+      var errHint = "";
+      if (resp.status === 401) {
+        errHint = "（未授权：请登录或填写库存查询密钥）";
+      } else if (resp.status === 403) {
+        errHint = "（库存查询是付费功能，请联系供应商升级订阅）";
+      } else if (resp.status === 429) {
+        errHint = "（今日查询次数已达上限，请明天再试或升级订阅）";
+      }
       showToast("库存服务异常: " + resp.status + errHint);
       selected.forEach(function (row) { updateCardStock(row, null); });
       setBtnText(mmcBtn ? mmcBtn.dataset.defaultText : "三菱库存");

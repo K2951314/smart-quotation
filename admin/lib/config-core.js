@@ -312,7 +312,17 @@
   function normalizePricing(rawPricing) {
     var pricing = mergePlain(DEFAULT_CONFIG.pricing, rawPricing || {});
     pricing.decimal_places = Math.max(0, Math.round(Number(pricing.decimal_places) || 0));
-    pricing.rounding_threshold = Number.isFinite(Number(pricing.rounding_threshold)) ? Number(pricing.rounding_threshold) : 100;
+    // 取整配置：优先嵌套 rounding.{mode,integer_above}（后端/admin 标准格式），
+    // 兼容旧扁平 rounding_threshold。取整方式/整数阈值均从配置读取，
+    // 供 syncPricingControlsFromConfig 同步到 UI，避免 admin 配置在客户台静默失效。
+    var rounding = pricing.rounding || {};
+    var mode = String(rounding.mode || "ceil");
+    var integerAbove = Number(rounding.integer_above);
+    if (!Number.isFinite(integerAbove)) integerAbove = Number(pricing.rounding_threshold);
+    if (!Number.isFinite(integerAbove)) integerAbove = 100;
+    pricing.rounding = { mode: mode, integer_above: integerAbove };
+    // 保持 rounding_threshold 向后兼容（供旧代码读取）
+    pricing.rounding_threshold = integerAbove;
     // 税率：全局配置，默认 13%（中国工业品增值税率）
     var taxRate = Number(pricing.tax_rate);
     pricing.tax_rate = Number.isFinite(taxRate) && taxRate >= 0 ? taxRate : 13;
@@ -391,9 +401,39 @@
   function readByAliases(row, aliases) {
     var source = row || {};
     var keys = normalizeArray(aliases);
+    // 第一轮：精确匹配（最快路径）
     for (var i = 0; i < keys.length; i++) {
       var key = keys[i];
       if (Object.prototype.hasOwnProperty.call(source, key)) return source[key];
+    }
+    // 第二轮：trim 兼容——Excel 列名可能带首尾空格，或别名带空格
+    var trimmedKeys = keys.map(function (k) { return String(k).trim(); }).filter(Boolean);
+    var matchedKeys = {};
+    for (var col in source) {
+      if (!Object.prototype.hasOwnProperty.call(source, col)) continue;
+      var trimmedCol = String(col).trim();
+      if (matchedKeys[trimmedCol]) continue; // 已匹配则跳过
+      for (var j = 0; j < trimmedKeys.length; j++) {
+        if (trimmedCol === trimmedKeys[j]) {
+          matchedKeys[trimmedCol] = true;
+          return source[col];
+        }
+      }
+    }
+    // 第三轮：归一化匹配——去所有空格 + 小写，兼容列名/别名中间带空格或大小写差异
+    // （用户反馈：库存表列名带空格/全角无法识别 → 映射失败 → 库存看不到了）
+    function _normAlias(s) { return String(s || "").replace(/\s/g, "").toLowerCase(); }
+    var normKeys = keys.map(_normAlias).filter(Boolean);
+    for (var col2 in source) {
+      if (!Object.prototype.hasOwnProperty.call(source, col2)) continue;
+      var normCol = _normAlias(col2);
+      if (matchedKeys[normCol]) continue;
+      for (var k = 0; k < normKeys.length; k++) {
+        if (normCol === normKeys[k]) {
+          matchedKeys[normCol] = true;
+          return source[col2];
+        }
+      }
     }
     return undefined;
   }

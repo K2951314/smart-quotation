@@ -119,6 +119,59 @@ function renderCompanyTree() {
   }
 }
 
+// ─── 订阅档位（plan）管理 ───────────────────────────────
+// 管理员公司（供应商的客户）+ 独立公司（注册用户）独立订阅档位（free/pro/team），
+// 决定功能开关 + 配额 + 水印；成员公司（客户的客户）继承其管理员公司的订阅，不自订阅。
+// 与利润率分组（tier）是两套独立体系。
+
+var PLAN_LABELS = { free: "免费版", pro: "个人版", team: "专业版" };
+
+function makePlanSelect(company, meta) {
+  var sel = document.createElement("select");
+  sel.setAttribute("data-plan-company", company.id);
+  sel.style.cssText = "padding:2px 6px;font-size:11px;border:1px solid #ddd;border-radius:4px;background:#fff;color:#333;cursor:pointer;margin-left:4px;";
+  var current = (meta || {}).plan || "";
+  if (!current) {
+    var emptyOpt = document.createElement("option");
+    emptyOpt.value = "";
+    emptyOpt.textContent = "档位（继承全局）";
+    emptyOpt.selected = true;
+    sel.appendChild(emptyOpt);
+  }
+  ["free", "pro", "team"].forEach(function (p) {
+    var opt = document.createElement("option");
+    opt.value = p;
+    opt.textContent = PLAN_LABELS[p];
+    if (p === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // 阻止事件冒泡（避免触发卡片切换公司）
+  sel.onclick = function (e) { e.stopPropagation(); };
+  sel.onchange = function () { setCompanyPlan(company.id, sel.value); };
+  return sel;
+}
+
+async function setCompanyPlan(companyId, plan) {
+  var company = g_Companies.find(function (c) { return c.id === companyId; });
+  if (!company) return;
+  var newMeta = Object.assign({}, company.meta || {});
+  if (plan) {
+    newMeta.plan = plan;
+  } else {
+    delete newMeta.plan;
+  }
+  try {
+    await request("/api/companies/" + encodeURIComponent(companyId), {
+      method: "PATCH",
+      body: JSON.stringify({ meta: newMeta }),
+    });
+    setStatus("「" + companyId + "」订阅档位已更新" + (plan ? "为 " + PLAN_LABELS[plan] : "为继承全局"));
+    await loadCompanies();
+  } catch (err) {
+    setStatus("更新订阅档位失败: " + err.message, true);
+  }
+}
+
 // ─── 渲染管理员卡片 ─────────────────────────────────────
 
 function renderAdminCard(admin, members) {
@@ -178,15 +231,24 @@ function renderAdminCard(admin, members) {
     '成员: ' + memberCount + ' 家 · 利润率分组: ' + tiers.length + ' 个 · 令牌: ' + safeToken +
     '</div>';
   infoArea.innerHTML = nameLine + infoLine;
+  // 订阅档位下拉（管理员公司＝客户，独立订阅）
+  var planWrap = document.createElement("div");
+  planWrap.style.cssText = "margin-top:6px;font-size:10px;color:#999;";
+  planWrap.appendChild(document.createTextNode("订阅档位:"));
+  planWrap.appendChild(makePlanSelect(admin, meta));
+  infoArea.appendChild(planWrap);
   header.appendChild(infoArea);
 
   // 操作按钮区
   var actions = document.createElement("div");
   actions.style.cssText = "display:flex;align-items:center;gap:4px;padding:6px 8px;flex-shrink:0;flex-wrap:wrap;";
-  actions.appendChild(makeActionBtn("添加成员", "#38a169", "在该管理员下创建成员公司（继承配置/数据）", function (e) {
-    e.stopPropagation();
-    showAddMemberForm(admin.id);
-  }));
+  // 功能门控：成员公司创建是 admin_member_inheritance 功能（pro/team）
+  if (window.hasFeature && window.hasFeature("admin_member_inheritance")) {
+    actions.appendChild(makeActionBtn("添加成员", "#38a169", "在该管理员下创建成员公司（继承配置/数据）", function (e) {
+      e.stopPropagation();
+      showAddMemberForm(admin.id);
+    }));
+  }
   if (meta.access_token) {
     actions.appendChild(makeActionBtn("复制", "#2c5282", "复制客户访问链接", function (e) {
       e.stopPropagation();
@@ -266,7 +328,7 @@ function renderMemberRow(member, adminId) {
     if (tier) {
       var color = tier.color || "#2c5282";
       tierBadge = '<span style="padding:1px 6px;background:' + escapeHtml(color) + ';color:#fff;border-radius:3px;font-size:10px;">' +
-        escapeHtml(meta.tier) + " " + tier.profit_margin + "%</span>";
+        escapeHtml(meta.tier) + " " + escapeHtml(tier.profit_margin) + "%</span>";
       tierMargin = tier.profit_margin;
     } else {
       tierBadge = '<span style="padding:1px 6px;background:#ccc;color:#fff;border-radius:3px;font-size:10px;">' +
@@ -318,6 +380,14 @@ function renderMemberRow(member, adminId) {
     '利润率: ' + escapeHtml(pmDisplay) + ' · 令牌: ' + escapeHtml(tokenDisplay) +
     '</div>';
   infoArea.innerHTML = nameLine + infoLine;
+  var planWrap = document.createElement("div");
+  planWrap.style.cssText = "margin-top:4px;font-size:10px;color:#aaa;";
+  // 成员公司（客户的客户）不自订阅，继承管理员公司的订阅档位，仅展示
+  var parentId = meta.parent_company_id || "";
+  var parentCompany = g_Companies.find(function (c) { return c.id === parentId; });
+  var parentLabel = parentCompany ? (parentCompany.name || parentId) : parentId;
+  planWrap.appendChild(document.createTextNode("订阅: 继承「" + parentLabel + "」"));
+  infoArea.appendChild(planWrap);
   row.appendChild(infoArea);
 
   // 操作按钮
@@ -377,6 +447,11 @@ function renderStandaloneCard(company) {
     '</div>';
   var infoLine = '<div style="font-size:10px;color:#999;margin-top:2px;">令牌: ' + escapeHtml(tokenDisplay) + '</div>';
   infoArea.innerHTML = nameLine + infoLine;
+  var planWrap = document.createElement("div");
+  planWrap.style.cssText = "margin-top:4px;font-size:10px;color:#999;";
+  planWrap.appendChild(document.createTextNode("订阅档位:"));
+  planWrap.appendChild(makePlanSelect(company, meta));
+  infoArea.appendChild(planWrap);
   card.appendChild(infoArea);
 
   var actions = document.createElement("div");

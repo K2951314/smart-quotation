@@ -83,7 +83,11 @@
           for (var f = 0; f < priceFields.length; f++) {
             var field = priceFields[f];
             var aliases = (field.excel_aliases || []).concat([field.label, field.key]);
-            if (aliases.indexOf(col) >= 0) { matchedField = field; break; }
+            // trim 兼容：Excel 列名或别名可能带首尾空格
+            var trimmedCol = String(col).trim();
+            var matched = aliases.indexOf(col) >= 0 || aliases.indexOf(trimmedCol) >= 0 ||
+              aliases.some(function (a) { return String(a).trim() === trimmedCol; });
+            if (matched) { matchedField = field; break; }
           }
           if (matchedField && fields[matchedField.key] !== undefined) {
             normalized[col] = matchedField.type === "number" ? parseMoney(fields[matchedField.key]) : toStringSafe(fields[matchedField.key]);
@@ -224,6 +228,28 @@
     return { bySpec: bySpec };
   }
 
+  function diagnosePriceMapping(rows, config) {
+    // 价格字段映射诊断：检测 source=price 且 type=number 的字段（如 face_price）
+    // 在映射后的数据中是否完全缺失。缺失意味着 Excel 列名与「Excel 别名」不匹配，
+    // 脱敏预计算的报价将是 0（facePrice 缺失 → 0 × 折扣 = 0），必须显式警告而非静默失败。
+    var cfg = ConfigCore ? ConfigCore.normalizeConfig(config || {}) : null;
+    if (!cfg) return null;
+    var numberFields = cfg.fields.filter(function (field) {
+      return field.source === "price" && field.type === "number";
+    });
+    var list = Array.isArray(rows) ? rows : [];
+    if (!numberFields.length || !list.length) return null;
+    var sample = list.slice(0, 50);
+    var missing = numberFields.filter(function (field) {
+      for (var i = 0; i < sample.length; i++) {
+        var fields = ConfigCore.mapExcelRowToFields(sample[i], cfg, "price");
+        if (fields[field.key] !== undefined) return false;
+      }
+      return true;
+    });
+    return missing.length ? missing : null;
+  }
+
   function resolveColumn(columns, aliases) {
     for (var i = 0; i < aliases.length; i++) {
       var alias = aliases[i];
@@ -329,6 +355,7 @@
     applyTaxConversion: applyTaxConversion,
     buildStockByCode: buildStockByCode,
     buildStockDataset: buildStockDataset,
+    diagnosePriceMapping: diagnosePriceMapping,
     bytesToBase64: bytesToBase64,
     utf8ToBase64: utf8ToBase64,
   };

@@ -14,7 +14,11 @@ function collectConfig() {
     label: row.querySelector("[data-label]").value.trim(),
     type: row.querySelector("[data-type]").value,
     source: row.querySelector("[data-source]").value,
-    excel_aliases: row.querySelector("[data-aliases]").value.split(",").map((item) => item.trim()).filter(Boolean),
+    // 别名分隔符兼容：逗号(,)、中文逗号(，)、顿号(、)、分号(;；)、竖线(|｜)、制表符、换行。
+    // 注意：不按普通空格拆分——英文别名可能含空格（如 "List Price"）。
+    // 修复背景：此前只认 [,，]，用户用顿号/分号输入时整串不拆分，
+    // 导致 Excel 列名匹配失败 → face_price 缺失 → 报价静默变 0。
+    excel_aliases: row.querySelector("[data-aliases]").value.split(/[,，、;；|｜\t\n\r]+/).map((item) => item.trim()).filter(Boolean),
     searchable: row.querySelector("[data-searchable]").checked,
     copyable: row.querySelector("[data-copyable]").checked,
     required: row.querySelector("[data-required]").checked,
@@ -26,14 +30,14 @@ function collectConfig() {
   // Version
   config.version = $("configVersion").value.trim();
 
-  // Data source
+  // Data source — DOM 元素已移除（base_url 在公司管理配置），此处保留默认文件名供 bundle 引用
   config.data_source = {
-    base_url: $("dsBaseUrl").value.trim(),
-    config_file: $("dsConfigFile").value.trim(),
-    price_bundle_file: $("dsPriceFile").value.trim(),
-    stock_bundle_file: $("dsStockFile").value.trim(),
-    version_file: $("dsVersionFile").value.trim(),
-    cache_name: $("dsCacheName").value.trim(),
+    base_url: "",
+    config_file: "config.json",
+    price_bundle_file: "price.bundle.json",
+    stock_bundle_file: "stock.bundle.json",
+    version_file: "version.json",
+    cache_name: "quotation-cache-v3",
   };
 
   // Labels — 只发送非空值
@@ -116,9 +120,13 @@ function collectConfig() {
   const discountStepVal = Number($("pricingDiscountStep").value ?? 0.1);
   const discountStepMin = Math.max(0.01, discountStepVal);
   const presetsRaw = ($("pricingDiscountStepPresets").value || "").split(/[,，\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0);
+  // 数值输入兜底：Number("" ?? 100) 会得 0（空字符串 ?? 不替换，Number("")=0），
+  // 导致取整阈值变 0 → 所有报价被取整为整数。改用 Number.isFinite 判定，
+  // 空/非法值回退默认值（与 export-utils / config-core.js 一致）。
+  const _num = (id, def) => { var v = Number($(id).value); return Number.isFinite(v) ? v : def; };
   config.pricing = {
     currency: "CNY",
-    decimal_places: Number($("pricingDecimals").value ?? 1),
+    decimal_places: _num("pricingDecimals", 1),
     discount_step: {
       default: Math.max(discountStepMin, discountStepVal),
       min: discountStepMin,
@@ -126,10 +134,10 @@ function collectConfig() {
     },
     rounding: {
       mode: $("pricingRoundMode").value || "ceil",
-      integer_above: Number($("pricingIntegerAbove").value ?? 100),
+      integer_above: _num("pricingIntegerAbove", 100),
     },
     default_formula: $("pricingFormula").value.trim() || "face_price * discount_percent / 100",
-    tax_rate: Number($("pricingTaxRate").value ?? 13),
+    tax_rate: _num("pricingTaxRate", 13),
     face_price_tax_inclusive: $("pricingFacePriceTaxInclusive").value !== "false",
   };
 

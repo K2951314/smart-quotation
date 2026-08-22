@@ -1,7 +1,7 @@
 /**
  * data-load.js — 远程数据加载、缓存、Bundle 解析。
  *
- * 依赖：state.js, config-helpers.js, auth.js (getCompanyId/getApiBase/withToken/withAuthHeaders/isBackendUrl)
+ * 依赖：state.js, config-helpers.js, auth.js (getCompanyId/getApiBase/withAuthHeaders/isBackendUrl)
  */
 
 function bytesToUtf8(bytes) { return new TextDecoder().decode(bytes); }
@@ -47,6 +47,23 @@ async function decryptData(base64Data, password) {
 
 // ─── 数据源配置 ──────────────────────────────────────────────
 
+// 管理员加密价格包文件名：一键同步时 admin 后台额外生成的完整数据包
+// （含 face_price，用公司 access_token AES-GCM 加密）。admin 角色下载后
+// 用本地登录令牌自动解密；公开桶上的文件被第三方下载也无法解开。
+var ADMIN_PRICE_BUNDLE_FILE = "price.admin.bundle.json";
+// admin 加密包拉取失败（404/网络）→ 回退脱敏包。ensureDataLoaded 成功后保留此警告，
+// 否则「管理员数据包未生成」会被「数据库就绪」覆盖，用户不知为何看不到面价。
+var g_AdminBundleMissing = false;
+
+function isAdminRole() {
+  try {
+    var profile = (typeof getAuthProfile === "function") ? getAuthProfile() : null;
+    return !!(profile && profile.role === "admin");
+  } catch (e) {
+    return false;
+  }
+}
+
 function normalizeBaseUrl(value) {
   return String(value || SUPABASE_BASE_URL).replace(/\/+$/, "");
 }
@@ -54,13 +71,21 @@ function normalizeBaseUrl(value) {
 function getDataSourceConfig() {
   const cfg = getAppConfig();
   // 优先用配置中的 Supabase 地址；为空时回退到后端 API 地址（后端代理 bundle）
-  var baseUrl = normalizeBaseUrl(cfg.data_source?.base_url || SUPABASE_BASE_URL);
-  if (!baseUrl) baseUrl = (getApiBase() || "").replace(/\/+$/, "");
+  var supaUrl = normalizeBaseUrl(cfg.data_source?.base_url || SUPABASE_BASE_URL);
+  var baseUrl = supaUrl || (getApiBase() || "").replace(/\/+$/, "");
+  var publicPriceFile = cfg.data_source?.price_bundle_file || "price.bundle.json";
+  // admin 角色（供应商自己，需要面价调折扣）：
+  // - 有 Supabase 公开桶 → 拉取管理员加密包（完整数据，token 加密）；
+  //   公开桶的普通包是强制脱敏版（无 face_price），直连会显示价格 0。
+  // - 无 Supabase（后端代理）→ 普通文件名即可，后端 /price.bundle.json
+  //   按角色生成（admin 返回完整数据）。
+  var priceFile = (isAdminRole() && supaUrl) ? ADMIN_PRICE_BUNDLE_FILE : publicPriceFile;
   return {
     base_url: baseUrl,
     version_file: cfg.data_source?.version_file || "version.json",
     config_file: cfg.data_source?.config_file || "config.json",
-    price_bundle_file: cfg.data_source?.price_bundle_file || "price.bundle.json",
+    price_bundle_file: priceFile,
+    public_price_bundle_file: publicPriceFile,
     stock_bundle_file: cfg.data_source?.stock_bundle_file || "stock.bundle.json",
     cache_name: cfg.data_source?.cache_name || "quotation-cache-v4",
     company_id: (cfg._companyId || getCompanyId() || "default")
@@ -72,7 +97,9 @@ function buildRemoteFileUrl(source, filename, query) {
   const separator = name.indexOf("?") >= 0 ? "&" : "?";
   if (/^https?:\/\//i.test(name)) return query ? name + separator + query : name;
   var url = `${source.base_url}/${name.replace(/^\/+/, "")}${query ? "?" + query : ""}`;
-  if (!source.base_url && source.company_id && source.company_id !== "default") {
+  // 后端代理 URL 必须带 company_id（本地开发无 token 时后端无法反查公司，会退回 default 公司数据）；
+  // Supabase 直连是单份公开 bundle，无需 company_id。
+  if (isBackendUrl(url) && source.company_id && source.company_id !== "default") {
     url += (url.indexOf("?") >= 0 ? "&" : "?") + "company_id=" + encodeURIComponent(source.company_id);
   }
   return url;
@@ -88,7 +115,6 @@ function getConfigCacheVersion(config) {
 
 async function fetchRemoteJson(url, label) {
   if (isBackendUrl(url)) {
-    url = withToken(url);
     var response = await fetch(url, { cache: "no-store", headers: withAuthHeaders() });
   } else {
     var response = await fetch(url, { cache: "no-store" });
@@ -108,7 +134,6 @@ async function loadRemoteConfig(source) {
     try {
       var apiBase = getApiBase();
       var apiConfigUrl = apiBase + "/api/config/active?company_id=" + encodeURIComponent(companyId);
-      apiConfigUrl = withToken(apiConfigUrl);
       console.log("[loadRemoteConfig] 从后端 API 加载配置: company_id=" + companyId);
       var resp = await fetch(apiConfigUrl, { cache: "no-store", headers: withAuthHeaders() });
       if (resp.ok) {
@@ -194,10 +219,55 @@ async function loadDataWithCache() {
     ? (configVer + "_" + dataVer)
     : (configVer || dataVer || String(Date.now()));
   await Promise.all([
-    fetchFileWithCache(source.price_bundle_file, version, "bundle", source).then(data => { window.PRICE_BUNDLE = data; }),
+    fetchFileWithCache(source.price_bundle_file, version, "bundle", source)
+      .catch(async function (err) {
+        if (source.price_bundle_file !== ADMIN_PRICE_BUNDLE_FILE) throw err;
+        console.warn("[data-load] 管理员加密包未找到:", err && err.message);
+        // 先尝试后端 /price.bundle.json 按角色生成完整数据（后端可达时不依赖双 bundle 上传，
+        // 后端用 X-Company-Token 判定 role，is_admin 公司返回含面价的完整包；与 140ad0a 的可靠路径一致）。
+        var apiBase = (getApiBase() || "").replace(/\/+$/, "");
+        if (apiBase) {
+          try {
+            var backendData = await fetchFileWithCache(apiBase + "/price.bundle.json", version, "bundle", source);
+            console.log("[data-load] 已从后端按角色获取完整价格包（admin 可见面价）");
+            return backendData;
+          } catch (e2) {
+            console.warn("[data-load] 后端价格包也失败，回退公开脱敏包:", e2 && e2.message);
+          }
+        }
+        // 后端不可达 → 回退公开脱敏包，报价由 quote_price 兜底（无面价），给出明确指引。
+        g_AdminBundleMissing = true;
+        setStatus("管理员数据包未生成：请到配置中心执行「一键同步」（当前仅显示报价，无面价）", "lock");
+        return fetchFileWithCache(source.public_price_bundle_file, version, "bundle", source);
+      })
+      .then(data => { window.PRICE_BUNDLE = data; }),
     fetchFileWithCache(source.stock_bundle_file, version, "bundle", source).then(data => { window.STOCK_BUNDLE = data; })
   ]);
   console.log("✅ 数据与配置加载完毕，当前版本：", version);
+}
+
+// 带重试 + 超时的 fetch：大 bundle 在移动/弱网下首包易失败或超时，
+// 重试 2 次（指数退避）+ 60s 超时。404/401/403 等终端状态不重试（让上层 catch 回退）。
+async function fetchWithRetry(url, opts, retries) {
+  var lastErr = null;
+  for (var i = 0; i <= retries; i++) {
+    try {
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () { ctrl.abort(); }, 60000);
+      var resp = await fetch(url, Object.assign({}, opts, { signal: ctrl.signal }));
+      clearTimeout(timer);
+      if (resp.status === 404 || resp.status === 401 || resp.status === 403) return resp;
+      if (resp.ok) return resp;
+      lastErr = new Error("HTTP " + resp.status);
+    } catch (e) {
+      lastErr = e;
+    }
+    if (i < retries) {
+      console.warn("[fetchWithRetry] " + url + " 第" + (i + 1) + "次失败，重试:", lastErr && lastErr.message);
+      await new Promise(function (r) { setTimeout(r, 800 * (i + 1)); });
+    }
+  }
+  throw lastErr || new Error("下载失败");
 }
 
 async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
@@ -227,7 +297,7 @@ async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
     var fetchOpts = isBackendUrl(fileUrl)
       ? { cache: "no-store", headers: withAuthHeaders() }
       : { cache: "no-store" };
-    response = await fetch(fileUrl, fetchOpts);
+    response = await fetchWithRetry(fileUrl, fetchOpts, 2);
     if (response.ok) {
       if (cache) {
         // 大文件在 wifi 不稳定时 cache.put 可能抛 "network error"，
@@ -274,13 +344,29 @@ async function parsePriceBundle(priceObj) {
   if (!priceObj) throw new Error("未找到远程价格包");
   let jsonText = "";
   if (priceObj.secured) {
-    setStatus("价格包已加密，请输入密码", "lock");
-    const pwd = prompt("请输入价格包密码：");
-    if (!pwd) throw new Error("未输入价格包密码");
+    // 管理员加密包（price.admin.bundle.json）：密码 = 公司登录令牌，
+    // admin 后台一键同步时用该 token 加密，此处用本地令牌自动解密。
+    var autoPassword = "";
     try {
-      jsonText = await decryptData(priceObj.payload, pwd);
-    } catch (err) {
-      throw new Error("价格包解密失败，请确认密码");
+      if (isAdminRole() && typeof getCompanyToken === "function") {
+        autoPassword = getCompanyToken() || "";
+      }
+    } catch (e) { autoPassword = ""; }
+    if (autoPassword) {
+      try {
+        jsonText = await decryptData(priceObj.payload, autoPassword);
+      } catch (err) {
+        throw new Error("管理员数据包解密失败（公司令牌可能已轮换），请到配置中心重新「一键同步」生成新数据包");
+      }
+    } else {
+      setStatus("价格包已加密，请输入密码", "lock");
+      const pwd = prompt("请输入价格包密码：");
+      if (!pwd) throw new Error("未输入价格包密码");
+      try {
+        jsonText = await decryptData(priceObj.payload, pwd);
+      } catch (err) {
+        throw new Error("价格包解密失败，请确认密码");
+      }
     }
   } else {
     const t0 = performance.now();
@@ -341,7 +427,12 @@ async function ensureDataLoaded() {
       rebuildSearchIndex();
       console.log("[ensureDataLoaded] g_SearchIndex size:", g_SearchIndex ? Object.keys(g_SearchIndex).length : null);
       g_DataReady = true;
-      setStatus("数据库就绪", "ok");
+      // 保留管理员数据包缺失警告（避免被「数据库就绪」覆盖，否则用户不知 admin 包未生成 → 看不到面价）
+      if (g_AdminBundleMissing) {
+        setStatus("数据库就绪（⚠️ 管理员数据包未生成：仅显示报价无面价，请到配置中心「一键同步」）", "lock");
+      } else {
+        setStatus("数据库就绪", "ok");
+      }
       return true;
     } catch (err) {
       setStatus("同步失败", "error");

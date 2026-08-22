@@ -20,6 +20,14 @@
  */
 function renderTierManagerForAdmin(container, adminId) {
   if (!container) return;
+
+  // 功能门控：tier_profit_grouping 是 team 档位功能，低档位显示升级提示
+  if (window.hasFeature && !window.hasFeature("tier_profit_grouping")) {
+    container.innerHTML = '<div style="padding:10px;border:1px dashed #ddd;border-radius:5px;text-align:center;color:#bbb;font-size:11px;background:#fff;">' +
+      '🔒 利润率分组是专业版功能。<br>升级后可创建分组并为成员公司分配不同利润率。</div>';
+    return;
+  }
+
   var tiers = (g_TiersCache && g_TiersCache[adminId]) || [];
 
   var header = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
@@ -53,8 +61,8 @@ function renderTierManagerForAdmin(container, adminId) {
         '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + safeColor + ';flex-shrink:0;"></span>' +
         '<strong style="font-size:11px;">' + name + '</strong>' +
         '<span style="font-size:10px;color:#666;">利润率 ' + margin + '%</span>' +
-        '<button type="button" onclick="editTier(\'' + escapeHtml(adminId) + '\',' + idx + ')" style="margin-left:auto;padding:1px 5px;font-size:10px;border:1px solid #ddd;background:#fff;border-radius:2px;cursor:pointer;">改</button>' +
-        '<button type="button" onclick="deleteTier(\'' + escapeHtml(adminId) + '\',' + idx + ')" style="padding:1px 5px;font-size:10px;border:1px solid #e74c3c;color:#e74c3c;background:#fff;border-radius:2px;cursor:pointer;">删</button>' +
+        '<button type="button" data-tier-edit-admin="' + escapeHtml(adminId) + '" data-tier-edit-idx="' + idx + '" style="margin-left:auto;padding:1px 5px;font-size:10px;border:1px solid #ddd;background:#fff;border-radius:2px;cursor:pointer;">改</button>' +
+        '<button type="button" data-tier-delete-admin="' + escapeHtml(adminId) + '" data-tier-delete-idx="' + idx + '" style="padding:1px 5px;font-size:10px;border:1px solid #e74c3c;color:#e74c3c;background:#fff;border-radius:2px;cursor:pointer;">删</button>' +
         '</div>' +
         '<div class="tier-drop-hint" style="font-size:10px;color:#aaa;margin-top:3px;display:none;">← 拖成员公司到此处分配</div>' +
         '</div>';

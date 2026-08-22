@@ -9,6 +9,42 @@
  *       standalone-html.js（generateStandalone、deployStandalone）
  */
 
+/**
+ * 上传管理员加密价格包（price.admin.bundle.json）。
+ *
+ * 背景：公开桶的 price.bundle.json 是强制脱敏版（无 face_price），
+ * apps 端 admin 角色（供应商自己）需要面价做折扣调整，曾因此显示价格 0。
+ *
+ * 方案：完整数据（含面价）用「当前公司 access_token」AES-GCM 加密后
+ * 上传到公开桶。apps 端 admin 角色用本地登录令牌自动解密。
+ * 安全性：token 是 43 字符随机串 + PBKDF2 10 万轮派生密钥，公开下载无法破解；
+ * 令牌泄露的攻击者本来就能登录管理员账号看面价，不扩大攻击面。
+ *
+ * 失败不阻断主流程（成员公司通道优先），仅提示。
+ */
+async function uploadAdminPriceBundle(priceRows, cfg) {
+  // 返回 {ok, error}：让调用方决定最终状态展示，避免失败被后续 sbSetStatus 覆盖
+  // （曾导致用户只看到「已同步全部」却不知 admin 包失败 → admin 端看不到面价）。
+  const cid = getCurrentCompanyId();
+  if (!cid || cid === "default") {
+    return { ok: false, error: "未选中管理员公司（当前为 default）。请在配置中心顶部选择你的管理员公司后再同步，否则 price.admin.bundle.json 不会上传，admin 端看不到面价" };
+  }
+  try {
+    const company = await request("/api/companies/" + encodeURIComponent(cid));
+    const token = ((company && company.meta) || {}).access_token || "";
+    if (!token) {
+      return { ok: false, error: "公司 " + cid + " 无 access_token（meta 未生成令牌）" };
+    }
+    sbSetStatus("正在生成管理员加密价格包…", "info");
+    const result = await ExportUtils.createPriceBundleScript(priceRows, token, cfg, { desensitize: false });
+    JSON.parse(result.script);
+    await sbUploadFile("price.admin.bundle.json", result.script, "application/json;charset=utf-8");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
 function bind() {
   if (g_AdminEventsBound) return;
   g_AdminEventsBound = true;
@@ -53,12 +89,15 @@ function bind() {
     const target = event.target.closest("button");
     if (!target) return;
 
-    if (target.dataset.removeField) { state.config.fields.splice(Number(target.dataset.removeField), 1); renderAll(); return; }
-    if (target.dataset.removeRule) { state.config.rules.splice(Number(target.dataset.removeRule), 1); renderAll(); return; }
+    if (target.dataset.removeField) { state.config.fields.splice(Number(target.dataset.removeField), 1); renderAll(); if (window.refreshQuotaIndicators) window.refreshQuotaIndicators(); return; }
+    if (target.dataset.removeRule) { state.config.rules.splice(Number(target.dataset.removeRule), 1); renderAll(); if (window.refreshQuotaIndicators) window.refreshQuotaIndicators(); return; }
     if (target.dataset.removeCopy) { state.config.copy.columns.splice(Number(target.dataset.removeCopy), 1); renderAll(); return; }
 
     if (target.dataset.rollback) { run(() => rollbackToRevision(target.dataset.rollback)); return; }
     if (target.dataset.deleteRevision) { run(() => deleteConfigRevision(target.dataset.deleteRevision)); return; }
+
+    if (target.dataset.tierEditAdmin !== undefined) { editTier(target.dataset.tierEditAdmin, Number(target.dataset.tierEditIdx)); return; }
+    if (target.dataset.tierDeleteAdmin !== undefined) { deleteTier(target.dataset.tierDeleteAdmin, Number(target.dataset.tierDeleteIdx)); return; }
   });
 
   // ── 配置操作 ──
@@ -67,16 +106,28 @@ function bind() {
   $("publishBtn").addEventListener("click", () => run(() => saveConfig("published")));
   $("validateConfigBtn").addEventListener("click", () => run(validateConfig));
 
-  // ── 字段/规则/复制列 添加 ──
+  // ── 字段/规则/复制列 添加（含配额前置阻断）──
   $("addFieldBtn").addEventListener("click", () => {
     if (!Array.isArray(state.config.fields)) state.config.fields = [];
     state.config.fields.push({ key: "", label: "", type: "text", source: "price", excel_aliases: [], searchable: false, copyable: false, required: false, result_area: "detail" });
     renderAll();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
   });
   $("addRuleBtn").addEventListener("click", () => {
     if (!Array.isArray(state.config.rules)) state.config.rules = [];
+    // 配额前置阻断：免费版只能加 max_brands 条规则（默认 2）
+    // 不让用户超限添加，而非保存时才报错（体验更好）
+    var quota = window.SQ_QUOTA;
+    if (quota && quota.max_brands >= 0 && state.config.rules.length >= quota.max_brands) {
+      setStatus(
+        "报价规则已达当前订阅上限（" + quota.max_brands + " 条），请升级订阅或删除多余规则",
+        true,
+      );
+      return;
+    }
     state.config.rules.push({ id: "new_rule", label: "新规则", priority: 100, when: { all: [{ field: "spec", op: "contains", value: "" }] }, actions: [{ type: "set_discount", percent: 55 }] });
     renderAll();
+    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
   });
   $("addCopyColumnBtn").addEventListener("click", () => {
     if (!state.config.copy || typeof state.config.copy !== "object") state.config.copy = {};
@@ -107,16 +158,7 @@ function bind() {
     try {
       sbAutoFillBaseUrl();
       const cfg = collectConfig();
-      const safeCfg = {};
-      for (const [k, v] of Object.entries(cfg)) {
-        if (k !== "data_source" && k !== "rules" && k !== "discount_rules") {
-          safeCfg[k] = v;
-        }
-      }
-      if (safeCfg.pricing) {
-        safeCfg.pricing = { ...safeCfg.pricing };
-        delete safeCfg.pricing.default_formula;
-      }
+      const safeCfg = desensitizeConfigForPublic(cfg);
       await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
     } catch (err) {
       sbSetStatus("❌ " + err.message, "error");
@@ -128,10 +170,8 @@ function bind() {
   if (sbUploadPriceBtn) sbUploadPriceBtn.addEventListener("click", async () => {
     try {
       let text = null;
-      if (window._mergerBundles && window._mergerBundles.price) {
-        text = window._mergerBundles.price;
-        sbSetStatus("使用拼接区已生成的价格包…", "info");
-      } else if (window._mergerState && window._mergerState.priceRows && window._mergerState.priceRows.length > 0) {
+      if (window._mergerState && window._mergerState.priceRows && window._mergerState.priceRows.length > 0) {
+        // 优先从拼接数据重新生成脱敏价格包（安全：移除面价、预计算报价）
         sbSetStatus("正在从拼接数据生成脱敏价格包…", "info");
         var password = $("merger-pricePassword")?.value.trim() || "";
         var cfg = collectConfig();
@@ -139,6 +179,10 @@ function bind() {
         text = result.script;
         window._mergerBundles = window._mergerBundles || {};
         window._mergerBundles.price = text;
+      } else if (window._mergerBundles && window._mergerBundles.price) {
+        // 无拼接数据时回退到已生成价格包（merger 导出已脱敏）
+        text = window._mergerBundles.price;
+        sbSetStatus("使用拼接区已生成的价格包…", "info");
       } else {
         const fileInput = $("sb-priceFileInput");
         if (!fileInput || !fileInput.files || !fileInput.files[0])
@@ -147,6 +191,16 @@ function bind() {
       }
       JSON.parse(text);
       await sbUploadFile("price.bundle.json", text, "application/json;charset=utf-8");
+      // 管理员通道：有拼接原始数据时额外生成 token 加密的完整价格包（含面价）
+      if (window._mergerState && window._mergerState.priceRows && window._mergerState.priceRows.length > 0) {
+        const adminResult = await uploadAdminPriceBundle(window._mergerState.priceRows, collectConfig());
+        if (!adminResult.ok) {
+          sbSetStatus("⚠️ 价格包已上传，但管理员数据包失败：" + adminResult.error + "（admin 端将看不到面价）", "error");
+          return;
+        }
+      } else {
+        sbSetStatus("⚠️ 无拼接原始数据，管理员数据包未生成（管理员端将看不到面价）", "info");
+      }
       await sbUpdateVersionJson();
     } catch (err) {
       sbSetStatus("❌ " + err.message, "error");
@@ -205,6 +259,22 @@ function bind() {
       }
       const cfg = collectConfig();
       const password = $("merger-pricePassword")?.value.trim() || "";
+      let adminBundleResult = { ok: true };
+
+      // 密码警告：加密包会导致客户端 prompt 密码，客户不知道密码无法查看价格
+      if (password) {
+        const ok = confirm("⚠️ 您填写了价格包密码，上传后价格包将被加密。\n\n" +
+          "客户端遇到加密包会弹出密码输入框，客户通常不知道密码。\n\n" +
+          "如需让客户直接查看价格，请清空密码框。\n\n是否继续？");
+        if (!ok) return;
+      }
+
+      // 上传 config.json（脱敏版）——修复：原来一键同步不上传 config.json，
+      // 导致 Supabase 上的 config.json 可能是旧的，客户端用旧配置 + 新 bundle 会字段不匹配
+      sbSetStatus("正在上传 config.json...", "info");
+      const safeCfg = desensitizeConfigForPublic(cfg);
+      await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
+
       if (hasPrice) {
         sbSetStatus("正在生成并上传脱敏价格包...", "info");
         const priceResult = await ExportUtils.createPriceBundleScript(ms.priceRows, password, cfg, { desensitize: true });
@@ -212,6 +282,8 @@ function bind() {
         await sbUploadFile("price.bundle.json", priceResult.script, "application/json;charset=utf-8");
         window._mergerBundles = window._mergerBundles || {};
         window._mergerBundles.price = priceResult.script;
+        // 管理员通道：token 加密的完整价格包（含面价），apps 端 admin 角色自动解密
+        adminBundleResult = await uploadAdminPriceBundle(ms.priceRows, cfg);
       }
       if (hasStock) {
         sbSetStatus("正在生成并上传库存包...", "info");
@@ -222,7 +294,11 @@ function bind() {
         window._mergerBundles.stock = stockResult.script;
       }
       await sbUpdateVersionJson();
-      sbSetStatus("⚡ 已同步全部数据到 Supabase", "ok");
+      if (hasPrice && adminBundleResult && !adminBundleResult.ok) {
+        sbSetStatus("⚠️ 价格/库存已同步，但管理员数据包失败：" + adminBundleResult.error + "（admin 端将看不到面价）", "error");
+      } else {
+        sbSetStatus("⚡ 已同步全部数据到 Supabase（含 config + price + stock + version）", "ok");
+      }
     } catch (err) {
       sbSetStatus("❌ " + err.message, "error");
     }

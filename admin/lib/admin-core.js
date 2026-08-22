@@ -57,12 +57,18 @@ let g_AdminEventsBound = false;
 let sbAnonKeyInput = null;    // Supabase anon key input（在 bind() 中赋值）
 let sbBaseUrlInput = null;    // Supabase base URL input（在 bind() 中赋值）
 
-// ─── Admin API Key 管理（sessionStorage，不持久化）─────────
-// 安全策略：API Key 不硬编码在源码中，通过登录界面输入，存于 sessionStorage。
-// 页签关闭即失效，避免长期暴露。额外安全：30 分钟无操作自动登出。
-const ADMIN_SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟
+// ─── 认证管理（API Key + JWT 双模式）─────────────────────────
+// API Key 模式：超管通过登录界面输入 ADMIN_API_KEY，存于 sessionStorage（页签关闭即失效）
+// JWT 模式：租户管理员通过 register.html/login.html 登录获取 JWT；
+//   默认存 sessionStorage（页签关闭即失效），勾选「保持登录」才存 localStorage（7 天有效）
+// 优先级：JWT > API Key（JWT 用户自动登录，不需要再输入 API Key）
+const ADMIN_SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟无操作自动登出（仅 API Key 模式）
 let ADMIN_API_KEY = (function () {
   try { return sessionStorage.getItem("sq_admin_api_key") || ""; } catch (e) { return ""; }
+})();
+// JWT 令牌（默认 sessionStorage，勾选「保持登录」才存 localStorage；读取时 sessionStorage 优先）
+let JWT_TOKEN = (function () {
+  try { return sessionStorage.getItem("sq_jwt_token") || localStorage.getItem("sq_jwt_token") || ""; } catch (e) { return ""; }
 })();
 let _adminSessionTimer = null;
 
@@ -79,6 +85,33 @@ function setAdminApiKey(key) {
   } catch (e) { }
 }
 
+function setJwtToken(token, keepLoggedIn) {
+  JWT_TOKEN = token || "";
+  try {
+    if (token) {
+      if (keepLoggedIn) {
+        localStorage.setItem("sq_jwt_token", token);
+        sessionStorage.removeItem("sq_jwt_token");
+      } else {
+        sessionStorage.setItem("sq_jwt_token", token);
+        localStorage.removeItem("sq_jwt_token");
+      }
+    } else {
+      sessionStorage.removeItem("sq_jwt_token");
+      localStorage.removeItem("sq_jwt_token");
+    }
+  } catch (e) { }
+}
+
+// 获取当前认证 token
+// 优先级：API Key（超管）> JWT（租户）
+// 原因：admin 配置中心是管理界面，用户进入就是为了管理。
+// 如果同时有 API Key 和 JWT，应使用 API Key（超管权限），
+// 否则租户身份会被档位上限检查拦住（如分配 team 档位）。
+function getAuthToken() {
+  return ADMIN_API_KEY || JWT_TOKEN;
+}
+
 function _resetSessionTimer() {
   if (_adminSessionTimer) clearTimeout(_adminSessionTimer);
   _adminSessionTimer = setTimeout(function () {
@@ -90,11 +123,12 @@ function _resetSessionTimer() {
 }
 
 function isAdminAuthenticated() {
-  return Boolean(ADMIN_API_KEY);
+  return Boolean(JWT_TOKEN || ADMIN_API_KEY);
 }
 
 function logoutAdmin() {
   setAdminApiKey("");
+  setJwtToken("");
   showLoginOverlay();
 }
 
@@ -131,9 +165,11 @@ async function tryLogin() {
       setAdminApiKey(key);
       hideLoginOverlay();
       if (typeof bind === "function") bind();
-      if (typeof initApp === "function") initApp();
+      run(loadCompanies);
+      // 加载会话面板（角色 + 档位 + 开发模式切换器）
+      if (window.loadLicenseBadge) run(window.loadLicenseBadge);
     } else if (response.status === 429) {
-      if (errDiv) { errDiv.textContent = "尝试次数过多，请 5 分钟后再试（或清除 quotation.db 中的 security_events 表）"; errDiv.style.display = "block"; }
+      if (errDiv) { errDiv.textContent = "尝试次数过多，请 5 分钟后再试"; errDiv.style.display = "block"; }
     } else if (response.status === 401) {
       if (errDiv) { errDiv.textContent = "API Key 无效，请检查后重试"; errDiv.style.display = "block"; }
     } else {
@@ -146,28 +182,34 @@ async function tryLogin() {
 
 // ─── 多租户：当前操作的公司 ID ───────────────────────────
 let g_CurrentCompanyId = (function () {
-  try { return localStorage.getItem("sq_admin_company_id") || "default"; } catch (e) { return "default"; }
+  try { return sessionStorage.getItem("sq_admin_company_id") || localStorage.getItem("sq_admin_company_id") || "default"; } catch (e) { return "default"; }
 })();
 
 function getCurrentCompanyId() { return g_CurrentCompanyId || "default"; }
 
 function setCurrentCompanyId(cid) {
   g_CurrentCompanyId = cid || "default";
-  try { localStorage.setItem("sq_admin_company_id", g_CurrentCompanyId); } catch (e) { }
+  try {
+    // 同时写 sessionStorage 与 localStorage，兼容会话级/持久化两种 JWT 模式
+    sessionStorage.setItem("sq_admin_company_id", g_CurrentCompanyId);
+    localStorage.setItem("sq_admin_company_id", g_CurrentCompanyId);
+  } catch (e) { }
 }
 
 /** 给需要 company_id 的 API 路径追加参数 */
 function withCompany(path) {
   var cid = getCurrentCompanyId();
   var sep = path.indexOf("?") >= 0 ? "&" : "?";
-  if (/\/api\/(config|items|audit|quote)/.test(path)) {
+  if (/\/api\/(config|items|audit|quote|settings)/.test(path)) {
     return path + sep + "company_id=" + encodeURIComponent(cid);
   }
   return path;
 }
 
 // ─── 全局状态 ──────────────────────────────────────────────
-const state = {
+// 用 var（非 const）使 window.state 可用——merger-app.js 等独立脚本
+// 需要通过 window.state.config 读取配置中心编辑的配置
+var state = {
   config: defaultConfig(),
   uploadedRows: null,
   uploadFilename: "",
@@ -197,10 +239,10 @@ function escapeHtml(value) {
 async function request(path, options) {
   if (!isAdminAuthenticated()) {
     showLoginOverlay();
-    throw new Error("未登录，请输入 API Key");
+    throw new Error("未登录，请输入 API Key 或通过登录页登录");
   }
   const headers = { "Content-Type": "application/json", ...(options && options.headers ? options.headers : {}) };
-  headers["Authorization"] = "Bearer " + ADMIN_API_KEY;
+  headers["Authorization"] = "Bearer " + getAuthToken();
   path = withCompany(path);
   const response = await fetch(apiBase + path, {
     headers: headers,
@@ -208,8 +250,9 @@ async function request(path, options) {
   });
   if (response.status === 401) {
     setAdminApiKey("");
+    setJwtToken("");
     showLoginOverlay();
-    throw new Error("API Key 无效或已过期，请重新登录");
+    throw new Error("认证失效，请重新登录");
   }
   const text = await response.text();
   let data;
@@ -241,62 +284,68 @@ async function run(task) {
 function defaultConfig() {
   return {
     schema_version: 3,
-    revision: new Date().toISOString().slice(0, 10) + ".1",
-    version: "",
+    revision: new Date().toISOString().slice(0, 10),
     data_source: {
-      base_url: (typeof window !== "undefined" && window.SQ_SUPABASE_BASE_URL) || "",
+      base_url: "",
+      version_file: "version.json",
       config_file: "config.json",
       price_bundle_file: "price.bundle.json",
       stock_bundle_file: "stock.bundle.json",
-      version_file: "version.json",
       cache_name: "quotation-cache-v3",
     },
     pricing: {
       currency: "CNY",
       decimal_places: 1,
-      discount_step: { default: 0.1, min: 0.1, presets: [0.1, 0.5, 1] },
       rounding: { mode: "ceil", integer_above: 100 },
       default_formula: "face_price * discount_percent / 100",
+      tax_rate: 13,
+      face_price_tax_inclusive: true,
+      discount_step: { default: 1, min: 1, presets: [0.5, 1, 5] },
     },
     fields: [
-      { key: "code", label: "代码", type: "text", source: "price", excel_aliases: ["代码", "物料编码"], searchable: true, copyable: true, required: false, result_area: "identity" },
-      { key: "spec", label: "规格型号", type: "text", source: "price", excel_aliases: ["规格型号", "规格", "型号"], searchable: true, copyable: true, required: true, result_area: "identity" },
-      { key: "face_price", label: "面价", type: "number", source: "price", excel_aliases: ["销售单价", "面价"], searchable: false, copyable: false, required: false, result_area: "metric" },
+      { key: "code", label: "代码", type: "text", source: "both", excel_aliases: ["代码", "货号", "物料编码", "编码", "物料长代码"], searchable: true, copyable: true, required: false, result_area: "identity" },
+      { key: "spec", label: "型号", type: "text", source: "price", excel_aliases: ["规格型号", "规格", "型号", "产品型号"], searchable: true, copyable: true, required: false, result_area: "identity" },
+      { key: "face_price", label: "面价", type: "number", source: "price", excel_aliases: ["销售单价", "面价", "目录价", "含税单价", "单价"], searchable: false, copyable: false, required: false, result_area: "metric" },
       { key: "quote_price", label: "报价", type: "computed", source: "computed", excel_aliases: [], searchable: false, copyable: true, required: false, result_area: "metric" },
-      { key: "special", label: "特价", type: "text", source: "price", excel_aliases: ["特价", "活动"], searchable: true, copyable: true, required: false, result_area: "chip" },
-      { key: "stock", label: "库存", type: "text", source: "stock", excel_aliases: ["库存", "库存数量"], searchable: false, copyable: true, required: false, result_area: "chip" },
-      { key: "remark", label: "备注", type: "text", source: "price", excel_aliases: ["备注", "说明"], searchable: true, copyable: true, required: false, result_area: "detail" },
-      { key: "brand", label: "品牌", type: "text", source: "price", excel_aliases: ["品牌", "厂家"], searchable: true, copyable: false, required: false, result_area: "detail" },
-      { key: "name", label: "名称", type: "text", source: "price", excel_aliases: ["名称", "品名"], searchable: true, copyable: false, required: false, result_area: "detail" },
-      { key: "mnemonic", label: "助记码", type: "text", source: "price", excel_aliases: ["助记码", "简码"], searchable: true, copyable: false, required: false, result_area: "detail" },
-      { key: "alias", label: "别名", type: "text", source: "price", excel_aliases: ["别名", "旧型号"], searchable: true, copyable: false, required: false, result_area: "detail" },
+      { key: "special", label: "特价", type: "text", source: "price", excel_aliases: ["特价", "活动", "促销"], searchable: true, copyable: true, required: false, result_area: "chip" },
+      { key: "stock", label: "库存", type: "text", source: "stock", excel_aliases: ["库存", "库存数量", "可用数量", "数量"], searchable: false, copyable: true, required: false, result_area: "chip" },
+      { key: "remark", label: "备注", type: "text", source: "price", excel_aliases: ["补充说明", "备注", "说明"], searchable: true, copyable: true, required: false, result_area: "detail" },
+      { key: "brand", label: "品牌", type: "text", source: "price", excel_aliases: ["品牌", "厂家"], searchable: false, copyable: false, required: false, result_area: "detail" },
+      { key: "name", label: "名称", type: "text", source: "price", excel_aliases: ["名称", "品名", "类别"], searchable: false, copyable: false, required: false, result_area: "detail" },
+      { key: "mnemonic", label: "助记码", type: "text", source: "price", excel_aliases: ["助记码", "简码"], searchable: false, copyable: false, required: false, result_area: "detail" },
+      { key: "alias", label: "别名", type: "text", source: "price", excel_aliases: ["别名", "旧型号"], searchable: false, copyable: false, required: false, result_area: "detail" },
     ],
     rules: [
-      { id: "ex_activity", label: "EX 活动", priority: 10, when: { all: [{ field: "special", op: "contains", value: "EX活动" }] }, actions: [{ type: "set_discount", percent: 55 }] },
-      { id: "default", label: "默认折扣", priority: 9999, default: true, actions: [{ type: "set_discount", percent: 55 }] },
+      { id: "MIS", label: "三菱", priority: 1, default: false, actions: [{ type: "set_discount", percent: 55 }], when: { all: [{ field: "name", op: "contains", value: "刀具" }] } },
+      { id: "EX", label: "EX", priority: 2, default: false, actions: [{ type: "set_discount", percent: 32.5 }], when: { all: [{ field: "remark", op: "contains", value: "EX活动" }] } },
+      { id: "OSG", label: "OSG", priority: 3, default: false, actions: [{ type: "set_discount", percent: 37 }], when: { all: [{ field: "spec", op: "contains", value: "OSG" }] } },
+      { id: "CH", label: "长合", priority: 5, default: false, actions: [{ type: "set_discount", percent: 46 }], when: { all: [{ field: "code", op: "contains", value: "15.03." }] } },
+      { id: "new_rule", label: "其他", priority: 100, default: true, actions: [{ type: "set_discount", percent: 55 }] },
     ],
     copy: {
+      columns: [
+        { field: "code", label: "代码", line: "main", default: true, prefix: "" },
+        { field: "spec", label: "型号", line: "main", default: true, prefix: "" },
+        { field: "quote_price", label: "报价", line: "main", default: true, prefix: "含税" },
+        { field: "stock", label: "库存", line: "main", default: false, prefix: "" },
+        { field: "special", label: "特价", line: "detail", default: false, prefix: "" },
+        { field: "remark", label: "备注", line: "detail", default: false, prefix: "" },
+      ],
       empty_value: "",
       price_prefix: "含税",
       line_template: "",
-      columns: [
-        { field: "code", label: "代码", default: true, line: "main" },
-        { field: "spec", label: "规格", default: true, line: "main" },
-        { field: "quote_price", label: "报价", default: true, line: "main", prefix: "含税" },
-        { field: "special", label: "特价", default: false, line: "main" },
-        { field: "stock", label: "库存", default: false, line: "main" },
-        { field: "remark", label: "备注", default: false, line: "detail" },
-      ],
     },
     ui: {
       app_title: "智能询价系统",
       result_layout: {
-        identity: ["code", "spec"],
+        identity: ["spec"],
         metrics: ["face_price", "quote_price"],
-        chips: ["special", "stock"],
-        details: ["remark"],
+        chips: [],
+        details: [],
       },
     },
+    integrations: {},
+    version: "",
     labels: {
       app_title: "智能询价系统",
       search_button: "智能查询",
@@ -307,11 +356,17 @@ function defaultConfig() {
       config_button: "配置",
       input_title: "输入",
       result_title: "结果",
-      query_placeholder: "请输入规格型号...\n支持多关键词",
+      query_placeholder: "请输入规格型号...支持多关键词",
       empty_hint: "支持规格、代码、助记码、别名、备注和特价关键词。",
-      stock_prefix: "库存 ",
+      stock_prefix: "库存",
     },
-    integrations: {},
+    result_layout: {
+      identity: ["code", "spec"],
+      metrics: ["face_price", "quote_price"],
+      chips: ["special", "stock"],
+      details: ["remark"],
+    },
+    status: "draft",
   };
 }
 
