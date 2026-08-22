@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import traceback
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -15,7 +18,8 @@ from starlette.responses import Response
 from ..engine import QuotationEngine
 from ..observability import init_sentry
 from ..store import QuotationStore
-from .auth import AuthContext, load_admin_api_key
+from .auth import AuthContext, load_admin_api_key, load_jwt_secret
+from .routes_auth import configure_jwt, register as register_auth
 from .routes_companies import register as register_companies
 from .routes_config import register as register_config
 from .routes_items import register as register_items
@@ -89,18 +93,74 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
         openapi_url="/openapi.json" if is_dev else None,
     )
 
+    # 全局未捕获异常处理器：返回 JSON 500（而非 Starlette 默认 HTML），
+    # 既让前端能解析报错信息，也把完整堆栈打到 stderr（Railway 日志可查）。
+    # 这是排障关键——否则未捕获异常只返回 HTML 页，前端报「非 JSON 响应」，
+    # 真实错误被掩盖，无法定位根因。
+    _error_logger = logging.getLogger("sq.errors")
+
+    async def _unhandled_exception_handler(request: "Request", exc: Exception):
+        _error_logger.error(
+            "未捕获异常 [%s %s]: %r\n%s",
+            request.method, request.url.path, exc, traceback.format_exc(),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "internal_server_error",
+                "type": type(exc).__name__,
+                "detail": str(exc),
+                "path": request.url.path,
+            },
+        )
+
+    app.add_exception_handler(Exception, _unhandled_exception_handler)
+
     # CORS 配置：生产环境强制设置 ALLOW_ORIGINS，未设置时拒绝启动
     raw = os.environ.get("ALLOW_ORIGINS", "").strip()
 
-    # H2 防护：SQ_DEV=1 与 ALLOW_ORIGINS 共存 = 生产环境误开 dev 模式
-    # 这会导致认证绕过 + CORS 通配，是最危险的配置错误
-    if is_dev and raw:
+    # 安全防护：SQ_DEV=1 与任何「生产信号」共存 = 生产环境误开 dev 模式。
+    # 这会导致认证绕过 + 授权/限流/license 全失效，是最危险的配置错误。
+    # 生产信号：ALLOW_ORIGINS、DATABASE_URL（PostgreSQL）、
+    # DB_PATH（指向持久化卷，非默认 quotation.db）、SQ_LICENSE（商业授权）。
+    production_signals: list[str] = []
+    if raw:
+        production_signals.append("ALLOW_ORIGINS")
+    if os.environ.get("DATABASE_URL", "").strip():
+        production_signals.append("DATABASE_URL")
+    db_path_signal = os.environ.get("DB_PATH", "").strip()
+    if db_path_signal and db_path_signal != "quotation.db":
+        production_signals.append("DB_PATH")
+    if os.environ.get("SQ_LICENSE", "").strip():
+        production_signals.append("SQ_LICENSE")
+    if is_dev and production_signals:
         raise RuntimeError(
-            "安全断言失败：SQ_DEV=1 与 ALLOW_ORIGINS 同时设置。\n"
-            "SQ_DEV=1 会关闭公开端点认证、跳过限流、允许 CORS 通配，仅限本地开发。\n"
+            "安全断言失败：SQ_DEV=1 与生产环境变量同时设置（" + ", ".join(production_signals) + "）。\n"
+            "SQ_DEV=1 会关闭公开端点认证、跳过限流、放行 license，仅限本地开发。\n"
             "如果这是生产部署，请删除 SQ_DEV 环境变量。\n"
-            "如果这是本地开发，请删除 ALLOW_ORIGINS 环境变量。"
+            "如果这是本地开发，请删除上述生产环境变量。"
         )
+
+    # 公网部署架构断言：生产环境必须用 PostgreSQL，不能用 SQLite
+    # 原因：Railway/Render 免费版重启后文件系统重置，SQLite 数据丢失。
+    #   db_backup.py 的 Supabase 备份是补丁方案，不是正解——
+    #   高频写入时备份延迟 10 分钟，期间数据丢失不可恢复。
+    # 正解：公网部署 = 必须设置 DATABASE_URL 指向 PostgreSQL（Supabase/Neon/其他）。
+    # 例外：DB_PATH 指向持久化 Volume 挂载点时允许 SQLite（Railway Volume / Render Disk）。
+    if not is_dev:
+        from ..store.pg_adapter import is_pg_mode
+        db_path = os.environ.get("DB_PATH", "").strip()
+        has_persistent_volume = bool(db_path) and db_path != "quotation.db"
+        if not is_pg_mode() and not has_persistent_volume:
+            raise RuntimeError(
+                "架构断言失败：生产环境未设置 DATABASE_URL（PostgreSQL），也未配置 DB_PATH 持久化卷。\n"
+                "SQLite 仅适用于本地开发——Railway/Render 免费版重启后文件系统重置，数据全部丢失。\n"
+                "\n"
+                "解决方案（任选其一）：\n"
+                "  1. 设置 DATABASE_URL=postgresql://... （推荐，Supabase/Neon 免费 PG）\n"
+                "  2. 设置 DB_PATH=/data/quotation.db 并挂载持久化 Volume（Railway Volume / Render Disk）\n"
+                "  3. 本地开发设 SQ_DEV=1 跳过此检查\n"
+            )
 
     if raw:
         origins = [o.strip() for o in raw.split(",") if o.strip()]
@@ -109,45 +169,33 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
         origins = ["*"]
         allow_credentials = False
     else:
-        # 诊断信息：列出当前进程能读到的相关环境变量键名（不打印值，脱敏）
-        # 帮助定位 Railway/Render 等平台变量未生效的问题
-        related_keys = sorted(
-            k for k in os.environ
-            if k.startswith(("SQ_", "ALLOW_", "MMC_", "ADMIN_", "STOCK_", "SENTRY_"))
-        )
-        # 检查常见的拼写错误
-        common_typos = [
-            "ALLOW_ORIGIN", "ALLOW_ORIGINS", "ALLOW_ORIGINS ",
-            "Allow_Origins", "allow_origins", "CORS_ORIGINS", "ALLOWED_ORIGINS",
-        ]
-        detected_typos = [k for k in common_typos if k in os.environ and k != "ALLOW_ORIGINS"]
-        raise RuntimeError(
-            "生产环境必须设置 ALLOW_ORIGINS 环境变量（逗号分隔的前端域名列表）。\n"
-            "例如：ALLOW_ORIGINS=https://your-app.netlify.app\n"
-            "本地开发可设 SQ_DEV=1 跳过此校验。\n\n"
-            "─── 诊断信息 ───\n"
-            f"当前进程读到的相关环境变量键名（共 {len(related_keys)} 个）：\n"
-            + ("\n".join(f"  - {k}" for k in related_keys) if related_keys else "  （无，没有任何 SQ_/ALLOW_/MMC_ 等变量被读取到）")
-            + (f"\n检测到可能的拼写错误变量：{detected_typos}\n请检查是否应为 ALLOW_ORIGINS" if detected_typos else "")
-            + "\n\n常见原因：\n"
-            "  1. Railway/Render 设置变量后服务未重新部署（去 Deployments 手动 Redeploy）\n"
-            "  2. 变量设在错误的 Service 或 Environment 上（检查是否在当前部署的 service 下）\n"
-            "  3. 变量名拼写错误（必须是 ALLOW_ORIGINS，全大写，下划线）\n"
-            "  4. 变量值为空或只有空白字符"
+        # 前后端同源部署（如全部托管在 Railway，前端由后端直接服务 /apps/），
+        # 无跨域请求，不注册 CORS 中间件（同源请求无需 CORS 头）。
+        # 若前端在独立域名，须显式设置 ALLOW_ORIGINS 以放行预检请求。
+        origins = []
+        allow_credentials = False
+        import sys
+        print(
+            "ALLOW_ORIGINS 未设置，跳过 CORS 中间件（前后端同源部署，同源请求无需 CORS）。\n"
+            "如前端部署在独立域名（Netlify/自有域），须设置 ALLOW_ORIGINS=\n"
+            "  https://你的前端域名（否则浏览器会拦截跨域预检请求）。\n"
+            "本地开发设 SQ_DEV=1 可自动放行。",
+            file=sys.stderr,
         )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=allow_credentials,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=[
-            "Authorization",
-            "Content-Type",
-            "X-Company-Token",
-            "X-Stock-Key",
-        ],
-    )
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=allow_credentials,
+            allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "X-Company-Token",
+                "X-Stock-Key",
+            ],
+        )
 
     # 初始化共享状态
     # DB_PATH 环境变量：生产环境指向持久化 Volume 挂载点（如 Railway Volume /data/quotation.db）
@@ -187,9 +235,12 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
         is_dev=is_dev,
     )
 
+    # JWT 密钥：生产强制设置（≥32 字符），开发模式随机生成（每次重启变化）
+    # 必须在注册路由之前配置，否则 _decode_jwt 返回 None 拒绝所有 JWT
+    configure_jwt(load_jwt_secret())
+
     # License 启动检查（最小缓解 P1-2：提醒但不禁启动，避免破坏现有部署）
     # 生产环境未配置 license 时记录警告；完整强制校验留待下一阶段
-    import logging
     _logger = logging.getLogger(__name__)
     try:
         from ..license import verify_license
@@ -206,6 +257,7 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
             _logger.warning("License 校验异常: %s", exc)
 
     # 注册路由模块
+    register_auth(app)
     register_public(app)
     register_companies(app)
     register_config(app)

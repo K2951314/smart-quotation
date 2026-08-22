@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import os
-
 from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
+from ..license import TIER_TEAM, get_plan_quota, plan_has_feature
 from ..mitsubishi_stock import get_engine as get_stock_engine
 from ..observability import capture_event, capture_exception
 from .auth import verify_stock_key
@@ -17,12 +16,8 @@ def register(app) -> None:
     auth = app.state.auth
     store = app.state.store
     STOCK_QUERY_MAX_LINES = 50
-    # 每日配额（24h 滚动窗口）：默认 500 次/天/公司
-    # 通过环境变量 STOCK_QUERY_DAILY_LIMIT 配置
-    try:
-        STOCK_QUERY_DAILY_LIMIT = int(os.environ.get("STOCK_QUERY_DAILY_LIMIT", "500"))
-    except ValueError:
-        STOCK_QUERY_DAILY_LIMIT = 500
+    # 日配额从 license 的 stock_query_daily_limit 读取（按订阅档位）
+    # 环境变量 STOCK_QUERY_DAILY_LIMIT 已废弃，由 license 统一管理
 
     @app.post("/api/stock-query")
     async def stock_query(request: Request):
@@ -41,19 +36,31 @@ def register(app) -> None:
           防止令牌泄露后被刷爆三菱账号配额。
         - admin/stock-key 共享配额，防止 admin key 滥用。
         """
-        # 1. 认证 + 获取配额键
+        # 1. 认证 + 获取配额键（先认证，才知道访问者身份）
         quota_key = verify_stock_key(request)
-        # 2. 频率限制（短窗口：60s/30 次）
+        # 2. 解析访问者订阅档位：管理员(stock-key)不受客户档位限制；客户按自己公司 plan
+        if quota_key == "stock-key":
+            plan = TIER_TEAM
+        else:
+            plan = store.resolve_subscription_plan(quota_key)
+        # 3. 功能门控：stock_query 是付费功能，免费版不开放
+        daily_limit = get_plan_quota(plan, "stock_query_daily_limit", 0)
+        if daily_limit <= 0 or not plan_has_feature(plan, "stock_query"):
+            raise HTTPException(
+                status_code=403,
+                detail="库存查询是付费功能，请升级到个人版或专业版订阅。",
+            )
+        # 4. 频率限制（短窗口：60s/30 次）
         auth.check_rate_limit(auth.get_client_id(request))
-        # 3. 日配额检查（长窗口：24h 滚动，SQLite 持久化，跨 Worker 共享）
+        # 5. 日配额检查（长窗口：24h 滚动，SQLite 持久化，跨 Worker 共享）
         try:
             today_count = store.count_stock_queries_today(quota_key)
         except Exception:
             today_count = 0  # DB 异常不阻塞查询，仅记录 warning
-        if today_count >= STOCK_QUERY_DAILY_LIMIT:
+        if today_count >= daily_limit:
             raise HTTPException(
                 status_code=429,
-                detail=f"今日库存查询次数已达上限（{STOCK_QUERY_DAILY_LIMIT} 次），请明天再试或联系管理员",
+                detail=f"今日库存查询次数已达上限（{daily_limit} 次），请明天再试或升级订阅。",
             )
 
         try:

@@ -1,4 +1,9 @@
-"""Store 基础层：连接管理、Schema 初始化、迁移、ConfigCache。"""
+"""Store 基础层：连接管理、Schema 初始化、迁移、ConfigCache。
+
+双数据库模式：
+  - DATABASE_URL 已设置 → PostgreSQL（生产/SaaS 模式）
+  - SQ_DEV=1 → SQLite（本地开发/测试模式）
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,8 @@ import tempfile
 from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
+
+from .pg_adapter import PG_SCHEMA, PGConnection, is_pg_mode, acquire_connection
 
 # 默认 company_id：兼容单租户场景。老代码不传 company_id 时自动归到此值。
 DEFAULT_COMPANY_ID = "default"
@@ -51,7 +58,7 @@ class ConfigCache:
 
 
 class StoreBase:
-    """Store 基类：管理 SQLite 连接、Schema 初始化和迁移。"""
+    """Store 基类：管理数据库连接（PG/SQLite 双模式）、Schema 初始化和迁移。"""
 
     def __init__(self, db_path: str = "quotation.db") -> None:
         self.db_path = db_path
@@ -59,6 +66,8 @@ class StoreBase:
         # 备份管理器（可选）：admin 数据变更后调用 mark_dirty() 触发按需备份。
         # 由 factory.create_app 在启动时注入。未注入时为 None，写操作零开销。
         self._backup_manager = None
+        # 数据库模式：PG（生产）或 SQLite（本地开发/测试）
+        self._is_pg = is_pg_mode()
 
     def set_backup_manager(self, manager) -> None:
         """注入备份管理器。factory.create_app 在创建 store 后调用。"""
@@ -73,12 +82,18 @@ class StoreBase:
             else:
                 mgr.mark_dirty()
 
-    def connect(self) -> sqlite3.Connection:
-        """创建 SQLite 连接。
+    def connect(self):
+        """创建数据库连接（PostgreSQL 或 SQLite）。
 
-        SQLite URI 模式：如果 db_path 是 :memory:，用临时文件替代
-        （共享内存模式在多线程 TestClient 下不稳定，文件 DB 是最可靠的）
+        模式选择：
+        - DATABASE_URL 已设置 → PostgreSQL 连接池
+        - 否则 → SQLite 文件（或 :memory: 临时文件）
         """
+        if self._is_pg:
+            conn = acquire_connection()
+            return PGConnection(conn)
+
+        # SQLite 模式（本地开发/测试）
         if self.db_path == ":memory:":
             if not hasattr(self, "_tmp_db_path"):
                 fd, path = tempfile.mkstemp(suffix=".db", prefix="sq_test_")
@@ -99,6 +114,14 @@ class StoreBase:
 
     def init_schema(self) -> None:
         """初始化数据库 Schema（幂等）。"""
+        if self._is_pg:
+            with closing(self.connect()) as conn:
+                conn.executescript(PG_SCHEMA)
+                conn.commit()
+            self._migrate_add_access_tokens()
+            return
+
+        # SQLite 模式
         with closing(self.connect()) as conn:
             conn.executescript(
                 """
@@ -154,6 +177,18 @@ class StoreBase:
                 );
                 create index if not exists idx_security_key_time
                     on security_events(client_key, created_at);
+
+                create table if not exists users (
+                    id text primary key,
+                    email text not null unique,
+                    password_hash text not null,
+                    company_id text not null,
+                    created_at text not null
+                );
+                create index if not exists idx_users_email
+                    on users(email);
+                create index if not exists idx_users_company
+                    on users(company_id);
                 """
             )
             self._migrate_add_company_id_if_missing(conn)
@@ -161,8 +196,8 @@ class StoreBase:
         self._migrate_add_access_tokens()
 
     @staticmethod
-    def _migrate_add_company_id_if_missing(conn: sqlite3.Connection) -> None:
-        """迁移：旧表补 company_id 列。"""
+    def _migrate_add_company_id_if_missing(conn) -> None:
+        """迁移：旧表补 company_id 列（SQLite 专用，PG schema 已内置）。"""
         for table in ("quotation_configs", "quotation_items", "audit_events"):
             try:
                 cols = [row["name"] for row in conn.execute(f"pragma table_info({table})").fetchall()]

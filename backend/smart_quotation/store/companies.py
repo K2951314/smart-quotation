@@ -11,6 +11,16 @@ from typing import Any
 
 from .base import DEFAULT_COMPANY_ID
 
+# 双后端 IntegrityError：SQLite + PostgreSQL（psycopg2 懒加载）
+def _get_integrity_errors():
+    try:
+        from psycopg2 import errors as _pg_errors
+        return (sqlite3.IntegrityError, _pg_errors.UniqueViolation)
+    except ImportError:
+        return sqlite3.IntegrityError
+
+_IntegrityError = _get_integrity_errors()
+
 
 # 默认利润率（未配置 tier 且无 meta.profit_margin 时使用）
 DEFAULT_PROFIT_MARGIN = 10.0
@@ -43,6 +53,56 @@ class CompaniesMixin:
                 return current
             current = parent_id
         return current
+
+    def resolve_subscription_plan(self, company_id: str) -> str:
+        """解析公司的订阅档位（free/pro/team）。
+
+        订阅语义（业务模型）：
+        - 管理员公司（is_admin=true）＝供应商的「客户」，订阅档位（meta.plan）
+          由供应商分配；未显式设 plan 时回退部署 license tier。
+        - 成员公司（parent_company_id 指向管理员）＝客户的「客户」（终端），
+          不自订阅——无条件继承其管理员公司的订阅档位（自己的 meta.plan 忽略），
+          只有利润率（tier）是独立的。
+        - 独立公司（注册用户）＝直接订阅，未设 plan 时 fail-closed 到 free。
+
+        优先级：
+        1. 成员公司 → 无条件继承 parent（管理员公司）的订阅档位
+        2. 管理员公司 / 独立公司的 meta.plan（显式分配）
+        3. 供应商性质公司（is_admin / default）→ 部署 license tier
+        4. 普通独立公司 → free（fail-closed）
+
+        注意：与 resolve_profit_margin（利润率分组）无关——plan 管功能/配额，
+        tier（利润率）管加价，是两套独立体系。
+        """
+        from ..license import TIER_PRESETS, TIER_FREE, verify_license
+        is_vendor = company_id == DEFAULT_COMPANY_ID
+        plan: str | None = None
+        parent_id: str | None = None
+        try:
+            company = self.get_company(company_id)
+            meta = company.get("meta") or {}
+            plan = meta.get("plan")
+            is_vendor = is_vendor or bool(meta.get("is_admin"))
+            parent_id = meta.get("parent_company_id")
+        except LookupError:
+            pass
+        # 成员公司（客户的客户）：无条件继承数据归属公司（parent 管理员）的订阅档位
+        if parent_id and parent_id != company_id:
+            data_company_id = self.resolve_data_company_id(company_id)
+            if data_company_id != company_id:
+                return self.resolve_subscription_plan(data_company_id)
+        # 管理员公司 / 独立公司：显式 meta.plan 优先
+        if plan in TIER_PRESETS:
+            return plan
+        # 供应商性质的公司（is_admin / default）未显式设 plan 时，回退部署 license tier
+        if is_vendor:
+            payload = verify_license()
+            if payload:
+                tier = payload.get("tier")
+                if tier in TIER_PRESETS:
+                    return tier
+        # 普通独立公司未显式设 plan 时 fail-closed 到 free
+        return TIER_FREE
 
     def resolve_profit_margin(self, company_id: str) -> float:
         """解析公司利润率（优先级：tier → meta.profit_margin → 默认 10）。
@@ -95,14 +155,17 @@ class CompaniesMixin:
         return (company.get("meta") or {}).get("tiers") or []
 
     def resolve_company_profile(self, company_id: str) -> dict[str, Any]:
-        """解析公司完整 profile（含 tier 解析后的 profit_margin + parent 信息）。
+        """解析公司完整 profile（含 tier 利润率 + plan 订阅档位 + watermark）。
 
         供 /api/public/company/{id} 使用。
+        plan 是该公司订阅档位（每客户不同订阅的核心），watermark 由 plan 决定。
         """
         try:
             company = self.get_company(company_id)
         except LookupError:
             if company_id == DEFAULT_COMPANY_ID:
+                plan = self.resolve_subscription_plan(company_id)
+                watermark = self._resolve_watermark(company_id)
                 return {
                     "id": "default",
                     "name": "默认",
@@ -110,11 +173,16 @@ class CompaniesMixin:
                     "profit_margin": DEFAULT_PROFIT_MARGIN,
                     "tier": None,
                     "parent_company_id": None,
+                    "plan": plan,
+                    "watermark": watermark,
+                    "watermark_config": self._resolve_watermark_config() if watermark else None,
                 }
             raise
         meta = company.get("meta") or {}
         role = "admin" if meta.get("is_admin") else "company"
         profit_margin = self.resolve_profit_margin(company_id)
+        plan = self.resolve_subscription_plan(company_id)
+        watermark = self._resolve_watermark(company_id)
         return {
             "id": company["id"],
             "name": company["name"],
@@ -122,6 +190,36 @@ class CompaniesMixin:
             "profit_margin": profit_margin,
             "tier": meta.get("tier"),
             "parent_company_id": meta.get("parent_company_id"),
+            "plan": plan,
+            "watermark": watermark,
+            "watermark_config": self._resolve_watermark_config() if watermark else None,
+        }
+
+    def _resolve_watermark(self, company_id: str) -> bool:
+        """从公司订阅档位（plan）获取 watermark 标志（free=True，pro/team=False）。
+
+        客户门户根据此字段决定是否显示水印。
+        """
+        from ..license import get_plan_quota
+        plan = self.resolve_subscription_plan(company_id)
+        return bool(get_plan_quota(plan, "watermark", True))
+
+    @staticmethod
+    def _resolve_watermark_config() -> dict[str, str | None]:
+        """从环境变量读取自定义水印内容。
+
+        返回包含以下字段的 dict（均为可选，未设置时为 None）：
+        - text: 水印文字（如 "Powered by 智能询价"），未设时前端用默认文案
+        - phone: 联系电话（点击可拨号），如 "18863995420"
+        - wechat_qr: 微信二维码图片 URL（点击放大长按识别）
+
+        所有值来自环境变量，不硬编码在源码中（安全 + 可部署时配置）。
+        """
+        import os
+        return {
+            "text": os.environ.get("WATERMARK_TEXT", "").strip() or None,
+            "phone": os.environ.get("WATERMARK_PHONE", "").strip() or None,
+            "wechat_qr": os.environ.get("WATERMARK_WECHAT_QR", "").strip() or None,
         }
 
     def list_companies(self) -> list[dict[str, Any]]:
@@ -176,7 +274,7 @@ class CompaniesMixin:
                     "insert into companies(id, name, created_at, meta_json) values(?, ?, ?, ?)",
                     (company_id, str(name).strip(), self.now(), json.dumps(meta, ensure_ascii=False)),
                 )
-            except sqlite3.IntegrityError as exc:
+            except _IntegrityError as exc:
                 raise ValueError(f"company {company_id} 已存在") from exc
             conn.commit()
         self._mark_db_dirty(immediate=True)

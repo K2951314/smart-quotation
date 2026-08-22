@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import ast
+import logging
 import math
 import operator
 import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class FormulaEvaluator(ast.NodeVisitor):
@@ -61,7 +64,12 @@ class FormulaEvaluator(ast.NodeVisitor):
         op = self.operators.get(type(node.op))
         if not op:
             raise ValueError(f"formula operator not allowed: {type(node.op).__name__}")
-        return op(self.visit(node.left), self.visit(node.right))
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        if isinstance(node.op, ast.Div) and right == 0:
+            # 除数为 0（如 discount_percent=0 或引用缺失变量）→ 安全兜底 0，避免 ZeroDivisionError
+            return 0.0
+        return op(left, right)
 
     def visit_UnaryOp(self, node: ast.UnaryOp) -> float:
         op = self.operators.get(type(node.op))
@@ -104,11 +112,12 @@ class QuotationEngine:
         decision = self.apply_rules(config.get("rules") or [], {"fields": fields})
         discount = decision.get("discount_percent", 55)
         variables = {**fields, "discount_percent": discount}
+        pricing = config.get("pricing") or {}
         price = self.calculate_price(
-            (config.get("pricing") or {}).get("default_formula", "face_price * discount_percent / 100"),
+            pricing.get("default_formula", "face_price * discount_percent / 100"),
             variables,
-            (config.get("pricing") or {}).get("rounding") or {},
-            int((config.get("pricing") or {}).get("decimal_places", 1)),
+            self._resolve_rounding(pricing),
+            int(pricing.get("decimal_places", 1)),
         )
         fields["quote_price"] = price
         return {
@@ -185,15 +194,53 @@ class QuotationEngine:
         return False
 
     def calculate_price(self, formula: str, variables: dict[str, Any], rounding: dict[str, Any], decimals: int = 1) -> str:
-        value = self.evaluate_formula(formula, variables)
-        if rounding.get("mode") == "ceil":
-            factor = 10 ** max(decimals, 0)
-            value = math.ceil(value * factor) / factor
-            integer_above = float(rounding.get("integer_above", 0) or 0)
-            if self.to_number(variables.get("face_price")) > integer_above:
-                value = float(math.ceil(value))
-                return str(int(value))
-        return f"{value:.{max(decimals, 0)}f}"
+        try:
+            value = self.evaluate_formula(formula, variables)
+        except (ArithmeticError, ValueError) as exc:
+            # 运行时求值失败（除零/数值异常）→ 安全兜底 0，避免 quote 路径 500
+            logger.warning("报价公式求值失败，兜底为 0: formula=%s, error=%s", formula, exc)
+            return f"{0:.{max(decimals, 0)}f}"
+        decimals = max(decimals, 0)
+        mode = str(rounding.get("mode") or "ceil")
+        rounded_value = self.round_price(value, decimals, mode)
+        # 缺失时 fallback 100（与前端 export-utils.js / config-core.js 一致），
+        # 避免阈值被当 0 导致所有报价被取整为整数。
+        integer_above = rounding.get("integer_above")
+        if integer_above is None or str(integer_above).strip() == "":
+            integer_above = 100
+        integer_above = float(integer_above)
+        if rounded_value > integer_above:
+            return str(int(self.round_price(value, 0, mode)))
+        return f"{rounded_value:.{decimals}f}"
+
+    @staticmethod
+    def round_price(value: float, decimals: int, mode: str) -> float:
+        factor = 10 ** max(decimals, 0)
+        scaled = value * factor
+        if mode == "floor":
+            return math.floor(scaled + 1e-9) / factor
+        if mode == "round":
+            return math.floor(scaled + 0.5 + 1e-9) / factor
+        return math.ceil(scaled - 1e-9) / factor
+
+    @staticmethod
+    def _resolve_rounding(pricing: dict[str, Any]) -> dict[str, Any]:
+        """解析取整配置：兼容嵌套 rounding.{mode,integer_above} 与旧扁平
+        pricing.rounding_threshold，缺失时 fallback mode=ceil / integer_above=100。
+        与 config-core.js normalizeConfig / export-utils.js _desensitizeFields 保持一致，
+        防止旧扁平配置让阈值变 0 → 所有报价被取整为整数。"""
+        rounding = dict(pricing.get("rounding") or {})
+        if not rounding.get("mode"):
+            rounding["mode"] = "ceil"
+        ia = rounding.get("integer_above")
+        if ia is None or str(ia).strip() == "":
+            rt = pricing.get("rounding_threshold")
+            if rt is not None and str(rt).strip() != "":
+                rounding["integer_above"] = rt
+        ia = rounding.get("integer_above")
+        if ia is None or str(ia).strip() == "":
+            rounding["integer_above"] = 100
+        return rounding
 
     def evaluate_formula(self, formula: str, variables: dict[str, Any]) -> float:
         tree = ast.parse(formula, mode="eval")

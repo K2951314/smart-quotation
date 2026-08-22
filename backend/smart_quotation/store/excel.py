@@ -39,11 +39,17 @@ class ExcelMixin:
             config = self.get_active_config(company_id=company_id)
         except LookupError:
             config = {}
+
+        def _norm_alias(s: Any) -> str:
+            # 归一化：去所有空格 + 小写，避免列名带空格/大小写差异导致匹配失败
+            # （用户反馈：库存表列名带空格无法识别 → 映射失败 → 库存看不到了）
+            return "".join(str(s or "").split()).lower()
+
         alias_map: dict[str, str] = {}
         for field in config.get("fields", []):
             for alias in field.get("excel_aliases", []):
-                alias_map[alias] = field["key"]
-            alias_map[field["key"]] = field["key"]
+                alias_map[_norm_alias(alias)] = field["key"]
+            alias_map[_norm_alias(field["key"])] = field["key"]
 
         # 税务转换参数
         pricing_cfg = config.get("pricing") or {}
@@ -64,9 +70,14 @@ class ExcelMixin:
                 except UnicodeDecodeError:
                     text = file_bytes.decode("utf-8-sig", errors="replace")
             reader = csv.DictReader(io.StringIO(text))
-            raw_rows = list(reader)
-            if len(raw_rows) > _MAX_IMPORT_ROWS:
-                raise ValueError(f"CSV 行数超限（{len(raw_rows)} 行），单次上限 {_MAX_IMPORT_ROWS} 行，请拆分文件后分批导入")
+            raw_rows = []
+            for row in reader:
+                # 边迭代边计数，超限立即抛错，避免 list(reader) 全量入内存 OOM
+                if len(raw_rows) >= _MAX_IMPORT_ROWS:
+                    raise ValueError(f"CSV 行数超限（>{_MAX_IMPORT_ROWS} 行），单次上限 {_MAX_IMPORT_ROWS} 行，请拆分文件后分批导入")
+                # 与 xlsx 分支对齐：列名 strip（Excel 导出的 CSV 列头常带首尾空格，
+                # 不 strip 会导致别名匹配静默失败 → face_price 缺失 → 报价变 0）
+                raw_rows.append({str(k or "").strip(): v for k, v in row.items()})
             headers = list(raw_rows[0].keys()) if raw_rows else []
         else:
             try:
@@ -93,11 +104,12 @@ class ExcelMixin:
                 if any(cell is not None for cell in row)
             ]
 
-        # 字段映射
+        # 字段映射（归一化匹配，忽略空格/大小写）
         col_mapping: dict[str, str] = {}
         for col in headers:
-            if col in alias_map:
-                col_mapping[col] = alias_map[col]
+            norm = _norm_alias(col)
+            if norm in alias_map:
+                col_mapping[col] = alias_map[norm]
 
         matched = sorted({v for v in col_mapping.values()})
         unmatched = [col for col in headers if col not in col_mapping]
@@ -123,6 +135,12 @@ class ExcelMixin:
                 except (ValueError, TypeError):
                     pass
             item_key = str(fields.get(key_field, "")).strip()
+            if not item_key:
+                # key_field 列缺失时（库存表常只有 code+stock 无 spec），
+                # fallback 用库存关联字段 + 主字段，避免整表被跳过 → 库存 bundle 空 → 库存看不到了
+                stock_key_field = str((config.get("merger") or {}).get("stock_key_field") or "code")
+                primary_field = str((config.get("merger") or {}).get("primary_field") or "spec")
+                item_key = str(fields.get(stock_key_field, "") or fields.get(primary_field, "")).strip()
             if not item_key:
                 continue
             rows.append({"item_key": item_key, "fields": fields})

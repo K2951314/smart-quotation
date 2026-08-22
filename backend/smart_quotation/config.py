@@ -106,17 +106,33 @@ def deep_merge(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]
 
 
 def now_revision() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d.%H%M%S")
+    # 微秒精度：避免同一秒内连续两次保存生成相同 revision，
+    # 导致 on conflict(company_id, revision) do update 静默覆盖前一版本。
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d.%H%M%S.%f")
+
+
+def _split_excel_alias(item: Any) -> list[str]:
+    """拆分单个别名字符串中的分隔符（顿号/逗号/分号/竖线/制表符/换行）。
+
+    防御场景：客户端或 API 直传把多个别名写成了一个字符串（如
+    "销售单价、面价、目录价"），若不拆分，Excel 列名永远匹配不上，
+    face_price 静默缺失 → 报价变 0。与前端 config-collect.js 的
+    split 正则保持一致；不按普通空格拆分（英文别名可含空格）。
+    """
+    return [part.strip() for part in re.split(r"[,，、;；|｜\t\n\r]+", str(item or "")) if part.strip()]
 
 
 def normalize_field(field: dict[str, Any]) -> dict[str, Any]:
     key = str(field.get("key") or "").strip()
+    raw_aliases: list[str] = []
+    for item in field.get("excel_aliases") or []:
+        raw_aliases.extend(_split_excel_alias(item))
     return {
         "key": key,
         "label": str(field.get("label") or key).strip() or key,
         "type": str(field.get("type") or "text").strip() or "text",
         "source": str(field.get("source") or "price").strip() or "price",
-        "excel_aliases": [str(item).strip() for item in field.get("excel_aliases") or [] if str(item).strip()],
+        "excel_aliases": raw_aliases,
         "searchable": bool(field.get("searchable")),
         "copyable": bool(field.get("copyable")),
         "required": bool(field.get("required")),

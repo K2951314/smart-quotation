@@ -2,7 +2,7 @@
 
 认证模式：
   - require_admin_api:      Admin API Key 验证（Bearer token），保护所有 admin 路由
-  - require_company_access: 公司级访问验证，返回 "admin" 或 "company" 角色
+  - require_company_access: 公司级访问验证，返回 (role, effective_company_id) 元组
   - verify_stock_key:       三菱库存查询专用 key 验证（独立的 STOCK_QUERY_KEY）
 
 频率限制：
@@ -20,6 +20,7 @@ import os
 import secrets
 import time
 from collections import defaultdict, deque
+from typing import Any
 
 from fastapi import Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -64,6 +65,32 @@ def load_admin_api_key() -> str:
     return key
 
 
+def load_jwt_secret() -> str:
+    """加载并校验 JWT_SECRET（与 load_admin_api_key 对齐）。
+
+    安全策略：
+    - 生产环境必须显式设置 JWT_SECRET（≥32 字符），否则拒绝启动。
+    - 本地开发（SQ_DEV=1）生成随机密钥（每次重启变化，JWT 不跨会话持久）。
+    - 绝不在源码中硬编码密钥——已知弱密钥可被攻击者伪造任意 JWT。
+    """
+    key = os.environ.get("JWT_SECRET", "").strip()
+    is_dev = os.environ.get("SQ_DEV", "0") == "1"
+    if not key:
+        if is_dev:
+            logger.warning("JWT_SECRET 未设置，开发模式生成随机密钥（重启后失效）")
+            return "dev-" + secrets.token_hex(32)
+        raise RuntimeError(
+            "JWT_SECRET 未设置。注册/登录功能需要 JWT 密钥（至少 32 字符）。\n"
+            "生成方式：python -c \"import secrets; print(secrets.token_urlsafe(32))\"\n"
+            "本地开发可设 SQ_DEV=1 跳过此校验。"
+        )
+    if len(key) < 32 and not is_dev:
+        raise RuntimeError(f"JWT_SECRET 长度只有 {len(key)} 字符，至少需要 32 字符。")
+    if len(key) < 32:
+        logger.warning("JWT_SECRET 长度只有 %d 字符，建议至少 32 字符", len(key))
+    return key
+
+
 class AuthContext:
     """认证上下文：封装认证所需的共享状态，存储在 app.state.auth 中。"""
 
@@ -97,7 +124,12 @@ class AuthContext:
         dq.append(now)
 
     def check_auth_rate_limit(self, client_key: str) -> None:
-        """检查认证失败次数（SQLite 持久化，跨 Worker 共享）。"""
+        """检查认证失败次数（SQLite 持久化，跨 Worker 共享）。
+
+        注意：此处 DB 查询若失败（如瞬时连接中断），仅跳过限流检查，
+        绝不可把本应返回的 401/429 变成 500——否则 DB 抖动会让所有
+        受保护请求都 500（掩盖真实鉴权结果）。限流是 DoS 防护，fail-open 可接受。
+        """
         now_ts = time.time()
         if now_ts - self._last_cleanup > 3600:
             try:
@@ -105,7 +137,11 @@ class AuthContext:
                 self._last_cleanup = now_ts
             except Exception:
                 pass
-        count = self.store.count_security_events("auth_failure", client_key, self.AUTH_FAIL_WINDOW_SEC)
+        try:
+            count = self.store.count_security_events("auth_failure", client_key, self.AUTH_FAIL_WINDOW_SEC)
+        except Exception:
+            # DB 不可用时跳过限流，不阻断正常鉴权流程
+            return
         if count >= self.AUTH_FAIL_MAX_HITS:
             raise HTTPException(status_code=429, detail="认证失败次数过多，请稍后再试")
 
@@ -151,23 +187,90 @@ def _handle_auth_failure(auth: AuthContext, client_ip: str, status_code: int, de
 def require_admin_api(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(admin_security),
-) -> None:
-    """验证 admin 后台 API key。使用 compare_digest 防时序攻击。"""
+) -> dict[str, Any]:
+    """验证 admin 后台 API key 或 JWT，返回认证上下文。
+
+    认证优先级：
+    1. ADMIN_API_KEY（超管）：Bearer token 与 ADMIN_API_KEY 比较 → role="superadmin"
+    2. JWT（租户管理员）：解码 JWT，验证签名和过期时间 → role="tenant"
+    3. 开发模式（SQ_DEV=1）：宽松跳过 → role="dev"
+
+    返回值供 resolve_company_id / require_superadmin 做租户隔离。
+    使用 compare_digest 防时序攻击。
+    """
     auth: AuthContext = request.app.state.auth
     client_ip = request.client.host if request.client else "unknown"
     # 内存级 IP 限流先于认证检查——挡住无凭证洪水请求，避免每次都查 DB
     auth.check_rate_limit(f"ip:{client_ip}")
     if not credentials or not credentials.credentials:
         _handle_auth_failure(auth, client_ip, 401, "authentication required")
-    if not secrets.compare_digest(credentials.credentials, auth.admin_api_key):
-        _handle_auth_failure(auth, client_ip, 401, "authentication required")
+
+    token = credentials.credentials
+
+    # 1. ADMIN_API_KEY（超管）
+    if secrets.compare_digest(token, auth.admin_api_key):
+        return {"role": "superadmin"}
+
+    # 2. JWT（租户管理员）
+    try:
+        from .routes_auth import _decode_jwt
+        payload = _decode_jwt(token)
+        if payload and "sub" in payload and "company_id" in payload:
+            return {
+                "role": "tenant",
+                "company_id": payload["company_id"],
+                "email": payload.get("email", ""),
+                "user_id": payload.get("sub", ""),
+            }
+    except Exception:
+        pass
+
+    # 3. 开发模式兜底
+    if auth.is_dev:
+        logger.debug("开发模式：宽松认证")
+        return {"role": "dev", "company_id": "default"}
+
+    _handle_auth_failure(auth, client_ip, 401, "authentication required")
+
+
+def require_superadmin(auth: dict[str, Any] = Depends(require_admin_api)) -> dict[str, Any]:
+    """要求超管权限。租户用户得到 403。
+
+    用于公司创建/删除、令牌轮换等平台级操作——
+    租户管理员不应能创建或删除其他公司。
+    """
+    if auth["role"] != "superadmin":
+        raise HTTPException(status_code=403, detail="此操作需要平台管理员权限")
+    return auth
+
+
+def resolve_company_id(
+    company_id: str = Query(DEFAULT_COMPANY_ID),
+    auth: dict[str, Any] = Depends(require_admin_api),
+) -> str:
+    """解析有效 company_id（租户隔离核心）。
+
+    - 超管（ADMIN_API_KEY）：使用请求参数中的 company_id，可访问任意公司
+    - 租户（JWT）：强制使用 JWT 中的 company_id，忽略请求参数
+    - 开发模式：使用请求参数（向后兼容）
+
+    所有接受 company_id 查询参数的 admin 路由都应使用此依赖，
+    替代直接 Query(DEFAULT_COMPANY_ID)，确保 JWT 用户无法越权访问其他公司。
+    """
+    if auth["role"] == "tenant":
+        return auth["company_id"]
+    return company_id
 
 
 def require_company_access(
     request: Request,
     company_id: str = Query(DEFAULT_COMPANY_ID),
-) -> str:
-    """验证调用者是否有权访问指定公司的数据。返回 "admin" 或 "company" 角色。
+) -> tuple[str, str]:
+    """验证调用者是否有权访问指定公司的数据。
+
+    返回 (role, effective_company_id)：
+    - role: "admin" 或 "company"
+    - effective_company_id: 实际应取数的公司 ID
 
     认证方式（按优先级）：
     1. Admin API Key（Authorization: Bearer xxx）— 管理员可访问任何公司
@@ -177,6 +280,9 @@ def require_company_access(
     - 对所有调用方（含 admin）执行频率限制，防止公开端点被暴力请求或 DoS
     - 限流粒度：按 client_id（IP 或凭据哈希前缀），60s/30 次
     - 持久化失败计数只在凭证校验失败后检查/记录，合法用户不被他人锁定
+    - 当 company_id 为默认值且提供公司令牌时，用 token 反查出的真实公司 ID
+      作为 effective_company_id 返回。调用方必须用 effective_company_id 取数，
+      否则持有令牌的租户可通过漏传 company_id 读取 default 公司的数据。
     """
     auth: AuthContext = request.app.state.auth
     client_ip = request.client.host if request.client else "unknown"
@@ -192,7 +298,7 @@ def require_company_access(
         if provided_key and secrets.compare_digest(provided_key, auth.admin_api_key):
             # admin 角色也限流（防 Admin API Key 泄露后被刷）
             auth.check_rate_limit(auth.get_client_id(request))
-            return "admin"
+            return "admin", company_id
         credential_failed = True
 
     # 检查公司访问令牌
@@ -212,12 +318,12 @@ def require_company_access(
                 company = auth.store.get_company(effective_company_id)
                 if (company.get("meta") or {}).get("is_admin"):
                     auth.check_rate_limit(auth.get_client_id(request))
-                    return "admin"
+                    return "admin", effective_company_id
             except LookupError:
                 pass
             # company 角色限流（防令牌泄露后被刷）
             auth.check_rate_limit(auth.get_client_id(request))
-            return "company"
+            return "company", effective_company_id
         credential_failed = True
 
     if credential_failed:
@@ -225,9 +331,12 @@ def require_company_access(
 
     # 无任何凭证
     if auth.is_dev:
-        # 本地开发模式仍限流（防脚本失控）
+        # 本地开发模式仍限流（防脚本失控）。
+        # 无凭证兜底返回 admin：SQ_DEV 仅限本地开发，数据皆为开发者自己的；
+        # 若返回 company，本地开发的管理员视图会因脱敏包缺 face_price 而价格显示 0。
+        # 测试 company 视角请显式携带公司 token（走凭证分支，不经此兜底）。
         auth.check_rate_limit(auth.get_client_id(request))
-        return "company"
+        return "admin", company_id
     raise HTTPException(status_code=401, detail="authentication required")
 
 

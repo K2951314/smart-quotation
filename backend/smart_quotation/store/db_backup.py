@@ -93,6 +93,10 @@ def _get_backup_config() -> Optional[tuple[str, str, str, str]]:
                 ref_public,
             )
     if not url or not key:
+        _warn_config_once(
+            "backup_not_configured",
+            "DB backup disabled: SQ_SUPABASE_PROJECT_URL and SQ_SUPABASE_SERVICE_KEY both required",
+        )
         return None
     return (url, key, bucket, path)
 
@@ -238,6 +242,15 @@ class BackupManager:
         # critical 专用：近即时上传的待执行定时器 + 上次 critical 上传时间
         self._critical_timer: Optional[threading.Timer] = None
         self._last_critical_ts: float = 0.0
+        # 最近一次备份错误（供健康检查端点暴露，消除「备份静默降级」）
+        self._last_error: str = ""
+        self._last_error_ts: float = 0.0
+
+    def _record_error(self, msg: str) -> None:
+        """记录最近一次备份错误（时间戳 + 消息），并打 error 日志。"""
+        self._last_error = msg
+        self._last_error_ts = time.time()
+        logger.error("DB backup error: %s", msg)
 
     @staticmethod
     def _today_start() -> float:
@@ -319,7 +332,7 @@ class BackupManager:
                 self._timer = threading.Timer(DEBOUNCE_SECONDS, self._do_upload)
                 self._timer.daemon = True
                 self._timer.start()
-        logger.warning("Critical DB backup failed, fallback to debounce retry")
+            self._record_error("critical upload failed, fallback to debounce retry")
 
     def _do_upload(self) -> None:
         """实际执行上传（由防抖定时器触发）。"""
@@ -362,7 +375,7 @@ class BackupManager:
             # 上传失败，重新标记 dirty，下次写操作会重新调度
             with self._lock:
                 self._dirty = True
-            logger.warning("DB backup failed, will retry on next write")
+                self._record_error("upload failed, will retry on next write")
 
     def flush(self) -> None:
         """立即上传（如有 dirty）。用于 atexit 退出时备份。
@@ -383,7 +396,27 @@ class BackupManager:
             with self._lock:
                 self._last_upload_ts = time.time()
         else:
-            logger.warning("DB backup on exit failed (data since last backup may be lost)")
+            with self._lock:
+                self._record_error("upload on exit failed (data since last backup may be lost)")
+
+    def get_status(self) -> dict:
+        """返回备份状态（供 /api/health/backup 健康检查端点暴露）。
+
+        消除「备份静默降级」：管理员可通过该端点主动发现备份未配置/失败，
+        而不必等到数据丢失才看日志。
+        """
+        cfg = _get_backup_config()
+        with self._lock:
+            now = time.time()
+            return {
+                "configured": cfg is not None,
+                "dirty": self._dirty,
+                "last_upload_ts": self._last_upload_ts or None,
+                "last_upload_ago_seconds": round(now - self._last_upload_ts, 1) if self._last_upload_ts else None,
+                "upload_count_today": self._upload_count_today,
+                "last_error": self._last_error or None,
+                "last_error_ago_seconds": round(now - self._last_error_ts, 1) if self._last_error_ts else None,
+            }
 
     def shutdown(self) -> None:
         """关闭备份管理器：取消定时器 + 尝试最后一次上传。"""

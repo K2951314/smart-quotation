@@ -168,16 +168,28 @@ class ConfigsMixin:
         return self.save_config(config, status="published", actor_id=actor_id, company_id=company_id)
 
     def delete_config(self, revision: str, company_id: str = DEFAULT_COMPANY_ID) -> dict[str, Any]:
-        """删除指定版本号的配置记录。"""
+        """删除指定版本号的配置记录。
+
+        安全策略：当前已发布版本（status='published'）不可删除，
+        否则客户侧 /config.json 等端点会 404 断供。调用方（如版本裁剪）
+        应先跳过 published 版本。
+        """
         company_id = self.resolve_data_company_id(company_id)
         with closing(self.connect()) as conn:
+            row = conn.execute(
+                "select status from quotation_configs where company_id = ? and revision = ?",
+                (company_id, revision),
+            ).fetchone()
+            if not row:
+                raise LookupError(f"config {revision} not found in company {company_id}")
+            if row["status"] == "published":
+                raise ValueError(f"config {revision} 是当前已发布版本，不能删除")
             result = conn.execute(
                 "delete from quotation_configs where company_id = ? and revision = ?",
                 (company_id, revision),
             )
-            if result.rowcount == 0:
-                raise LookupError(f"config {revision} not found in company {company_id}")
             self.audit(conn, None, "config.delete", "quotation_configs", revision, {}, company_id=company_id)
             conn.commit()
+        self.cache.invalidate()
         self._mark_db_dirty(immediate=True)
         return {"revision": revision, "status": "deleted"}

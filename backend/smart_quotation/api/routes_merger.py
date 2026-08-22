@@ -1,4 +1,7 @@
-"""Merger / Bundle 端点：品牌检测、Bundle 生成与部署。"""
+"""Merger / Bundle 端点：品牌检测、Bundle 生成与部署。
+
+租户隔离：所有端点使用 Depends(resolve_company_id)，JWT 用户只能操作自己公司的数据。
+"""
 
 from __future__ import annotations
 
@@ -7,9 +10,10 @@ from typing import Any
 
 from fastapi import Depends, File, HTTPException, Query, UploadFile
 
+from ..license import plan_has_feature
 from ..observability import capture_exception
 from ..store import DEFAULT_COMPANY_ID
-from .auth import require_admin_api
+from .auth import resolve_company_id
 from .models import BundleDeploy, BundleGenerate
 from .supabase import deploy_bundles_to_supabase
 
@@ -21,32 +25,48 @@ _MAX_FILE_SIZE = 10 * 1024 * 1024
 _MAX_FILE_COUNT = 20
 
 
+async def _read_upload_limited(file: UploadFile, max_size: int) -> bytes:
+    """分块读取上传文件，超过 max_size 立即中止（防超大文件全量缓冲 OOM DoS）。"""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)  # 1MB 分块
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_size:
+            raise HTTPException(
+                status_code=413,
+                detail=f"文件 {file.filename or ''} 过大（>{max_size // 1024 // 1024}MB），上限 {max_size // 1024 // 1024}MB",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def register(app) -> None:
     """注册 Merger/Bundle 端点（需 admin 认证）。"""
     store = app.state.store
     is_dev = app.state.is_dev
 
-    @app.post("/api/merger/detect-brands", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/merger/detect-brands")
     async def detect_brands(
         files: list[UploadFile] = File(...),
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
     ) -> dict[str, Any]:
         """上传多个 Excel 文件，按文件名识别品牌，返回检测结果。"""
         if len(files) > _MAX_FILE_COUNT:
             raise HTTPException(status_code=413, detail=f"文件个数超限（{len(files)} 个），单次上限 {_MAX_FILE_COUNT} 个")
         file_tuples = []
         for f in files:
-            content = await f.read()
-            if len(content) > _MAX_FILE_SIZE:
-                raise HTTPException(status_code=413, detail=f"文件 {f.filename or ''} 过大（{len(content) // 1024 // 1024}MB），上限 {_MAX_FILE_SIZE // 1024 // 1024}MB")
+            content = await _read_upload_limited(f, _MAX_FILE_SIZE)
             file_tuples.append((f.filename or "unknown.xlsx", content))
         results = store.detect_brands(file_tuples, company_id=company_id)
         return {"files": results}
 
-    @app.post("/api/merger/bundle/generate", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/merger/bundle/generate")
     def generate_bundles(
         payload: BundleGenerate,
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
     ) -> dict[str, Any]:
         """生成价格包 + 库存包，可选部署到 Supabase。
 
@@ -56,6 +76,13 @@ def register(app) -> None:
         - 预览模式允许 admin 角色。
         """
         effective_role = "company" if payload.deploy else payload.role
+        # 功能门控：bundle_encryption 是付费功能（pro/team），免费版不能加密价格包
+        if payload.password and payload.password.strip():
+            if not plan_has_feature(store.resolve_subscription_plan(company_id), "bundle_encryption"):
+                raise HTTPException(
+                    status_code=403,
+                    detail="价格包加密是付费功能，请升级到个人版或专业版订阅。",
+                )
         price_bundle = store.build_price_bundle(
             password=payload.password, company_id=company_id, role=effective_role
         )
@@ -67,6 +94,11 @@ def register(app) -> None:
         }
 
         if payload.deploy:
+            if not plan_has_feature(store.resolve_subscription_plan(company_id), "supabase_deploy"):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Supabase 部署是付费功能，请升级到个人版或专业版订阅。",
+                )
             if not payload.anon_key:
                 raise HTTPException(status_code=422, detail="部署到 Supabase 需要提供 anon_key")
             try:
@@ -83,15 +115,20 @@ def register(app) -> None:
 
         return result
 
-    @app.post("/api/merger/bundle/deploy", dependencies=[Depends(require_admin_api)])
+    @app.post("/api/merger/bundle/deploy")
     def deploy_bundles(
         payload: BundleDeploy,
-        company_id: str = Query(DEFAULT_COMPANY_ID),
+        company_id: str = Depends(resolve_company_id),
     ) -> dict[str, Any]:
         """将 Bundle 部署到 Supabase Storage。
 
         安全策略：从数据库重建脱敏 bundle，忽略客户端传入的 price_bundle。
         """
+        if not plan_has_feature(store.resolve_subscription_plan(company_id), "supabase_deploy"):
+            raise HTTPException(
+                status_code=403,
+                detail="Supabase 部署是付费功能，请升级到个人版或专业版订阅。",
+            )
         if not payload.anon_key:
             raise HTTPException(status_code=422, detail="anon_key is required")
         try:
