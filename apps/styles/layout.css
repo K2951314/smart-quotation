@@ -1016,3 +1016,41 @@
     top: calc(12px + var(--toolbar-stack-height) + 10px);
   }
 }
+
+@media (max-width: 720px) {
+  /* 手机版：智能询价系统 + 专业版徽标 + 数据库就绪 + 退出 一行；userBadge 换第二行 */
+  /* 用 order 把 status 提到 userBadge 前（DOM 里 userBadge 在 status 前会挤换行） */
+  .brand-line {
+    flex-direction: row;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    column-gap: 6px;
+    align-items: center;
+  }
+  .brand-line > h1 {
+    flex: 0 0 auto;
+    min-width: 0;
+    order: 1;
+    font-size: clamp(1.05rem, 3vw, 1.35rem);
+  }
+  .brand-line > #planBadge {
+    flex-shrink: 0;
+    order: 2;
+  }
+  .brand-line > .status-badge {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 0.7rem;
+    order: 3;
+  }
+  .brand-line > #btnLogout {
+    flex: 0 0 auto;
+    order: 4;
+    margin-left: 0 !important;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.75rem;
+  }
+  .brand-line > #userBadge {
+    display: none !important;
+  }
+}

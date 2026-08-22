@@ -172,6 +172,11 @@ class BundlesMixin:
             if not key:
                 continue
             row_fields = {stock_key_field: key, "stock": str(stock_val)}
+            # 也存 spec（如果库存表有），用于价格表无 code 或 code 不匹配时用 spec 关联库存
+            primary_field = str((config.get("merger") or {}).get("primary_field") or "spec")
+            spec_val = fields.get(primary_field)
+            if spec_val:
+                row_fields[primary_field] = str(spec_val)
             dataset_rows.append({"key": key, "fields": row_fields})
 
         dataset = {

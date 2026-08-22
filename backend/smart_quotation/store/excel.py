@@ -10,6 +10,34 @@ from .base import DEFAULT_COMPANY_ID
 # 单次导入行数上限：防止超大文件全量读入内存导致 OOM
 _MAX_IMPORT_ROWS = 50000
 
+# 常见别名自动映射表：用户配置中未列出的列名（如库存表"物料长代码"）自动映射到对应字段，
+# 避免配置遗漏导致字段缺失 → 库存 bundle key 不匹配 → 库存看不到。
+# 优先级低于 config 的 excel_aliases（alias_map 优先）。
+COMMON_ALIASES: dict[str, str] = {
+    "物料长代码": "code",
+    "物料编码": "code",
+    "物料代码": "code",
+    "代码": "code",
+    "产品编码": "code",
+    "商品编码": "code",
+    "产品编号": "code",
+    "物料编号": "code",
+    "规格型号": "spec",
+    "规格": "spec",
+    "型号": "spec",
+    "产品型号": "spec",
+    "面价": "face_price",
+    "销售单价": "face_price",
+    "单价": "face_price",
+    "含税单价": "face_price",
+    "库存数量": "stock",
+    "库存": "stock",
+    "数量": "stock",
+    "品牌": "brand",
+    "产品名称": "name",
+    "名称": "name",
+}
+
 
 class ExcelMixin:
     """Excel 文件解析与字段映射。"""
@@ -79,6 +107,24 @@ class ExcelMixin:
                 # 不 strip 会导致别名匹配静默失败 → face_price 缺失 → 报价变 0）
                 raw_rows.append({str(k or "").strip(): v for k, v in row.items()})
             headers = list(raw_rows[0].keys()) if raw_rows else []
+        elif filename.lower().endswith(".xls"):
+            # .xls 旧格式：openpyxl 不支持，用 xlrd（否则库存表导入静默失败 → 库存看不到了）
+            try:
+                import xlrd
+            except ImportError as exc:
+                raise ImportError("请先安装 xlrd：pip install xlrd") from exc
+            wb = xlrd.open_workbook(file_contents=file_bytes)
+            ws = wb.sheet_by_index(sheet_index)
+            if ws.nrows == 0:
+                return [], {"matched": [], "unmatched": [], "total_rows": 0}
+            headers = [str(ws.cell_value(0, c) or "").strip() for c in range(ws.ncols)]
+            raw_rows = []
+            for r in range(1, ws.nrows):
+                if len(raw_rows) >= _MAX_IMPORT_ROWS:
+                    raise ValueError(f"Excel 行数超限（>{_MAX_IMPORT_ROWS} 行），单次上限 {_MAX_IMPORT_ROWS} 行，请拆分文件后分批导入")
+                row = [ws.cell_value(r, c) for c in range(ws.ncols)]
+                if any(cell not in (None, "") for cell in row):
+                    raw_rows.append({headers[i]: (str(cell) if cell is not None else "") for i, cell in enumerate(row)})
         else:
             try:
                 import openpyxl
@@ -110,6 +156,14 @@ class ExcelMixin:
             norm = _norm_alias(col)
             if norm in alias_map:
                 col_mapping[col] = alias_map[norm]
+        # 对未匹配的列，用常见别名自动映射（用户配置的 excel_aliases 可能未覆盖所有列名，
+        # 如库存表"物料长代码"→code，若不映射则 fields 缺 code → stock bundle key 错 → 库存不关联）
+        for col in headers:
+            if col in col_mapping:
+                continue
+            norm = _norm_alias(col)
+            if norm in COMMON_ALIASES:
+                col_mapping[col] = COMMON_ALIASES[norm]
 
         matched = sorted({v for v in col_mapping.values()})
         unmatched = [col for col in headers if col not in col_mapping]

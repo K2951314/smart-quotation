@@ -247,13 +247,13 @@ async function loadDataWithCache() {
 }
 
 // 带重试 + 超时的 fetch：大 bundle 在移动/弱网下首包易失败或超时，
-// 重试 2 次（指数退避）+ 60s 超时。404/401/403 等终端状态不重试（让上层 catch 回退）。
+// 重试 1 次（指数退避）+ 15s 超时。404/401/403 等终端状态不重试（让上层 catch 回退）。
 async function fetchWithRetry(url, opts, retries) {
   var lastErr = null;
   for (var i = 0; i <= retries; i++) {
     try {
       var ctrl = new AbortController();
-      var timer = setTimeout(function () { ctrl.abort(); }, 60000);
+      var timer = setTimeout(function () { ctrl.abort(); }, 15000);
       var resp = await fetch(url, Object.assign({}, opts, { signal: ctrl.signal }));
       clearTimeout(timer);
       if (resp.status === 404 || resp.status === 401 || resp.status === 403) return resp;
@@ -297,7 +297,7 @@ async function fetchFileWithCache(filename, version, fileType, sourceConfig) {
     var fetchOpts = isBackendUrl(fileUrl)
       ? { cache: "no-store", headers: withAuthHeaders() }
       : { cache: "no-store" };
-    response = await fetchWithRetry(fileUrl, fetchOpts, 2);
+    response = await fetchWithRetry(fileUrl, fetchOpts, 1);
     if (response.ok) {
       if (cache) {
         // 大文件在 wifi 不稳定时 cache.put 可能抛 "network error"，
@@ -404,7 +404,7 @@ async function ensureDataLoaded() {
   g_DataLoadingPromise = (async () => {
     setSearchLoading(true);
     try {
-      setStatus("正连接 Supabase 极速节点...", "info");
+      setStatus("连接中...", "info");
       await loadDataWithCache();
       let priceObj = window.PRICE_BUNDLE;
       let stockObj = window.STOCK_BUNDLE;

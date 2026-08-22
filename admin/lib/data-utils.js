@@ -251,9 +251,21 @@
   }
 
   function resolveColumn(columns, aliases) {
+    // 1. 精确匹配（优先）
     for (var i = 0; i < aliases.length; i++) {
       var alias = aliases[i];
       if (columns.indexOf(alias) >= 0) return alias;
+    }
+    // 2. 包含匹配（fallback）：如"库存数量(本)"包含"库存数量"、"库存状态"包含"状态"
+    //    精确 indexOf 会漏掉带括号/后缀的列名，导致 stock bundle 全行被跳过 → 库存不显示
+    for (var i = 0; i < aliases.length; i++) {
+      var alias = String(aliases[i] || "");
+      if (!alias) continue;
+      for (var j = 0; j < columns.length; j++) {
+        var col = String(columns[j] || "");
+        if (!col) continue;
+        if (col.indexOf(alias) >= 0 || alias.indexOf(col) >= 0) return columns[j];
+      }
     }
     return "";
   }

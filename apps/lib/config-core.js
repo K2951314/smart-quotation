@@ -518,19 +518,32 @@
   function mergePriceAndStockRows(priceRows, stockRows, config) {
     var cfg = normalizeConfig(config);
     var stockKey = getStockKeyField(cfg);
+    var primaryField = getPrimaryField(cfg);
     var stockMap = {};
+    var stockMapBySpec = {};
+    var stockMapBySpecNorm = {};  // 归一化（去空格小写）spec 索引，兼容"型号空格不同"
     (Array.isArray(stockRows) ? stockRows : []).forEach(function (row) {
       if (!row || !row.key) return;
-      stockMap[toStringSafe(row.key)] = row.fields || {};
+      var f = row.fields || {};
+      stockMap[toStringSafe(row.key)] = f;
+      var spec = toStringSafe(f[primaryField]);
+      if (spec) {
+        stockMapBySpec[spec] = f;
+        var specNorm = spec.replace(/\s+/g, "").toLowerCase();
+        if (specNorm && !stockMapBySpecNorm[specNorm]) stockMapBySpecNorm[specNorm] = f;
+      }
     });
 
     return (Array.isArray(priceRows) ? priceRows : []).map(function (row) {
       var fields = mergePlain({}, row.fields || {});
-      var key = toStringSafe(row.key || fields[getPrimaryField(cfg)]);
+      var key = toStringSafe(row.key || fields[primaryField]);
       var stockLookup = toStringSafe(fields[stockKey]);
-      var stockFields = stockMap[stockLookup] || stockMap[key] || null;
+      var priceSpec = toStringSafe(fields[primaryField]);
+      var priceSpecNorm = priceSpec.replace(/\s+/g, "").toLowerCase();
+      // 依次尝试：price code 精确 → price spec 精确 → price spec 归一化（兼容空格差异）→ price primary key
+      var stockFields = stockMap[stockLookup] || stockMapBySpec[priceSpec] || stockMapBySpecNorm[priceSpecNorm] || stockMap[key] || null;
       if (stockFields) fields = mergePlain(fields, stockFields);
-      if (!fields[getPrimaryField(cfg)]) fields[getPrimaryField(cfg)] = key;
+      if (!fields[primaryField]) fields[primaryField] = key;
       return { key: key, fields: fields };
     });
   }
