@@ -34,7 +34,12 @@ th {
   top: 0;
 }
 
-td input, td select { min-width: 80px; font-size: var(--text-xs); }
+/* 表格内控件：复选框不参与 min-width，避免被撑宽 */
+td input:not([type="checkbox"]), td select {
+  min-width: 80px;
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+}
 
 .key-col { font-family: var(--font-mono); font-size: var(--text-xs); }
 
@@ -42,64 +47,181 @@ th.matched { color: var(--success); }
 
 th.unmatched { color: var(--warning); }
 
-/* ─── Rule & Copy Rows ─────────────────────────────────────────────── */
-.rule-list, .copy-list { display: grid; gap: var(--sp-2); }
+/* ─── 字段配置表：列宽协调 ──────────────────────────────────────────── */
+.fields-table { min-width: 860px; }
+.fields-table td input:not([type="checkbox"]),
+.fields-table td select { width: 100%; min-width: 0; }
 
-.copy-row{
-  display:grid;
-  grid-template-columns:
-      1fr
-      1fr
-      100px
-      1fr
-      100px;
+/* 文本输入列：字段Key / 显示名 / Excel别名（收窄，按内容给最小宽） */
+.fields-table td:nth-child(1) input { min-width: 92px; font-family: var(--font-mono); font-size: var(--text-xs); }
+.fields-table td:nth-child(2) input { min-width: 72px; }
+.fields-table td:nth-child(5) input { min-width: 170px; }
 
-  gap:var(--sp-2);
-  align-items:center;
+/* 下拉列：类型 / 来源 / 显示区域（加宽，保证选项完整可读） */
+.fields-table td:nth-child(3) select,
+.fields-table td:nth-child(4) select,
+.fields-table td:nth-child(9) select { min-width: 78px; }
+
+/* 复选框列：搜索 / 复制 / 必填（收窄为固定窄列） */
+.fields-table th:nth-child(6), .fields-table td:nth-child(6),
+.fields-table th:nth-child(7), .fields-table td:nth-child(7),
+.fields-table th:nth-child(8), .fields-table td:nth-child(8) {
+  width: 42px;
+  min-width: 42px;
+  text-align: center;
+  padding-left: var(--sp-1);
+  padding-right: var(--sp-1);
+}
+.fields-table td:nth-child(6) input,
+.fields-table td:nth-child(7) input,
+.fields-table td:nth-child(8) input {
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  margin: 0 auto;
+  display: block;
+  cursor: pointer;
 }
 
-.rule-row{
-  display:grid;
-
-  grid-template-columns:
-      100px
-      180px
-      80px
-      80px
-      140px
-      80px
-      120px
-      1fr
-      80px;
-
-  gap:var(--sp-2);
-
-  align-items:center;
-
-  border:1px solid var(--line);
-
-  border-radius:var(--radius-md);
-
-  background:linear-gradient(
-      180deg,
-      rgba(255,255,255,.95),
-      rgba(248,243,236,.92)
-  );
-
-  padding:var(--sp-2);
-
-  box-shadow:var(--shadow-sm);
+/* 移除按钮列（×） */
+.fields-table th:nth-child(10), .fields-table td:nth-child(10) {
+  width: 36px;
+  text-align: center;
+  padding: var(--sp-1) var(--sp-1);
+}
+.fields-table td:nth-child(10) button {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 50%;
+  box-shadow: none;
 }
 
-.rule-row:hover, .copy-row:hover {
-  border-color: var(--accent-muted);
-  box-shadow: var(--shadow-md);
+/* ─── Rule & Copy Tables ──────────────────────────────────────────── */
+.rule-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
 }
 
-/* 复制模板行：与标题行共用 5 列布局（字段 / 行类型 / 默认显示 / 前缀 / 操作） */
-.copy-list { gap: 4px !important; }
+.rule-table th, .rule-table td {
+  border-bottom: 1px solid var(--line-light);
+  padding: var(--sp-2) var(--sp-2);
+  text-align: left;
+  vertical-align: middle;
+}
 
-.copy-row { grid-template-columns: 1.4fr 1fr 80px 1.2fr 72px; align-items: center; }
+.rule-table th {
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* 规则表：按内容分配列宽（名称/字段/匹配值收窄） */
+.rule-table td input:not([type="checkbox"]),
+.rule-table td select {
+  width: 100%;
+  min-width: 0;
+  font-size: var(--text-xs);
+  padding: 4px 6px;
+  min-height: 26px;
+}
+.rule-table td:nth-child(1) input { min-width: 56px; }   /* ID */
+.rule-table td:nth-child(2) input { min-width: 84px; }   /* 名称 */
+.rule-table td:nth-child(3) input { min-width: 46px; width: 52px; }  /* 优先级 */
+.rule-table td:nth-child(4) select { min-width: 46px; }  /* 默认 */
+.rule-table td:nth-child(5) select { min-width: 104px; } /* 字段 */
+.rule-table td:nth-child(6) input { min-width: 46px; width: 54px; }  /* 折扣% */
+.rule-table td:nth-child(7) select { min-width: 64px; }  /* 条件 */
+.rule-table td:nth-child(8) input { min-width: 84px; }   /* 匹配值 */
+
+.rule-table td button,
+.copy-table td button {
+  white-space: nowrap;
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 10px;
+}
+
+.rule-table tbody tr:hover,
+.copy-table tbody tr:hover {
+  background: var(--accent-soft);
+}
+
+/* ─── 复制模板表：五列自适应铺满，无需横向滚动 ─────────────────────── */
+.copy-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.copy-table th, .copy-table td {
+  border-bottom: 1px solid var(--line-light);
+  padding: var(--sp-2) var(--sp-2);
+  text-align: left;
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.copy-table th {
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* 列宽比例：字段 30% / 行类型 18% / 默认 12% / 前缀 26% / 移除 14% */
+.copy-table th:nth-child(1) { width: 30%; }
+.copy-table th:nth-child(2) { width: 18%; }
+.copy-table th:nth-child(3) { width: 12%; }
+.copy-table th:nth-child(4) { width: 26%; }
+.copy-table th:nth-child(5) { width: 14%; }
+
+.copy-table td input:not([type="checkbox"]),
+.copy-table td select {
+  width: 100%;
+  min-width: 0;
+  font-size: var(--text-xs);
+  padding: 4px 6px;
+  min-height: 26px;
+}
+.copy-table td:nth-child(3) { text-align: center; }
+.copy-table td:nth-child(3) input {
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  margin: 0 auto;
+  display: block;
+}
+.copy-table td:nth-child(5) { text-align: center; }
+
+/* ─── Rule & Copy Rows (deprecated grid layouts — kept for compat) ─── */
+.rule-list, .copy-list { display: block; }
+
+/* 空状态：邀请行动的虚线框 */
+#ruleRows > .hint,
+#copyRows > .hint {
+  display: block;
+  text-align: center;
+  padding: 22px 14px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--muted);
+}
 
 /* ─── Company List ──────────────────────────────────────────────────── */
 .company-list {

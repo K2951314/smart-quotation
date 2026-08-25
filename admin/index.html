@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>智能询价 · 管理后台</title>
-  <link rel="stylesheet" href="./styles/base.css?v=12">
-  <link rel="stylesheet" href="./styles/layout.css?v=12">
-  <link rel="stylesheet" href="./styles/forms.css?v=12">
-  <link rel="stylesheet" href="./styles/results.css?v=12">
+  <link rel="stylesheet" href="./styles/base.css?v=14">
+  <link rel="stylesheet" href="./styles/layout.css?v=14">
+  <link rel="stylesheet" href="./styles/forms.css?v=19">
+  <link rel="stylesheet" href="./styles/results.css?v=15">
   <link rel="stylesheet" href="./styles/modals.css?v=13">
-  <link rel="stylesheet" href="./styles/responsive.css?v=12">
+  <link rel="stylesheet" href="./styles/responsive.css?v=23">
 </head>
 <body>
   <!-- 登录遮罩层 -->
@@ -37,7 +37,11 @@
   </div>
 
   <div class="shell">
-    <aside class="rail">
+    <!-- 手机版侧栏遮罩 -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <aside class="rail" id="sidebarRail">
+      <button class="close-sidebar close-sidebar-desktop" id="closeSidebarBtn" type="button" aria-label="关闭菜单">✕</button>
       <div class="brand">
         <span class="brand-mark">SQ</span>
         <div>
@@ -71,24 +75,45 @@
 
     <main class="workspace">
       <header class="topbar">
-        <div>
-          <h1>智能询价配置中心</h1>
-          <p id="statusText" role="status" aria-live="polite">本地草稿</p>
-        </div>
-        <div class="topbar-fields">
-          <label>版本<input id="revision" value=""></label>
-          <label>数据版本<input id="configVersion" placeholder="2026-06-24.1"></label>
-        </div>
-        <div class="actions top-actions">
-          <div class="primary-actions">
-            <button id="publishBtn" class="primary" type="button"><span aria-hidden="true">↑</span> 发布配置</button>
+        <div class="topbar-row topbar-main">
+          <div class="topbar-left">
+            <button class="menu-toggle" id="menuToggle" type="button" aria-label="菜单" title="展开菜单">
+              <span class="menu-icon-bar"></span>
+              <span class="menu-icon-bar"></span>
+              <span class="menu-icon-bar"></span>
+            </button>
+            <div>
+              <h1>智能询价配置中心</h1>
+              <p id="statusText" role="status" aria-live="polite">本地草稿</p>
+            </div>
           </div>
-          <div class="secondary-actions">
-            <button id="loadConfigBtn" type="button" title="从后端数据库加载已发布的配置覆盖当前草稿"><span aria-hidden="true">↻</span> 从后端恢复</button>
-            <button id="saveDraftBtn" type="button" title="保存为草稿"><span aria-hidden="true">✓</span> 保存</button>
-            <button id="logoutBtn" type="button" title="退出登录（清除 API Key）" onclick="logoutAdmin()" style="border:1px solid #e74c3c;color:#e74c3c;background:#fff;"><span aria-hidden="true">⏻</span> 退出</button>
+          <div class="actions top-actions">
+            <div class="primary-actions">
+              <button id="publishBtn" class="primary" type="button"><span aria-hidden="true">↑</span> 发布</button>
+            </div>
+            <div class="secondary-actions">
+              <button id="loadConfigBtn" type="button" title="从后端数据库加载已发布的配置覆盖当前草稿"><span aria-hidden="true">↻</span> 恢复</button>
+              <button id="saveDraftBtn" type="button" title="保存为草稿"><span aria-hidden="true">✓</span> 保存</button>
+              <button id="logoutBtn" type="button" title="退出登录（清除 API Key）" onclick="logoutAdmin()" class="btn-logout"><span aria-hidden="true">⏻</span> 退出</button>
+            </div>
           </div>
         </div>
+        <div class="topbar-row topbar-fields">
+          <label>版本 <input id="revision" value=""></label>
+          <label>数据版本 <input id="configVersion" placeholder="2026-06-24.1"></label>
+        </div>
+        <!-- 手机版：章节快速定位条（滚动感知高亮，桌面端隐藏） -->
+        <nav class="chip-nav" id="chipNav" aria-label="章节快速定位">
+          <a href="#companies">公司管理</a>
+          <a href="#fields">字段配置</a>
+          <a href="#rules">报价规则</a>
+          <a href="#copy">复制模板</a>
+          <a href="#ui-config">页面显示</a>
+          <a href="#merger">数据拼接</a>
+          <a href="#publish">发布配置</a>
+          <a href="#history">版本历史</a>
+          <a href="#audit" data-feature="audit_log">审计日志</a>
+        </nav>
       </header>
 <!-- 公司管理 -->
 <section id="companies" class="band" style="scroll-margin-top:130px;">
@@ -136,7 +161,7 @@
           </div>
         </div>
         <div class="table-wrap">
-          <table>
+          <table class="fields-table">
             <thead>
               <tr>
                 <th>字段Key</th>
@@ -193,11 +218,13 @@
         <div class="section-head" style="margin-top:16px;">
           <h3>定价设置</h3>
         </div>
-        <div class="form-grid">
+        <div class="pricing-grid">
           <label>默认公式<input id="pricingFormula" value="face_price * discount_percent / 100"></label>
           <label>小数位<input id="pricingDecimals" type="number" value="1" min="0" max="4"></label>
           <label>折扣步长（%）<input id="pricingDiscountStep" type="number" value="0.1" min="0.1" max="50" step="0.1"></label>
           <label>步长预设（逗号分隔）<input id="pricingDiscountStepPresets" value="0.1, 0.5, 1" placeholder="0.1, 0.5, 1"></label>
+        </div>
+        <div class="pricing-grid" style="margin-top:8px;">
           <label>取整模式<select id="pricingRoundMode">
             <option value="ceil">向上取整 (ceil)</option>
             <option value="floor">向下取整 (floor)</option>
@@ -215,7 +242,7 @@
         <!-- 标签文案配置 -->
         <details style="margin-top:12px;cursor:pointer;">
           <summary style="font-weight:600;color:var(--accent);"><span aria-hidden="true">🏷</span> 标签文案（labels）</summary>
-          <div class="form-grid" style="margin-top:12px;">
+          <div class="labels-grid" style="margin-top:12px;">
             <label>搜索按钮<input id="lblSearchBtn" placeholder="智能查询"></label>
             <label>库存查询按钮<input id="lblStockBtn" placeholder="库存查询"></label>
             <label>三菱库存按钮<input id="lblMmcBtn" placeholder="三菱库存"></label>
@@ -233,7 +260,7 @@
         <!-- 复制高级设置 -->
         <details style="margin-top:12px;cursor:pointer;">
           <summary style="font-weight:600;color:var(--accent);"><span aria-hidden="true">📋</span> 复制高级设置</summary>
-          <div class="form-grid" style="margin-top:12px;">
+          <div class="copy-advanced-grid" style="margin-top:12px;">
             <label>空值替换<input id="copyEmptyValue" placeholder="留空则输出空字符串"></label>
             <label>价格前缀<input id="copyPricePrefix" placeholder="含税"></label>
           </div>
@@ -352,7 +379,7 @@
 
         <div class="section-head">
           <h2>发布配置</h2>
-          <div class="actions">
+          <div class="actions publish-actions">
             <button id="validateConfigBtn" type="button"><span aria-hidden="true">✓</span>校验配置</button>
             <button id="exportJsonBtn" type="button"><span aria-hidden="true">↓</span>导出 JSON</button>
             <button id="exportYamlBtn" type="button"><span aria-hidden="true">↓</span>导出 YAML</button>
@@ -423,16 +450,16 @@
 <script src="./lib/bundle-utils.js?v=10"></script>
 <script src="./lib/export-utils.js?v=10"></script>
 <script src="./merger-app.js?v=17"></script>
-<script src="./lib/admin-core.js?v=21"></script>
+<script src="./lib/admin-core.js?v=22"></script>
 <script src="./lib/session-panel.js?v=5"></script>
-<script src="./lib/companies.js?v=19"></script>
+<script src="./lib/companies.js?v=26"></script>
 <script src="./lib/tiers.js?v=17"></script>
 <script src="./lib/supabase-deploy.js?v=19"></script>
 <script src="./lib/standalone-html.js?v=18"></script>
 <script src="./lib/config-collect.js?v=17"></script>
-<script src="./lib/config-render.js?v=18"></script>
+<script src="./lib/config-render.js?v=19"></script>
 <script src="./lib/config-api.js?v=17"></script>
 <script src="./lib/event-bindings.js?v=18"></script>
-<script src="./app.js?v=17"></script>
+<script src="./app.js?v=18"></script>
 </body>
 </html>

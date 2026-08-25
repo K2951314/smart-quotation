@@ -62,7 +62,12 @@
 /* ─── Reset & Base ─────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
 
-html { color-scheme: light; }
+html { color-scheme: light; scroll-behavior: smooth; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
 
 body {
   margin: 0;

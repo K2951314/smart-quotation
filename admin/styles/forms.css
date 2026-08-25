@@ -155,6 +155,33 @@ label input, label select, label textarea {
 
 .wide { grid-column: 1 / -1; }
 
+/* ─── 定价设置网格（4列） ─────────────────────────────────────── */
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+}
+
+/* ─── 标签文案网格（4列） ─────────────────────────────────────── */
+.labels-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+}
+
+/* 定价设置 / 标签文案：单元格输入文字色调浅一档，与表格 td 一致柔和 */
+.pricing-grid input, .pricing-grid select,
+.labels-grid input, .labels-grid select {
+  color: var(--ink-secondary);
+}
+
+/* ─── 复制高级设置网格（2列） ─────────────────────────────────── */
+.copy-advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--sp-3);
+}
+
 .danger-btn { color: var(--danger) !important; border-color: var(--danger) !important; }
 
 .danger-btn:hover { background: var(--danger) !important; color: #fff !important; }
@@ -169,8 +196,8 @@ label input, label select, label textarea {
 
 .ui-field-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: var(--sp-3);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--sp-2);
   align-items: center;
   padding: var(--sp-3);
   border: 1px solid var(--line);
@@ -178,13 +205,36 @@ label input, label select, label textarea {
   background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(248,243,236,0.88));
   box-shadow: var(--shadow-sm);
   transition: border-color var(--transition);
+  min-width: 0;
 }
 
 .ui-field-row:hover { border-color: var(--accent-muted); }
 
-.ui-field-name { font-size: var(--text-sm); font-weight: 600; }
+/* 字段名（如“助记码”）保持单行：宽度不足时省略号截断，不换行 */
+.ui-field-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 
-.ui-field-area { font-size: var(--text-xs); color: var(--muted); white-space: nowrap; }
+/* 显示区域徽标：编码字段所属的结果区域 */
+.ui-field-area {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-muted);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+input[type="checkbox"] { accent-color: var(--accent); }
 
 .ui-layout-grid {
   display: grid;

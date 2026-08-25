@@ -24,6 +24,112 @@ window.addEventListener("error", (event) => {
   setJsStatus("异常");
 });
 
+// ─── 手机版侧栏菜单 ────────────────────────────────────────
+(function initMobileMenu() {
+  var menuToggle = document.getElementById("menuToggle");
+  var sidebar = document.getElementById("sidebarRail");
+  var overlay = document.getElementById("sidebarOverlay");
+
+  if (!menuToggle || !sidebar || !overlay) return;
+
+  function openSidebar() {
+    sidebar.classList.add("open");
+    overlay.classList.add("show");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeSidebar() {
+    sidebar.classList.remove("open");
+    overlay.classList.remove("show");
+    document.body.style.overflow = "";
+  }
+
+  menuToggle.addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (sidebar.classList.contains("open")) {
+      closeSidebar();
+    } else {
+      openSidebar();
+    }
+  });
+
+  // 关闭按钮
+  var closeBtn = document.getElementById("closeSidebarBtn");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", closeSidebar);
+  }
+
+  overlay.addEventListener("click", closeSidebar);
+
+  // 点击导航链接后关闭侧栏
+  sidebar.querySelectorAll(".nav a").forEach(function (link) {
+    link.addEventListener("click", function () {
+      // 延迟关闭，让导航先滚动
+      setTimeout(closeSidebar, 150);
+    });
+  });
+
+  // ESC 键关闭
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && sidebar.classList.contains("open")) {
+      closeSidebar();
+    }
+  });
+
+  // 窗口 resize 到桌面端时自动关闭
+  var mql = window.matchMedia("(min-width: 769px)");
+  mql.addEventListener("change", function (e) {
+    if (e.matches && sidebar.classList.contains("open")) {
+      closeSidebar();
+    }
+  });
+})();
+
+// ─── 章节快速定位条：滚动感知高亮（chip 导航 + 侧栏联动）─────────
+(function initSectionScrollspy() {
+  var chipNav = document.getElementById("chipNav");
+  if (!chipNav || !("IntersectionObserver" in window)) return;
+
+  var chips = Array.prototype.slice.call(chipNav.querySelectorAll("a"));
+  if (!chips.length) return;
+  var drawerLinks = Array.prototype.slice.call(
+    document.querySelectorAll('#sidebarRail .nav a[href^="#"]')
+  );
+
+  var sections = chips
+    .map(function (a) { return document.querySelector(a.getAttribute("href")); })
+    .filter(Boolean);
+
+  function setActive(id) {
+    chips.forEach(function (a) {
+      a.classList.toggle("active", a.getAttribute("href") === "#" + id);
+    });
+    drawerLinks.forEach(function (a) {
+      a.classList.toggle("active", a.getAttribute("href") === "#" + id);
+    });
+    // 当前 chip 自动滚动到定位条中间
+    var active = chipNav.querySelector("a.active");
+    if (active && chipNav.scrollWidth > chipNav.clientWidth) {
+      var navRect = chipNav.getBoundingClientRect();
+      var aRect = active.getBoundingClientRect();
+      var target = chipNav.scrollLeft + (aRect.left - navRect.left) - (navRect.width - aRect.width) / 2;
+      chipNav.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+    }
+  }
+
+  var currentId = null;
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) currentId = entry.target.id;
+    });
+    if (currentId) setActive(currentId);
+  }, { rootMargin: "-30% 0px -55% 0px", threshold: 0 });
+
+  sections.forEach(function (sec) { io.observe(sec); });
+  // 初始高亮第一个区块
+  if (sections.length) setActive(sections[0].id);
+})();
+
 // ─── 启动逻辑（认证优先）────────────────────────────────────
 window.addEventListener("DOMContentLoaded", function () {
   if (isAdminAuthenticated()) {

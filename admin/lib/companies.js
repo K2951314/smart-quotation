@@ -129,12 +129,12 @@ var PLAN_LABELS = { free: "免费版", pro: "个人版", team: "专业版" };
 function makePlanSelect(company, meta) {
   var sel = document.createElement("select");
   sel.setAttribute("data-plan-company", company.id);
-  sel.style.cssText = "padding:2px 6px;font-size:11px;border:1px solid #ddd;border-radius:4px;background:#fff;color:#333;cursor:pointer;margin-left:4px;";
+  sel.style.cssText = "padding:2px 6px;font-size:11px;border:1px solid #ddd;border-radius:4px;background:#fff;color:#333;cursor:pointer;flex-shrink:0;box-sizing:border-box;";
   var current = (meta || {}).plan || "";
   if (!current) {
     var emptyOpt = document.createElement("option");
     emptyOpt.value = "";
-    emptyOpt.textContent = "档位（继承全局）";
+    emptyOpt.textContent = "全局";
     emptyOpt.selected = true;
     sel.appendChild(emptyOpt);
   }
@@ -148,6 +148,12 @@ function makePlanSelect(company, meta) {
   // 阻止事件冒泡（避免触发卡片切换公司）
   sel.onclick = function (e) { e.stopPropagation(); };
   sel.onchange = function () { setCompanyPlan(company.id, sel.value); };
+  // 宽度按选中项字数 + 0.5 字余量自适应（3字→3.5字宽，2字→2.5字宽）
+  function fitWidth() {
+    var len = sel.options[sel.selectedIndex].textContent.length;
+    sel.style.width = "calc(" + (len + 0.5) + "em + 29px)";
+  }
+  fitWidth();
   return sel;
 }
 
@@ -182,7 +188,6 @@ function renderAdminCard(admin, members) {
   var safeId = escapeHtml(admin.id);
   var safeName = admin.name ? escapeHtml(admin.name) : "";
   var tokenDisplay = meta.access_token ? meta.access_token.substring(0, 8) + "..." : "未生成";
-  var safeToken = escapeHtml(tokenDisplay);
   var memberCount = members.length;
 
   var wrapper = document.createElement("div");
@@ -194,25 +199,17 @@ function renderAdminCard(admin, members) {
 
   // ── 管理员头部 ──
   var header = document.createElement("div");
+  header.className = "cc-header";
   header.style.cssText = (
     "display:flex;align-items:center;gap:0;background:" + (isCurrent ? "#eef4fb" : "#fdfbf7") + ";" +
     "border-bottom:1px solid #ece5d8;"
   );
 
-  // 展开按钮
-  var toggleBtn = document.createElement("div");
-  toggleBtn.style.cssText = "padding:10px 8px;cursor:pointer;font-size:14px;color:#666;flex-shrink:0;";
-  toggleBtn.textContent = isExpanded ? "▼" : "▶";
-  toggleBtn.onclick = function () {
-    g_ExpandedAdmins[admin.id] = !isExpanded;
-    renderCompanyTree();
-  };
-  header.appendChild(toggleBtn);
-
   // 主信息区（可点击切换）
   var infoArea = document.createElement("div");
+  infoArea.className = "cc-info";
   infoArea.style.cssText = (
-    "flex:1;padding:10px 4px;cursor:" + (isCurrent ? "default" : "pointer") + ";min-width:0;"
+    "flex:1;padding:10px 8px;cursor:" + (isCurrent ? "default" : "pointer") + ";min-width:0;"
   );
   if (!isCurrent) {
     infoArea.onmouseenter = function () { infoArea.style.background = "rgba(44,82,130,0.05)"; };
@@ -220,27 +217,41 @@ function renderAdminCard(admin, members) {
   }
   infoArea.onclick = function () { if (!isCurrent) switchToCompany(admin.id); };
 
-  var nameLine = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
-    '<span style="font-size:14px;">🏢</span>' +
+  // 第一行：展开按钮 + 图标 + 公司名 + 数据源管理员 + 当前
+  var toggleBtn = document.createElement("div");
+  toggleBtn.style.cssText = "padding:0 4px 0 0;cursor:pointer;font-size:14px;color:#666;flex-shrink:0;";
+  toggleBtn.textContent = isExpanded ? "▼" : "▶";
+  toggleBtn.onclick = function () {
+    g_ExpandedAdmins[admin.id] = !isExpanded;
+    renderCompanyTree();
+  };
+  var nameRow = document.createElement("div");
+  nameRow.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;";
+  nameRow.innerHTML = '<span style="font-size:14px;">🏢</span>' +
     '<strong style="font-size:14px;color:#2c5282;">' + safeId + '</strong>' +
     (safeName ? '<span style="color:#666;font-size:12px;">' + safeName + '</span>' : '') +
     '<span style="padding:2px 8px;background:#8e44ad;color:#fff;border-radius:3px;font-size:10px;">数据源管理员</span>' +
-    (isCurrent ? '<span style="padding:2px 6px;background:#2c5282;color:#fff;border-radius:3px;font-size:10px;">✓ 当前</span>' : '') +
-    '</div>';
-  var infoLine = '<div style="font-size:10px;color:#999;margin-top:3px;">' +
-    '成员: ' + memberCount + ' 家 · 利润率分组: ' + tiers.length + ' 个 · 令牌: ' + safeToken +
-    '</div>';
-  infoArea.innerHTML = nameLine + infoLine;
-  // 订阅档位下拉（管理员公司＝客户，独立订阅）
-  var planWrap = document.createElement("div");
-  planWrap.style.cssText = "margin-top:6px;font-size:10px;color:#999;";
-  planWrap.appendChild(document.createTextNode("订阅档位:"));
-  planWrap.appendChild(makePlanSelect(admin, meta));
-  infoArea.appendChild(planWrap);
+    (isCurrent ? '<span style="padding:2px 6px;background:#2c5282;color:#fff;border-radius:3px;font-size:10px;">✓ 当前</span>' : '');
+  nameRow.insertBefore(toggleBtn, nameRow.firstChild);
+  // 第二行：成员/分组/令牌 + 订阅档位下拉同一行（手机版下拉靠右、介绍超长省略）
+  var metaLine = document.createElement("div");
+  metaLine.className = "cc-meta";
+  metaLine.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:10px;color:#999;margin-top:3px;";
+  var infoText = document.createElement("span");
+  infoText.className = "cc-meta-info";
+  infoText.textContent = "成员: " + memberCount + " 家 · 利润率分组: " + tiers.length + " 个 · 令牌: " + tokenDisplay;
+  metaLine.appendChild(infoText);
+  var planLabel = document.createElement("span");
+  planLabel.textContent = "订阅档位:";
+  metaLine.appendChild(planLabel);
+  metaLine.appendChild(makePlanSelect(admin, meta));
+  infoArea.appendChild(nameRow);
+  infoArea.appendChild(metaLine);
   header.appendChild(infoArea);
 
   // 操作按钮区
   var actions = document.createElement("div");
+  actions.className = "cc-actions";
   actions.style.cssText = "display:flex;align-items:center;gap:4px;padding:6px 8px;flex-shrink:0;flex-wrap:wrap;";
   // 功能门控：成员公司创建是 admin_member_inheritance 功能（pro/team）
   if (window.hasFeature && window.hasFeature("admin_member_inheritance")) {
@@ -376,18 +387,22 @@ function renderMemberRow(member, adminId) {
     tierBadge +
     (isCurrent ? '<span style="padding:1px 5px;background:#2c5282;color:#fff;border-radius:2px;font-size:9px;">✓ 当前</span>' : '') +
     '</div>';
-  var infoLine = '<div style="font-size:10px;color:#aaa;margin-top:2px;">' +
-    '利润率: ' + escapeHtml(pmDisplay) + ' · 令牌: ' + escapeHtml(tokenDisplay) +
-    '</div>';
-  infoArea.innerHTML = nameLine + infoLine;
-  var planWrap = document.createElement("div");
-  planWrap.style.cssText = "margin-top:4px;font-size:10px;color:#aaa;";
-  // 成员公司（客户的客户）不自订阅，继承管理员公司的订阅档位，仅展示
+  // 第二行：利润率/令牌 + 继承订阅同一行（手机版右侧不换行）
   var parentId = meta.parent_company_id || "";
   var parentCompany = g_Companies.find(function (c) { return c.id === parentId; });
   var parentLabel = parentCompany ? (parentCompany.name || parentId) : parentId;
-  planWrap.appendChild(document.createTextNode("订阅: 继承「" + parentLabel + "」"));
-  infoArea.appendChild(planWrap);
+  var metaLine = document.createElement("div");
+  metaLine.className = "cc-meta";
+  metaLine.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:10px;color:#aaa;margin-top:2px;";
+  var infoText = document.createElement("span");
+  infoText.className = "cc-meta-info";
+  infoText.textContent = "利润率: " + pmDisplay + " · 令牌: " + tokenDisplay;
+  metaLine.appendChild(infoText);
+  var planText = document.createElement("span");
+  planText.textContent = "订阅: 继承「" + parentLabel + "」";
+  metaLine.appendChild(planText);
+  infoArea.innerHTML = nameLine;
+  infoArea.appendChild(metaLine);
   row.appendChild(infoArea);
 
   // 操作按钮
@@ -445,13 +460,20 @@ function renderStandaloneCard(company) {
     '<span style="padding:1px 5px;background:#aaa;color:#fff;border-radius:2px;font-size:10px;">独立</span>' +
     (isCurrent ? '<span style="padding:1px 5px;background:#2c5282;color:#fff;border-radius:2px;font-size:10px;">✓ 当前</span>' : '') +
     '</div>';
-  var infoLine = '<div style="font-size:10px;color:#999;margin-top:2px;">令牌: ' + escapeHtml(tokenDisplay) + '</div>';
-  infoArea.innerHTML = nameLine + infoLine;
-  var planWrap = document.createElement("div");
-  planWrap.style.cssText = "margin-top:4px;font-size:10px;color:#999;";
-  planWrap.appendChild(document.createTextNode("订阅档位:"));
-  planWrap.appendChild(makePlanSelect(company, meta));
-  infoArea.appendChild(planWrap);
+  // 第二行：令牌 + 订阅档位下拉同一行（手机版下拉靠右）
+  var metaLine = document.createElement("div");
+  metaLine.className = "cc-meta";
+  metaLine.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:10px;color:#999;margin-top:2px;";
+  var infoText = document.createElement("span");
+  infoText.className = "cc-meta-info";
+  infoText.textContent = "令牌: " + tokenDisplay;
+  metaLine.appendChild(infoText);
+  var planLabel = document.createElement("span");
+  planLabel.textContent = "订阅档位:";
+  metaLine.appendChild(planLabel);
+  metaLine.appendChild(makePlanSelect(company, meta));
+  infoArea.innerHTML = nameLine;
+  infoArea.appendChild(metaLine);
   card.appendChild(infoArea);
 
   var actions = document.createElement("div");

@@ -227,6 +227,49 @@ function setStatus(text, isError) {
   $("statusText").classList.toggle("danger", Boolean(isError));
 }
 
+/**
+ * 订阅档位限制浮层（402/403 时弹）。
+ *
+ * 手机版上 topbar 的 setStatus 提示在页面下方操作时不可见，免费版用户点
+ * 创建公司/发布/导入等按钮超限后只看到"没反应"。此浮层在屏幕底部弹出，
+ * 带"查看订阅方案"入口，覆盖所有走 request 的按钮，统一提示升级。
+ */
+function showPlanBlockedHint(message) {
+  var existing = document.getElementById("planBlockedToast");
+  if (existing) existing.remove();
+  var toast = document.createElement("div");
+  toast.id = "planBlockedToast";
+  toast.style.cssText =
+    "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:1200;" +
+    "display:flex;align-items:center;gap:10px;max-width:92vw;padding:12px 16px;" +
+    "border-radius:12px;background:linear-gradient(180deg,#fffdf8,#f7f3ec);" +
+    "border:1px solid rgba(18,108,105,0.28);box-shadow:0 12px 32px -8px rgba(47,37,20,0.32);" +
+    "font-size:12px;color:#1f2e38;line-height:1.4;";
+  function mk(tag, text, cssText) {
+    var n = document.createElement(tag);
+    n.textContent = text; // textContent 自动转义，message 来自后端 detail
+    n.style.cssText = cssText;
+    return n;
+  }
+  var icon = mk("span", "🔒", "flex-shrink:0;font-size:16px;");
+  var msg = mk("span", message || "当前订阅档位不支持此操作", "flex:1;min-width:0;");
+  var link = mk("a", "查看订阅方案",
+    "flex-shrink:0;padding:6px 14px;border-radius:999px;background:#126c69;color:#fff;" +
+    "font-weight:600;font-size:11px;text-decoration:none;white-space:nowrap;");
+  link.href = "billing.html";
+  link.target = "_blank";
+  var closeBtn = mk("button", "×",
+    "flex-shrink:0;width:24px;height:24px;border:none;background:transparent;color:#5e6d78;font-size:18px;cursor:pointer;border-radius:50%;");
+  closeBtn.setAttribute("aria-label", "关闭");
+  closeBtn.onclick = function () { toast.remove(); };
+  toast.appendChild(icon);
+  toast.appendChild(msg);
+  toast.appendChild(link);
+  toast.appendChild(closeBtn);
+  document.body.appendChild(toast);
+  setTimeout(function () { if (toast.parentNode) toast.remove(); }, 6000);
+}
+
 function setJsStatus(text) {
   const el = $("jsStatus");
   if (el) el.textContent = text;
@@ -265,6 +308,11 @@ async function request(path, options) {
   if (!response.ok) {
     const err = new Error(data.detail || response.statusText);
     err.status = response.status;
+    // 402（档位/配额超限）/403（功能未授权）：弹醒目升级浮层，
+    // 避免手机版 topbar 提示被忽略导致"点了没反应"
+    if (response.status === 402 || response.status === 403) {
+      showPlanBlockedHint(data.detail);
+    }
     throw err;
   }
   if (isAdminAuthenticated()) _resetSessionTimer();
@@ -275,6 +323,8 @@ async function run(task) {
   try {
     await task();
   } catch (err) {
+    // 402/403 已由 request → showPlanBlockedHint 提示，不重复打 topbar
+    if (err && (err.status === 402 || err.status === 403)) return;
     setStatus(err.message, true);
   }
 }

@@ -135,47 +135,49 @@ function renderRuleRows() {
     return;
   }
 
-  const header = `
-    <div class="rule-row rule-row--header" aria-hidden="true">
-      <span>ID</span>
-      <span>名称</span>
-      <span>优先级</span>
-      <span>默认</span>
-      <span>字段</span>
-      <span>折扣%</span>
-      <span>条件</span>
-      <span>匹配值</span>
-      <span></span>
-    </div>
+  const thead = `
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>名称</th>
+        <th>优先级</th>
+        <th>默认</th>
+        <th>字段</th>
+        <th>折扣%</th>
+        <th>条件</th>
+        <th>匹配值</th>
+        <th></th>
+      </tr>
+    </thead>
   `;
 
-  const rows = rules.map((rule, index) => {
+  const tbody = rules.map((rule, index) => {
     const condition = ((rule.when || {}).all || [{}])[0] || {};
     const action = (rule.actions || [{}])[0] || {};
 
     return `
-      <div class="rule-row" data-rule-row>
-        <input data-rule-id value="${escapeHtml(rule.id || "")}" placeholder="ID">
-        <input data-rule-label value="${escapeHtml(rule.label || "")}" placeholder="规则名称">
-        <input data-rule-priority type="number" value="${escapeHtml(rule.priority || 999)}">
-        <select data-rule-default>
+      <tr data-rule-row>
+        <td><input data-rule-id value="${escapeHtml(rule.id || "")}" placeholder="ID"></td>
+        <td><input data-rule-label value="${escapeHtml(rule.label || "")}" placeholder="规则名称"></td>
+        <td><input data-rule-priority type="number" value="${escapeHtml(rule.priority || 999)}"></td>
+        <td><select data-rule-default>
           <option value="false"${rule.default ? "" : " selected"}>否</option>
           <option value="true"${rule.default ? " selected" : ""}>是</option>
-        </select>
-        <select data-rule-field>
+        </select></td>
+        <td><select data-rule-field>
           ${getFieldSelectOptions(condition.field || "")}
-        </select>
-        <input data-rule-percent type="number" value="${escapeHtml(action.percent || 55)}">
-        <select data-rule-op>
+        </select></td>
+        <td><input data-rule-percent type="number" value="${escapeHtml(action.percent || 55)}"></td>
+        <td><select data-rule-op>
           ${ruleOperators.map(item => option(item.value, item.label, condition.op || "contains")).join("")}
-        </select>
-        <input data-rule-value value="${escapeHtml(condition.value || "")}" placeholder="匹配值">
-        <button type="button" class="small-btn danger-btn" data-remove-rule="${index}">删除</button>
-      </div>
+        </select></td>
+        <td><input data-rule-value value="${escapeHtml(condition.value || "")}" placeholder="匹配值"></td>
+        <td><button type="button" class="small-btn danger-btn" data-remove-rule="${index}">删除</button></td>
+      </tr>
     `;
   }).join("");
 
-  $("ruleRows").innerHTML = header + rows;
+  $("ruleRows").innerHTML = `<div class="table-wrap"><table class="rule-table">${thead}<tbody>${tbody}</tbody></table></div>`;
 }
 
 function renderCopyRows() {
@@ -184,25 +186,25 @@ function renderCopyRows() {
     $("copyRows").innerHTML = `<p class="hint" style="color:var(--muted);">暂无列，点击"添加列"开始配置。</p>`;
     return;
   }
-  const header = `<div class="copy-row copy-row--header" aria-hidden="true">
-    <span>字段</span>
-    <span>行类型</span>
-    <span style="text-align:center;">默认显示</span>
-    <span>前缀</span>
-    <span></span>
-  </div>`;
-  const rows = columns.map((column, index) => `
-    <div class="copy-row" data-copy-row>
-      <select data-copy-field aria-label="字段">
+  const thead = `<thead><tr>
+    <th>字段</th>
+    <th>行类型</th>
+    <th style="text-align:center;" title="默认显示">默认</th>
+    <th>前缀</th>
+    <th></th>
+  </tr></thead>`;
+  const tbody = columns.map((column, index) => `
+    <tr data-copy-row>
+      <td><select data-copy-field aria-label="字段">
         ${getCopyFieldOptions(column.field || "")}
-      </select>
-      <select data-copy-line aria-label="行类型">${copyLineOptions.map((item) => option(item.value, item.label, column.line || "main")).join("")}</select>
-      <input data-copy-default type="checkbox" aria-label="默认显示"${column.default ? " checked" : ""} style="justify-self:center;">
-      <input data-copy-prefix value="${escapeHtml(column.prefix || "")}" placeholder="例如：含税、含运费" aria-label="前缀">
-      <button type="button" data-remove-copy="${index}" class="small-btn danger-btn">移除</button>
-    </div>
+      </select></td>
+      <td><select data-copy-line aria-label="行类型">${copyLineOptions.map((item) => option(item.value, item.label, column.line || "main")).join("")}</select></td>
+      <td style="text-align:center;"><input data-copy-default type="checkbox" aria-label="默认显示"${column.default ? " checked" : ""}></td>
+      <td><input data-copy-prefix value="${escapeHtml(column.prefix || "")}" placeholder="例如：含税、含运费" aria-label="前缀"></td>
+      <td><button type="button" data-remove-copy="${index}" class="small-btn danger-btn">移除</button></td>
+    </tr>
   `).join("");
-  $("copyRows").innerHTML = header + rows;
+  $("copyRows").innerHTML = `<div class="table-wrap"><table class="copy-table">${thead}<tbody>${tbody}</tbody></table></div>`;
 }
 
 function renderUiConfig() {
