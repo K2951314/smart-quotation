@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Depends, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 import logging
 
@@ -87,10 +88,21 @@ def register(app) -> None:
     ) -> dict[str, Any]:
         content = await _read_upload_limited(file, MAX_UPLOAD_SIZE)
         filename = file.filename or "upload.xlsx"
+
+        # Excel 解析（可能含 LLM 列名建议的网络调用）放线程池：
+        # 本函数是 async 端点，同步跑大文件解析/LLM 会卡死事件循环
+        from ..llm import llm_enabled, suggest_column_mapping
+
+        def _mapper(unmatched, fields):
+            return suggest_column_mapping(unmatched, fields)
+
         try:
-            rows, report = store.parse_excel_to_rows(
-                content, filename, company_id=company_id,
+            rows, report = await run_in_threadpool(
+                store.parse_excel_to_rows,
+                content, filename,
+                company_id=company_id,
                 face_price_tax_inclusive=face_price_tax_inclusive,
+                column_mapper=_mapper if llm_enabled() else None,
             )
         except ImportError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

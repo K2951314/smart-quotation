@@ -218,6 +218,7 @@ async function loadDataWithCache() {
   var version = (configVer && dataVer)
     ? (configVer + "_" + dataVer)
     : (configVer || dataVer || String(Date.now()));
+  _currentDataVersion = version;
   await Promise.all([
     fetchFileWithCache(source.price_bundle_file, version, "bundle", source)
       .catch(async function (err) {
@@ -398,6 +399,94 @@ function parseStockBundle(stockObj) {
 
 // ─── 数据加载主流程 ──────────────────────────────────────────
 
+// ─── 数据更新感知（轮询 version.json）与强制刷新 ─────────────
+// 第一性原理：客户端如何知道有新数据？靠轻量轮询 version.json（几百字节，
+// 带 cache-buster），版本变了自动重载——用户无需手动刷新。
+// 「强制刷新」按钮只是兜底（超管/管理员自测时立即绕缓存重载）。
+
+var _currentDataVersion = null;   // 当前生效的版本指纹
+var _versionPollTimer = null;
+var _versionPollIntervalMs = 5 * 60 * 1000;  // 5 分钟；只拉 version.json，开销可忽略
+var _dataReloading = false;
+
+/** 计算远端当前版本指纹（configVer + version.json 的 version）。 */
+async function fetchLatestDataVersion() {
+  const source = getDataSourceConfig();
+  let configVer = "";
+  if (!(g_AppConfig && g_AppConfig._loadedFromApi)) {
+    try {
+      await loadRemoteConfig(source);
+      configVer = getConfigCacheVersion(getAppConfig());
+    } catch (e) { /* 保持原 configVer */ }
+  }
+  const dataVer = await loadLegacyVersion(source);
+  return (configVer && dataVer) ? (configVer + "_" + dataVer) : (configVer || dataVer || "");
+}
+
+/** 轮询：发现版本变化 → 自动重载数据（不打断用户输入，仅刷新结果数据）。 */
+function startVersionPolling() {
+  if (_versionPollTimer) return;
+  _versionPollTimer = setInterval(async () => {
+    if (_dataReloading || document.hidden) return;  // 后台标签不轮询，省请求
+    try {
+      const latest = await fetchLatestDataVersion();
+      if (_currentDataVersion && latest && latest !== _currentDataVersion) {
+        console.log("[version-poll] 检测到新数据版本，自动重载:", latest);
+        await forceDataReload(true);
+      }
+    } catch (e) {
+      console.warn("[version-poll] 版本检查失败（下轮重试）:", e);
+    }
+  }, _versionPollIntervalMs);
+}
+
+/** 强制刷新：清空 Cache API 缓存桶后完整重载数据（绕过一切版本缓存）。
+ * silent=true 用于轮询触发的自动刷新（不打扰用户提示文案）。 */
+async function forceDataReload(silent) {
+  if (_dataReloading) return;
+  _dataReloading = true;
+  try {
+    if (!silent) { setSearchLoading(true); setStatus("正在强制刷新数据（绕过缓存）...", "info"); }
+    const source = getDataSourceConfig();
+    try {
+      const cacheName = source.cache_name || "quotation-cache-v4";
+      if (window.caches) await caches.delete(cacheName);
+    } catch (e) { console.warn("清缓存失败（继续重载）:", e); }
+    // g_DataReady 已 true——需绕过守卫直接跑加载链
+    g_DataReady = false;
+    await ensureDataLoaded();
+    if (!silent) setStatus("数据已强制刷新", "ok");
+  } catch (e) {
+    console.error("强制刷新失败:", e);
+    if (!silent) setStatus("强制刷新失败，稍后重试", "error");
+    g_DataReady = true;  // 旧数据仍在内存，恢复可用状态
+  } finally {
+    _dataReloading = false;
+  }
+}
+
+// 暴露给页面（强制刷新按钮 + 调试）
+window.forceDataReload = forceDataReload;
+window.startVersionPolling = startVersionPolling;
+
+document.addEventListener("DOMContentLoaded", function () {
+  const btn = document.getElementById("forceReloadBtn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (_dataReloading) return;
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = "刷新中…";
+    try {
+      await forceDataReload(false);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+});
+
+
 async function ensureDataLoaded() {
   if (g_DataReady) return true;
   if (g_DataLoadingPromise) return g_DataLoadingPromise;
@@ -427,6 +516,7 @@ async function ensureDataLoaded() {
       rebuildSearchIndex();
       console.log("[ensureDataLoaded] g_SearchIndex size:", g_SearchIndex ? Object.keys(g_SearchIndex).length : null);
       g_DataReady = true;
+      startVersionPolling();
       // 保留管理员数据包缺失警告（避免被「数据库就绪」覆盖，否则用户不知 admin 包未生成 → 看不到面价）
       if (g_AdminBundleMissing) {
         setStatus("数据库就绪（⚠️ 管理员数据包未生成：仅显示报价无面价，请到配置中心「一键同步」）", "lock");

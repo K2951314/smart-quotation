@@ -103,7 +103,9 @@ class AuthContext:
         # 内存级频率限制器（单 Worker 级别）
         self.rate_limiter: dict[str, deque[float]] = defaultdict(deque)
         self.RATE_WINDOW_SEC = 60
-        self.RATE_MAX_HITS = 30
+        # 60s/120 次：配置中心一次页面加载要发 5-8 个 API（companies/session/
+        # config/tiers），此前 30 次与登录共享一个 ip: 桶，正常使用即触发 429。
+        self.RATE_MAX_HITS = 120
 
         # SQLite 持久化认证失败追踪
         self.AUTH_FAIL_WINDOW_SEC = 300
@@ -120,7 +122,7 @@ class AuthContext:
         while dq and now - dq[0] > self.RATE_WINDOW_SEC:
             dq.popleft()
         if len(dq) >= self.RATE_MAX_HITS:
-            raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+            raise HTTPException(status_code=429, detail="请求过于频繁，请 1 分钟后再试")
         dq.append(now)
 
     def check_auth_rate_limit(self, client_key: str) -> None:
@@ -212,18 +214,24 @@ def require_admin_api(
         return {"role": "superadmin"}
 
     # 2. JWT（租户管理员）
+    jwt_payload = None
     try:
         from .routes_auth import _decode_jwt
-        payload = _decode_jwt(token)
-        if payload and "sub" in payload and "company_id" in payload:
-            return {
-                "role": "tenant",
-                "company_id": payload["company_id"],
-                "email": payload.get("email", ""),
-                "user_id": payload.get("sub", ""),
-            }
+        jwt_payload = _decode_jwt(token)
     except Exception:
-        pass
+        jwt_payload = None
+    if jwt_payload and "sub" in jwt_payload and "company_id" in jwt_payload:
+        user_id = jwt_payload.get("sub", "")
+        # is_active 即时校验：停用账号的 JWT 立即失效（JWT 无状态，每次请求查库）
+        # 用户量小可接受；后续可加 60s 缓存优化
+        if not auth.store.is_user_active(user_id):
+            _handle_auth_failure(auth, client_ip, 401, "账号已停用")
+        return {
+            "role": "tenant",
+            "company_id": jwt_payload["company_id"],
+            "email": jwt_payload.get("email", ""),
+            "user_id": user_id,
+        }
 
     # 3. 开发模式兜底
     if auth.is_dev:
@@ -245,21 +253,29 @@ def require_superadmin(auth: dict[str, Any] = Depends(require_admin_api)) -> dic
 
 
 def resolve_company_id(
+    request: Request,
     company_id: str = Query(DEFAULT_COMPANY_ID),
     auth: dict[str, Any] = Depends(require_admin_api),
 ) -> str:
     """解析有效 company_id（租户隔离核心）。
 
     - 超管（ADMIN_API_KEY）：使用请求参数中的 company_id，可访问任意公司
-    - 租户（JWT）：强制使用 JWT 中的 company_id，忽略请求参数
+    - 租户（JWT）：默认用 JWT 中的 company_id；但账号名下的其他公司
+      （自建的管理员公司及其成员，账号配额允许拥有多家）允许通过参数切换
     - 开发模式：使用请求参数（向后兼容）
-
-    所有接受 company_id 查询参数的 admin 路由都应使用此依赖，
-    替代直接 Query(DEFAULT_COMPANY_ID)，确保 JWT 用户无法越权访问其他公司。
     """
-    if auth["role"] == "tenant":
-        return auth["company_id"]
-    return company_id
+    if auth["role"] != "tenant":
+        return company_id
+    if company_id == auth["company_id"]:
+        return company_id
+    # 名下公司（owner_user_id 标记 + 其成员）允许切换
+    store = request.app.state.store
+    visible = {
+        c["id"] for c in store.list_companies_for_tenant(auth["user_id"], auth["company_id"])
+    }
+    if company_id in visible:
+        return company_id
+    return auth["company_id"]
 
 
 def require_company_access(

@@ -128,22 +128,48 @@ async function sbUploadFile(filename, content, contentType) {
   sbSetStatus("✅ 已成功上传 " + filename, "ok");
 }
 
-/** 上传 bundle 后自动更新 version.json，让前端发现版本变了重新下载 bundle */
-async function sbUpdateVersionJson() {
+/** 上传 bundle 后自动更新 version.json，让前端发现版本变了重新下载 bundle。
+ *
+ * version 必须由「本次发布的内容」决定（内容哈希）：
+ * - 数据变了 → version 变 → 门户重新拉 bundle
+ * - 数据没变 → version 不变 → 门户缓存继续有效
+ * 历史教训：曾从 /api/items/stats（后端 items 表）取版本号，但数据拼接区
+ * 的 Excel 合并只存在于浏览器内存、从不写 items 表——表为空时回退到
+ * 配置 revision（旧值），version.json 永不变，门户永远不拉新数据。
+ */
+async function sbUpdateVersionJson(contentHash) {
   let dataRev = "";
-  try {
-    const stats = await request("/api/items/stats");
-    dataRev = (stats && stats.data_revision) || "";
-  } catch (e) {
-    // fallback：使用当前配置的 revision，与 saveConfig 对齐
-    dataRev = (state.config && state.config.revision) || "";
+  if (contentHash) {
+    dataRev = contentHash;  // 主路径：本次上传内容的指纹
+  } else {
+    try {
+      const stats = await request("/api/items/stats");
+      dataRev = (stats && stats.data_revision) || "";
+    } catch (e) {
+      // fallback：使用当前配置的 revision，与 saveConfig 对齐
+      dataRev = (state.config && state.config.revision) || "";
+    }
+    if (!dataRev) dataRev = new Date().toISOString();
   }
-  if (!dataRev) dataRev = new Date().toISOString();
   const versionPayload = JSON.stringify({
     version: dataRev,
     updated_at: new Date().toISOString(),
   }, null, 2);
   await sbUploadFile("version.json", versionPayload, "application/json;charset=utf-8");
+}
+
+/** 对本次同步的 bundle 内容计算版本指纹（SHA-256 前 16 位十六进制）。
+ * crypto.subtle 不可用（非安全上下文）时回退时间戳——版本仍会变化，门户仍能拉新。 */
+async function computeBundleContentHash(parts) {
+  const material = (parts || []).filter(Boolean).join("\n\u0000\n");
+  try {
+    if (window.crypto && window.crypto.subtle && window.isSecureContext) {
+      const buf = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(material));
+      return "c" + [...new Uint8Array(buf)].slice(0, 8)
+        .map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+  } catch (e) { /* 回退时间戳 */ }
+  return "t" + Date.now().toString(36);
 }
 
 // 加载配置后预填充 Supabase Base URL（异步，不阻塞 UI）

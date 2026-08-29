@@ -434,7 +434,8 @@ class TierInheritanceTest(unittest.TestCase):
 
     def test_standalone_company_fails_closed_to_free(self):
         """独立公司（注册用户，无 parent）未设 plan 时 fail-closed 到 free。"""
-        self.store.create_company("standalone-x", "独立公司", meta={})
+        # setUp 已占用公司名「独立公司」（公司名全局唯一），这里用不同名
+        self.store.create_company("standalone-x", "独立公司X", meta={})
         self.assertEqual(self.store.resolve_subscription_plan("standalone-x"), "free")
 
     # ─── 订阅档位上限（plan ≤ license tier）─────────────────
@@ -466,7 +467,17 @@ class TierInheritanceTest(unittest.TestCase):
         """
         from backend.smart_quotation.license import set_dev_tier_override
         from backend.smart_quotation.api.routes_auth import _create_jwt, configure_jwt
+        from backend.smart_quotation.api.passwords import hash_password
+        from contextlib import closing
         import secrets as _secrets
+        # 插入真实用户（is_active 校验需要 user_id 存在于 DB）
+        with closing(self.store.connect()) as conn:
+            conn.execute(
+                "insert into users(id, email, password_hash, company_id, created_at) "
+                "values(?, ?, ?, ?, ?)",
+                ("user-1", "tenant@test.com", hash_password("password123"), "standalone", self.store.now()),
+            )
+            conn.commit()
         # 租户 JWT：绑定到 standalone 公司
         configure_jwt(_secrets.token_hex(32))
         jwt_token = _create_jwt("user-1", "standalone", "tenant@test.com")

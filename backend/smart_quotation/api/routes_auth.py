@@ -16,10 +16,9 @@ JWT 载荷：
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import os
+import re
 import secrets as _secrets
 import time
 from contextlib import closing
@@ -29,39 +28,31 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 
 from ..store import DEFAULT_COMPANY_ID
+from ..store.companies import CompanyNameTaken
+from ..store.users import IntegrityError
 from .auth import AuthContext, _handle_auth_failure, require_admin_api, require_superadmin
-from .models import LoginRequest, RegisterRequest
+from .models import (
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    ResetPasswordRequest,
+)
+from .passwords import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
+
+# 简单邮箱格式校验：本地部分 + @ + 域名（至少一个点）。
+# 不追求 RFC 完备——目的是挡住空格/换行/缺域名的畸形地址（SMTP 头注入、
+# 重置邮件无法投递）；正常用户由前端 type=email 先行校验。
+_EMAIL_RE = re.compile(r"^[\w.+-]+@[\w-]+(\.[\w-]+)+$")
+_EMAIL_MAX_LEN = 254  # RFC 5321 单行上限
 
 # JWT 配置（由 factory.py 启动时通过 configure_jwt() 注入）
 # 绝不在源码中硬编码密钥——已知弱密钥可被攻击者伪造任意 JWT。
 _JWT_SECRET = ""
 _JWT_ALGORITHM = "HS256"
 _JWT_EXPIRE_HOURS = 24 * 7  # 7 天
-
-# 密码哈希：PBKDF2-HMAC-SHA256（无外部依赖，安全性足够 MVP）
-_PBKDF2_ITERATIONS = 100000
-_SALT_SIZE = 16
-
-
-def _hash_password(password: str) -> str:
-    """PBKDF2 密码哈希，返回 salt:hash 格式。"""
-    salt = os.urandom(_SALT_SIZE)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITERATIONS)
-    return f"{salt.hex()}:{dk.hex()}"
-
-
-def _verify_password(password: str, stored: str) -> bool:
-    """验证密码。"""
-    try:
-        salt_hex, hash_hex = stored.split(":", 1)
-        salt = bytes.fromhex(salt_hex)
-        expected = bytes.fromhex(hash_hex)
-        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITERATIONS)
-        return _secrets.compare_digest(dk, expected)
-    except (ValueError, AttributeError):
-        return False
 
 
 def configure_jwt(secret: str) -> None:
@@ -122,9 +113,12 @@ def register(app) -> None:
 
         安全策略：
         - IP 级限流（复用 AuthContext 60s/30 次），防批量注册撑爆数据库
-        - License 公司数量上限检查
-        - 注册的公司不设 is_admin=True（is_admin 是配置继承标志，
-          不是角色标志；注册租户是独立公司，不是管理员公司）
+        - License 公司数量上限检查（部署授权，面向供应商）
+        - 注册即数据源管理员：创建的公司带 is_admin=true + owner_user_id，
+          注册用户自助管理自己的配置/数据/折扣，可自建更多公司（受账号
+          max_companies 配额）和添加子账号（受 max_users 配额）。
+          公司不冻结 plan 快照：无 meta.plan 时回退 owner 账号的订阅档位
+          （注册用户默认无 plan → free，fail-closed；账号升级自动跟随）。
         - 密码至少 8 位（与前端 minlength=8 对齐）
         """
         auth_ctx: AuthContext = app.state.auth
@@ -135,6 +129,8 @@ def register(app) -> None:
         company_name = payload.company_name.strip()
         if not email or not company_name:
             raise HTTPException(status_code=422, detail="邮箱和公司名不能为空")
+        if not _EMAIL_RE.match(email) or len(email) > _EMAIL_MAX_LEN:
+            raise HTTPException(status_code=422, detail="邮箱格式不正确")
         if len(payload.password) < 8:
             raise HTTPException(status_code=422, detail="密码至少 8 位")
 
@@ -170,37 +166,62 @@ def register(app) -> None:
             if row:
                 raise HTTPException(status_code=409, detail="该邮箱已注册")
 
+        # 公司名去重：已有公司名不能再被其他账号注册（防冒充/混淆）
+        if store.get_company_by_name(company_name):
+            raise HTTPException(status_code=409, detail="该公司名已被注册，请换一个名称")
+
         # 生成 company_id：slugify 公司名 + 随机后缀
-        import re
         slug = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff]", "-", company_name).strip("-").lower()[:20]
         if not slug:
             slug = "company"
         company_id = f"{slug}-{_secrets.token_hex(4)}"
+        user_id = _secrets.token_urlsafe(16)
 
-        # 创建公司（不设 is_admin——注册租户是独立公司，不是管理员公司）
+        # 创建公司：注册用户即自己公司的数据源管理员（is_admin=true + owner_user_id）
+        register_meta = {
+            "created_by": "register",
+            "is_admin": True,
+            "owner_user_id": user_id,
+            # 不写 plan 快照：无 plan 回退 owner 账号档位（注册用户无 plan → free）
+        }
         try:
             store.create_company(
                 company_id=company_id,
                 name=company_name,
-                meta={"created_by": "register"},
+                meta=register_meta,
             )
+        except CompanyNameTaken as exc:
+            # 竞态：预检查后另一请求抢先注册了同名公司
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError:
+            # 仅 ID 冲突（slug+随机后缀撞车）：换后缀重试
             company_id = f"{slug}-{_secrets.token_hex(6)}"
-            store.create_company(
-                company_id=company_id,
-                name=company_name,
-                meta={"created_by": "register"},
-            )
+            try:
+                store.create_company(
+                    company_id=company_id,
+                    name=company_name,
+                    meta=register_meta,
+                )
+            except CompanyNameTaken as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        # 创建用户
-        user_id = _secrets.token_urlsafe(16)
-        password_hash = _hash_password(payload.password)
-        with closing(store.connect()) as conn:
-            conn.execute(
-                "insert into users(id, email, password_hash, company_id, created_at) values(?, ?, ?, ?, ?)",
-                (user_id, email, password_hash, company_id, store.now()),
-            )
-            conn.commit()
+        # 创建用户（user_id 已在创建公司前生成——公司 meta.owner_user_id 引用它）
+        password_hash = hash_password(payload.password)
+        try:
+            with closing(store.connect()) as conn:
+                conn.execute(
+                    "insert into users(id, email, password_hash, company_id, created_at) values(?, ?, ?, ?, ?)",
+                    (user_id, email, password_hash, company_id, store.now()),
+                )
+                conn.commit()
+        except IntegrityError:
+            # 并发竞态：SELECT 检查后另一请求抢先注册了同邮箱，撞 unique 约束。
+            # 回滚刚建的公司，防孤立公司占用 license 的 max_companies 额度。
+            try:
+                store.delete_company(company_id)
+            except (LookupError, ValueError):
+                pass
+            raise HTTPException(status_code=409, detail="该邮箱已注册")
 
         store._mark_db_dirty(immediate=True)
 
@@ -217,23 +238,30 @@ def register(app) -> None:
         """登录：邮箱 + 密码 → JWT。
 
         安全策略：
-        - IP 级限流（复用 AuthContext 60s/30 次）
+        - IP 级限流（独立 login: 桶，不与页面加载请求共享预算）
         - 登录失败走 _handle_auth_failure（持久化失败计数，防暴力破解）
         """
         auth_ctx: AuthContext = app.state.auth
         client_ip = request.client.host if request.client else "unknown"
-        auth_ctx.check_rate_limit(f"ip:{client_ip}")
+        # 独立桶：登录不能与页面加载的 admin API 请求共享 ip: 预算
+        auth_ctx.check_rate_limit(f"login:{client_ip}")
 
         email = payload.email.strip().lower()
         with closing(store.connect()) as conn:
             row = conn.execute(
-                "select id, email, password_hash, company_id from users where email = ?",
+                "select id, email, password_hash, company_id, is_active from users where email = ?",
                 (email,),
             ).fetchone()
-        if not row or not _verify_password(payload.password, row["password_hash"]):
+        # 停用账号(is_active=0)走相同失败路径，防邮箱枚举
+        if not row or not row["is_active"] or not verify_password(payload.password, row["password_hash"]):
             _handle_auth_failure(auth_ctx, client_ip, 401, "邮箱或密码错误")
 
         token = _create_jwt(row["id"], row["company_id"], row["email"])
+        # 更新最后登录时间（不阻塞登录流程，失败仅记日志）
+        try:
+            store.touch_last_login(row["id"])
+        except Exception:  # noqa: BLE001
+            logger.debug("更新 last_login_at 失败", exc_info=True)
         return {
             "token": token,
             "user": {
@@ -242,6 +270,155 @@ def register(app) -> None:
                 "company_id": row["company_id"],
             },
         }
+
+    @app.post("/api/auth/forgot-password")
+    async def forgot_password(payload: ForgotPasswordRequest, request: Request) -> dict[str, Any]:
+        """发起密码找回。
+
+        安全策略：
+        - IP 级限流（防邮件轰炸）
+        - 无论邮箱是否存在都返回相同成功响应（防邮箱枚举）
+        - is_active=0 的账号静默不发邮件
+        - 未配置 SMTP / SQ_DEV=1 时链接打印到日志（降级，不阻塞）
+        """
+        from ..mailer import send_password_reset_email, get_app_url, is_mail_configured
+
+        auth_ctx: AuthContext = app.state.auth
+        client_ip = request.client.host if request.client else "unknown"
+        auth_ctx.check_rate_limit(f"forgot:{client_ip}")
+
+        email = payload.email.strip().lower()
+        if not email:
+            raise HTTPException(status_code=422, detail="邮箱不能为空")
+        # 畸形邮箱直接走统一响应：不查库、不发邮件，也不泄露格式校验结果
+        if not _EMAIL_RE.match(email) or len(email) > _EMAIL_MAX_LEN:
+            return {"ok": True, "message": "如果该邮箱已注册，重置链接已发送"}
+
+        # 查用户——存在且启用才发邮件，但不泄露是否存在
+        user = store.get_user_by_email(email)
+        if user and user.get("is_active"):
+            token = _secrets.token_urlsafe(32)
+            from datetime import datetime, timedelta, timezone
+            expires = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+            store.set_reset_token(user["id"], token, expires)
+            reset_url = f"{get_app_url()}/admin/reset-password.html?token={token}"
+            # 邮件发送用线程池，不阻塞事件循环；失败仅记日志（已存 token，用户仍可重置）
+            try:
+                from fastapi.concurrency import run_in_threadpool
+                await run_in_threadpool(send_password_reset_email, email, reset_url)
+            except Exception:  # noqa: BLE001
+                logger.warning("密码重置邮件发送异常: %s", email, exc_info=True)
+            logger.info("密码重置链接已生成: email=%s mail_configured=%s", email, is_mail_configured())
+
+        # 统一响应，防枚举
+        return {"ok": True, "message": "如果该邮箱已注册，重置链接已发送"}
+
+    @app.post("/api/auth/reset-password")
+    async def reset_password(payload: ResetPasswordRequest, request: Request) -> dict[str, Any]:
+        """用 reset_token 重置密码。
+
+        安全策略：
+        - 密码至少 8 位（与注册一致）
+        - token 一次性（消费后清空）
+        - token 30 分钟过期
+        - 并发竞争防护（UPDATE WHERE token 检查 rowcount）
+        - 不泄露 token 是否有效（无效/过期统一 401）
+        """
+        from datetime import datetime, timezone
+
+        auth_ctx: AuthContext = app.state.auth
+        client_ip = request.client.host if request.client else "unknown"
+        auth_ctx.check_rate_limit(f"reset:{client_ip}")
+
+        if len(payload.password) < 8:
+            raise HTTPException(status_code=422, detail="密码至少 8 位")
+
+        user = store.get_user_by_reset_token(payload.token)
+        if not user:
+            _handle_auth_failure(auth_ctx, client_ip, 401, "无效或已过期的重置链接")
+        # 过期校验
+        expires_str = user.get("reset_expires")
+        if not expires_str:
+            _handle_auth_failure(auth_ctx, client_ip, 401, "无效或已过期的重置链接")
+        try:
+            expires_dt = datetime.fromisoformat(expires_str)
+            if expires_dt.tzinfo is None:
+                expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires_dt:
+                # 过期则清空 token，防残留
+                store.set_reset_token(user["id"], None, None)
+                _handle_auth_failure(auth_ctx, client_ip, 401, "无效或已过期的重置链接")
+        except (ValueError, TypeError):
+            _handle_auth_failure(auth_ctx, client_ip, 401, "无效或已过期的重置链接")
+
+        new_hash = hash_password(payload.password)
+        updated_id = store.consume_reset_token(payload.token, new_hash)
+        if not updated_id:
+            # 并发竞争或已被消费
+            _handle_auth_failure(auth_ctx, client_ip, 401, "无效或已过期的重置链接")
+
+        # 审计
+        try:
+            with closing(store.connect()) as conn:
+                store.audit(conn, updated_id, "password_reset", "user", updated_id, {"via": "token"})
+                conn.commit()
+        except Exception:  # noqa: BLE001
+            logger.debug("审计写入失败", exc_info=True)
+
+        logger.info("密码已重置: user_id=%s", updated_id)
+        return {"ok": True, "message": "密码已重置，请使用新密码登录"}
+
+    @app.post("/api/auth/change-password")
+    async def change_password(payload: ChangePasswordRequest, request: Request) -> dict[str, Any]:
+        """登录用户自助修改密码（JWT 认证）。
+
+        安全策略：
+        - 仅 JWT 用户可用（超管 API Key 不对应 users 行，无"当前密码"概念）
+        - 校验旧密码：会话被劫持时攻击者仍需知道旧密码才能改密
+        - 旧密码错误走 _handle_auth_failure（持久化失败计数，防暴力猜测）
+        - 新密码至少 8 位；成功后清除未消费的 reset_token（防旧重置链接绕过旧密码）
+        - 停用账号拒绝改密（与登录门控一致）
+        - 无状态 JWT 无法吊销：改密后当前 token 仍有效至自然过期
+        """
+        auth_ctx: AuthContext = app.state.auth
+        client_ip = request.client.host if request.client else "unknown"
+        auth_ctx.check_rate_limit(f"chgpw:{client_ip}")
+
+        user = get_jwt_user(request)
+        if not user:
+            raise HTTPException(status_code=401, detail="无效或过期的令牌")
+        if len(payload.new_password) < 8:
+            raise HTTPException(status_code=422, detail="新密码至少 8 位")
+
+        user_id = user["sub"]
+        with closing(store.connect()) as conn:
+            row = conn.execute(
+                "select id, password_hash, is_active from users where id = ?",
+                (user_id,),
+            ).fetchone()
+        # 用户不存在（已删除/伪造 JWT）或已停用：统一按认证失败处理
+        if not row or not row["is_active"]:
+            _handle_auth_failure(auth_ctx, client_ip, 401, "无效或过期的令牌")
+        if not verify_password(payload.old_password, row["password_hash"]):
+            _handle_auth_failure(auth_ctx, client_ip, 401, "旧密码错误")
+
+        store.update_user(
+            user_id,
+            password_hash=hash_password(payload.new_password),
+            reset_token=None,
+            reset_expires=None,
+        )
+
+        # 审计
+        try:
+            with closing(store.connect()) as conn:
+                store.audit(conn, user_id, "password_change", "user", user_id, {"via": "self"})
+                conn.commit()
+        except Exception:  # noqa: BLE001
+            logger.debug("审计写入失败", exc_info=True)
+
+        logger.info("用户已修改密码: user_id=%s", user_id)
+        return {"ok": True, "message": "密码已修改"}
 
     @app.get("/api/auth/profile")
     async def get_profile(request: Request) -> dict[str, Any]:
@@ -296,7 +473,11 @@ def register(app) -> None:
             plan = get_dev_tier_override()
         else:
             auth_company_id = auth.get("company_id")
-            if auth_company_id:
+            auth_user_id = auth.get("user_id")
+            # 账号级 plan 优先（users.plan），回退公司级，再回退 license tier
+            if auth_user_id:
+                plan = store.resolve_user_plan(auth_user_id, auth_company_id)
+            elif auth_company_id:
                 plan = store.resolve_subscription_plan(auth_company_id)
             elif license_payload:
                 plan = license_payload.get("tier", "free")
@@ -325,15 +506,28 @@ def register(app) -> None:
         email = auth.get("email") if auth["role"] == "tenant" else None
         company_id = auth.get("company_id") if auth["role"] == "tenant" else None
 
+        # 订阅到期时间（租户可见自己的订阅状态；注意 resolve_user_plan
+        # 过期后会回退公司级——这里查的是列上的原始到期时间，已过期的
+        # 订阅前端可显示「已过期」而非隐藏）
+        plan_expires_at = None
+        if auth.get("user_id"):
+            try:
+                user_row = store.get_user(auth["user_id"])
+                plan_expires_at = user_row.get("plan_expires_at") if user_row else None
+            except Exception:  # noqa: BLE001
+                logger.debug("查询订阅到期失败", exc_info=True)
+
         return {
             "role": auth["role"],
             "is_dev": is_dev,
             "plan": plan,
+            "plan_expires_at": plan_expires_at,
             "tier": tier,
             "features": features,
             "quota": quota,
             "email": email,
             "company_id": company_id,
+            "user_id": auth.get("user_id"),
             "preview_plan": preview_plan,
             "dev_tier_override": get_dev_tier_override() if is_dev else None,
         }

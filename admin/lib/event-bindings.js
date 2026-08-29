@@ -20,14 +20,14 @@
  * 安全性：token 是 43 字符随机串 + PBKDF2 10 万轮派生密钥，公开下载无法破解；
  * 令牌泄露的攻击者本来就能登录管理员账号看面价，不扩大攻击面。
  *
- * 失败不阻断主流程（成员公司通道优先），仅提示。
+ * 失败不阻断主流程（客户公司通道优先），仅提示。
  */
 async function uploadAdminPriceBundle(priceRows, cfg) {
   // 返回 {ok, error}：让调用方决定最终状态展示，避免失败被后续 sbSetStatus 覆盖
   // （曾导致用户只看到「已同步全部」却不知 admin 包失败 → admin 端看不到面价）。
   const cid = getCurrentCompanyId();
   if (!cid || cid === "default") {
-    return { ok: false, error: "未选中管理员公司（当前为 default）。请在配置中心顶部选择你的管理员公司后再同步，否则 price.admin.bundle.json 不会上传，admin 端看不到面价" };
+    return { ok: false, error: "未选中主公司（当前为 default）。请在配置中心顶部选择你的主公司后再同步，否则 price.admin.bundle.json 不会上传，admin 端看不到面价" };
   }
   try {
     const company = await request("/api/companies/" + encodeURIComponent(cid));
@@ -192,8 +192,9 @@ function bind() {
       JSON.parse(text);
       await sbUploadFile("price.bundle.json", text, "application/json;charset=utf-8");
       // 管理员通道：有拼接原始数据时额外生成 token 加密的完整价格包（含面价）
+      let adminResult = null;
       if (window._mergerState && window._mergerState.priceRows && window._mergerState.priceRows.length > 0) {
-        const adminResult = await uploadAdminPriceBundle(window._mergerState.priceRows, collectConfig());
+        adminResult = await uploadAdminPriceBundle(window._mergerState.priceRows, collectConfig());
         if (!adminResult.ok) {
           sbSetStatus("⚠️ 价格包已上传，但管理员数据包失败：" + adminResult.error + "（admin 端将看不到面价）", "error");
           return;
@@ -201,7 +202,8 @@ function bind() {
       } else {
         sbSetStatus("⚠️ 无拼接原始数据，管理员数据包未生成（管理员端将看不到面价）", "info");
       }
-      await sbUpdateVersionJson();
+      // 版本号 = 本次上传内容的指纹（内容变 → version 变 → 门户拉新）
+      await sbUpdateVersionJson(await computeBundleContentHash([text]));
     } catch (err) {
       sbSetStatus("❌ " + err.message, "error");
     }
@@ -230,7 +232,7 @@ function bind() {
       }
       JSON.parse(text);
       await sbUploadFile("stock.bundle.json", text, "application/json;charset=utf-8");
-      await sbUpdateVersionJson();
+      await sbUpdateVersionJson(await computeBundleContentHash([text]));
     } catch (err) {
       sbSetStatus("❌ " + err.message, "error");
     }
@@ -275,9 +277,11 @@ function bind() {
       const safeCfg = desensitizeConfigForPublic(cfg);
       await sbUploadFile("config.json", JSON.stringify(safeCfg, null, 2), "application/json;charset=utf-8");
 
+      let priceResult = null;
+      let stockResult = null;
       if (hasPrice) {
         sbSetStatus("正在生成并上传脱敏价格包...", "info");
-        const priceResult = await ExportUtils.createPriceBundleScript(ms.priceRows, password, cfg, { desensitize: true });
+        priceResult = await ExportUtils.createPriceBundleScript(ms.priceRows, password, cfg, { desensitize: true });
         JSON.parse(priceResult.script);
         await sbUploadFile("price.bundle.json", priceResult.script, "application/json;charset=utf-8");
         window._mergerBundles = window._mergerBundles || {};
@@ -287,13 +291,16 @@ function bind() {
       }
       if (hasStock) {
         sbSetStatus("正在生成并上传库存包...", "info");
-        const stockResult = ExportUtils.createStockBundleScript(ms.stockRows, cfg);
+        stockResult = ExportUtils.createStockBundleScript(ms.stockRows, cfg);
         JSON.parse(stockResult.script);
         await sbUploadFile("stock.bundle.json", stockResult.script, "application/json;charset=utf-8");
         window._mergerBundles = window._mergerBundles || {};
         window._mergerBundles.stock = stockResult.script;
       }
-      await sbUpdateVersionJson();
+      // 版本号 = 本次全部上传内容的指纹（数据没变则 version 不变，门户缓存继续有效）
+      await sbUpdateVersionJson(await computeBundleContentHash(
+        [JSON.stringify(safeCfg), priceResult && priceResult.script, stockResult && stockResult.script]
+      ));
       if (hasPrice && adminBundleResult && !adminBundleResult.ok) {
         sbSetStatus("⚠️ 价格/库存已同步，但管理员数据包失败：" + adminBundleResult.error + "（admin 端将看不到面价）", "error");
       } else {

@@ -77,7 +77,13 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     company_id TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    reset_token TEXT,
+    reset_expires TEXT,
+    last_login_at TEXT,
+    plan TEXT,
+    plan_expires_at TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_company ON users(company_id);

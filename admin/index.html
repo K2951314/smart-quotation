@@ -61,6 +61,7 @@
       </div>
       <nav class="nav">
         <a href="#companies">🏢 公司管理</a>
+        <a href="users.html">👥 账号管理</a>
         <a href="#fields">📋 字段配置</a>
         <a href="#rules">⚖️ 报价规则</a>
         <a href="#copy">📋 复制模板</a>
@@ -121,9 +122,10 @@
 <h2>公司管理</h2>
 </div>
 <div class="company-layout">
-  <!-- 创建数据源管理员 -->
+  <!-- 创建主公司：所有角色可见（账号配额 max_companies 内自助创建；
+       租户面板显示剩余配额，超管不受限） -->
   <div class="company-create-panel">
-    <h3>创建数据源管理员</h3>
+    <h3>创建主公司</h3>
     <div class="field-block">
       <label class="field-label">公司ID（英文/数字，如 acme）</label>
       <input id="newCompanyId" type="text" placeholder="acme">
@@ -132,13 +134,14 @@
       <label class="field-label">公司名称</label>
       <input id="newCompanyName" type="text" placeholder="ACME 刀具">
     </div>
-    <button id="createCompanyBtn" type="button" class="create-btn">创建数据源管理员</button>
+    <button id="createCompanyBtn" type="button" class="create-btn">创建主公司</button>
+    <p class="field-hint" id="companyQuotaHint" style="margin-top:var(--sp-2);"></p>
     <p class="field-hint" style="margin-top:var(--sp-2);">
-      <strong>树形结构说明：</strong><br>
-      • 创建公司 = 创建一个独立的<strong>数据源管理员</strong>，拥有独立的配置、数据、折扣规则<br>
-      • 创建后，在管理员卡片上点击「添加成员」创建<strong>成员公司</strong><br>
-      • 成员公司自动继承管理员的配置/数据/折扣，通过<strong>利润率分组</strong>管理各自利润率<br>
-      • 管理员通过令牌访问可看完整数据（面价/折扣），成员公司看脱敏数据
+      <strong>概念说明（三级结构）：</strong><br>
+      • <strong>主公司</strong>＝你的工作台（注册时自动创建，也可按订阅配额多开）：价格表、折扣规则、数据都在这里<br>
+      • <strong>客户公司</strong>＝你的下游客户：在主公司卡片上「添加客户」创建，自动继承你的配置与数据，各自有专属访问链接（无需注册登录）和独立利润率<br>
+      • <strong>子账号</strong>＝给自己同事开的登录席位（账号管理页添加），和客户公司无关<br>
+      • 数据可见性：你在主公司看完整数据（面价/折扣），客户公司打开链接只看脱敏报价
     </p>
   </div>
   <!-- 公司列表（树形） -->
@@ -450,16 +453,16 @@
 <script src="./lib/bundle-utils.js?v=10"></script>
 <script src="./lib/export-utils.js?v=10"></script>
 <script src="./merger-app.js?v=17"></script>
-<script src="./lib/admin-core.js?v=22"></script>
-<script src="./lib/session-panel.js?v=5"></script>
-<script src="./lib/companies.js?v=26"></script>
-<script src="./lib/tiers.js?v=17"></script>
-<script src="./lib/supabase-deploy.js?v=19"></script>
+<script src="./lib/admin-core.js?v=23"></script>
+<script src="./lib/session-panel.js?v=7"></script>
+<script src="./lib/companies.js?v=33"></script>
+<script src="./lib/tiers.js?v=18"></script>
+<script src="./lib/supabase-deploy.js?v=20"></script>
 <script src="./lib/standalone-html.js?v=18"></script>
 <script src="./lib/config-collect.js?v=17"></script>
 <script src="./lib/config-render.js?v=19"></script>
 <script src="./lib/config-api.js?v=17"></script>
-<script src="./lib/event-bindings.js?v=18"></script>
+<script src="./lib/event-bindings.js?v=20"></script>
 <script src="./app.js?v=18"></script>
 </body>
 </html>

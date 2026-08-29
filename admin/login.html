@@ -47,7 +47,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   </form>
 
   <div class="register-link">
-    没有账户？<a href="register.html">注册</a> &nbsp;|&nbsp; <a href="index.html">API Key 登录</a>
+    没有账户？<a href="register.html">注册</a> &nbsp;|&nbsp; <a href="forgot-password.html">忘记密码？</a> &nbsp;|&nbsp; <a href="index.html">API Key 登录</a>
   </div>
 </div>
 
@@ -68,8 +68,10 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
   try {
     let apiBase = window.SQ_PROD_API_BASE || "";
     if (!apiBase) {
+      // ?api= 仅本地开发生效（file:/localhost/127.0.0.1），防生产环境 API 劫持
+      const isDev = location.protocol === "file:" || location.hostname === "127.0.0.1" || location.hostname === "localhost";
       const params = new URLSearchParams(location.search);
-      apiBase = params.get("api") || localStorage.getItem("sq_admin_api_base") || "";
+      apiBase = (isDev ? params.get("api") : null) || localStorage.getItem("sq_admin_api_base") || "";
       if (!apiBase) {
         if (location.protocol === "file:") apiBase = "http://127.0.0.1:8001";
         else apiBase = location.origin;

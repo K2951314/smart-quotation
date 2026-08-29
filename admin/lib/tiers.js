@@ -2,10 +2,10 @@
  * tiers.js — 利润率分组（Tier）管理 + 拖拽分配公司到分组。
  *
  * 设计（配合树形公司结构）：
- * - 每个数据源管理员拥有独立的 tier 定义（存储在 admin meta.tiers 中）
- * - 成员公司通过 meta.tier + meta.parent_company_id 继承 parent 的配置/数据
+ * - 每个主公司拥有独立的 tier 定义（存储在 admin meta.tiers 中）
+ * - 客户公司通过 meta.tier + meta.parent_company_id 继承 parent 的配置/数据
  * - 利润率解析链：tier → meta.profit_margin → 默认 10
- * - 拖拽：成员公司卡片可拖到任意 Tier 卡片上完成分配
+ * - 拖拽：客户公司卡片可拖到任意 Tier 卡片上完成分配
  *
  * 依赖：admin-core.js（request、setStatus、escapeHtml、getCurrentCompanyId、run）
  *       companies.js（loadCompanies，拖拽后刷新公司列表）
@@ -16,7 +16,7 @@
 /**
  * 在指定容器内为管理员渲染 Tier 管理面板。
  * @param {HTMLElement} container - 容器 DOM 节点
- * @param {string} adminId - 管理员公司 ID
+ * @param {string} adminId - 主公司 ID
  */
 function renderTierManagerForAdmin(container, adminId) {
   if (!container) return;
@@ -24,7 +24,7 @@ function renderTierManagerForAdmin(container, adminId) {
   // 功能门控：tier_profit_grouping 是 team 档位功能，低档位显示升级提示
   if (window.hasFeature && !window.hasFeature("tier_profit_grouping")) {
     container.innerHTML = '<div style="padding:10px;border:1px dashed #ddd;border-radius:5px;text-align:center;color:#bbb;font-size:11px;background:#fff;">' +
-      '🔒 利润率分组是专业版功能。<br>升级后可创建分组并为成员公司分配不同利润率。</div>';
+      '🔒 利润率分组是专业版功能。<br>升级后可创建分组并为客户公司分配不同利润率。</div>';
     return;
   }
 
@@ -37,12 +37,12 @@ function renderTierManagerForAdmin(container, adminId) {
     '</div>';
 
   var hint = '<p style="font-size:10px;color:#999;margin-bottom:6px;">' +
-    '将成员公司拖到下方分组上即可分配利润率级别。无分组的成员使用默认利润率。</p>';
+    '将客户公司拖到下方分组上即可分配利润率级别。无分组的客户公司使用默认利润率。</p>';
 
   if (tiers.length === 0) {
     container.innerHTML = header + hint +
       '<div style="padding:10px;border:1px dashed #ddd;border-radius:5px;text-align:center;color:#bbb;font-size:11px;background:#fff;">' +
-      '暂无利润率分组。成员公司使用默认利润率（10%）。<br>点击「添加分组」创建级别（如 A级 5%、B级 10%）。</div>';
+      '暂无利润率分组。客户公司使用默认利润率（10%）。<br>点击「添加分组」创建级别（如 A级 5%、B级 10%）。</div>';
   } else {
     var cards = tiers.map(function (tier, idx) {
       var name = escapeHtml(tier.name || "");
@@ -64,7 +64,7 @@ function renderTierManagerForAdmin(container, adminId) {
         '<button type="button" data-tier-edit-admin="' + escapeHtml(adminId) + '" data-tier-edit-idx="' + idx + '" style="margin-left:auto;padding:1px 5px;font-size:10px;border:1px solid #ddd;background:#fff;border-radius:2px;cursor:pointer;">改</button>' +
         '<button type="button" data-tier-delete-admin="' + escapeHtml(adminId) + '" data-tier-delete-idx="' + idx + '" style="padding:1px 5px;font-size:10px;border:1px solid #e74c3c;color:#e74c3c;background:#fff;border-radius:2px;cursor:pointer;">删</button>' +
         '</div>' +
-        '<div class="tier-drop-hint" style="font-size:10px;color:#aaa;margin-top:3px;display:none;">← 拖成员公司到此处分配</div>' +
+        '<div class="tier-drop-hint" style="font-size:10px;color:#aaa;margin-top:3px;display:none;">← 拖客户公司到此处分配</div>' +
         '</div>';
     }).join("");
 
@@ -153,7 +153,7 @@ function deleteTier(adminId, idx) {
   var tiers = (g_TiersCache[adminId] || []).slice();
   if (idx < 0 || idx >= tiers.length) return;
   var tier = tiers[idx];
-  if (!confirm("确认删除分组「" + tier.name + "」？\n该分组下的成员公司将回退到默认利润率。")) return;
+  if (!confirm("确认删除分组「" + tier.name + "」？\n该分组下的客户公司将回退到默认利润率。")) return;
   tiers.splice(idx, 1);
   saveTiersForAdmin(adminId, tiers);
 }
@@ -173,7 +173,7 @@ async function saveTiersForAdmin(adminId, tiers) {
   }
 }
 
-// ─── 拖拽：成员公司 → Tier ──────────────────────────────
+// ─── 拖拽：客户公司 → Tier ──────────────────────────────
 
 function companyDragStart(event, companyId) {
   event.dataTransfer.setData("text/plain", companyId);

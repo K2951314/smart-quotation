@@ -169,7 +169,7 @@ async function tryLogin() {
       // 加载会话面板（角色 + 档位 + 开发模式切换器）
       if (window.loadLicenseBadge) run(window.loadLicenseBadge);
     } else if (response.status === 429) {
-      if (errDiv) { errDiv.textContent = "尝试次数过多，请 5 分钟后再试"; errDiv.style.display = "block"; }
+      if (errDiv) { errDiv.textContent = "请求过于频繁，请 1 分钟后再试"; errDiv.style.display = "block"; }
     } else if (response.status === 401) {
       if (errDiv) { errDiv.textContent = "API Key 无效，请检查后重试"; errDiv.style.display = "block"; }
     } else {

@@ -27,6 +27,7 @@ from .routes_merger import register as register_merger
 from .routes_public import register as register_public
 from .routes_stock import register as register_stock
 from .routes_tiers import register as register_tiers
+from .routes_users import register as register_users
 
 
 class StaticCacheControlMiddleware(BaseHTTPMiddleware):
@@ -37,9 +38,12 @@ class StaticCacheControlMiddleware(BaseHTTPMiddleware):
     缓存 HTML 数小时甚至数天——即使部署了新 CSS（?v=18），
     浏览器仍在用旧 HTML（引用 ?v=17）加载旧 CSS。
 
-    策略：
-    - HTML: no-cache, must-revalidate — 每次通过 ETag 校验，变更才下载
-    - CSS/JS: public, max-age=31536000, immutable — 1年永久缓存，靠 ?v= 失效
+    策略（HTML/JS/CSS 全部协商缓存，靠 ETag 验证，文件未变返回 304）：
+    - HTML: no-cache, must-revalidate
+    - CSS/JS: no-cache —— 曾经用 1 年 immutable + ?v= 失效，但本项目无
+      构建系统，?v= 靠手动 bump，实际多次改了 JS 忘 bump 导致浏览器
+      一直用旧缓存（immutable 条目连重新验证都不做）。协商缓存的 304
+      开销可忽略，换取消除整类「改了没生效」问题。
     - 其他（图片/字体）: public, max-age=86400 — 1天缓存
     """
 
@@ -60,8 +64,9 @@ class StaticCacheControlMiddleware(BaseHTTPMiddleware):
             # HTML 入口文件：每次都校验 ETag，确保部署后立即生效
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
         elif path.endswith((".css", ".js")):
-            # 版本化静态资源：靠 ?v= 查询参数失效，可永久缓存
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            # CSS/JS：协商缓存（ETag 验证）。不再用 immutable+?v=：
+            # 无构建系统下 ?v= 靠手动维护，漏 bump 即「改了没生效」
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
         elif path.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot")):
             # 图片/字体：1天缓存
             response.headers["Cache-Control"] = "public, max-age=86400"
@@ -256,6 +261,13 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
         if not is_dev:
             _logger.warning("License 校验异常: %s", exc)
 
+    # SMTP 已配置但 APP_URL 未设置：重置邮件里的链接会指向本地开发地址
+    if os.environ.get("SMTP_HOST", "").strip() and not os.environ.get("APP_URL", "").strip():
+        _logger.warning(
+            "SMTP 已配置但 APP_URL 未设置，密码重置链接将指向 http://127.0.0.1:8001。"
+            "生产环境请设置 APP_URL 为 admin 后台的实际域名。"
+        )
+
     # 注册路由模块
     register_auth(app)
     register_public(app)
@@ -265,6 +277,7 @@ def create_app(store: QuotationStore | None = None) -> FastAPI:
     register_merger(app)
     register_stock(app)
     register_tiers(app)
+    register_users(app)
 
     # 缓存控制中间件：必须在挂载 StaticFiles 之前添加
     # 解决手机浏览器启发式缓存导致部署后看不到更新的问题

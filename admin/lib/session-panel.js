@@ -129,25 +129,48 @@
       emailSpan.textContent = session.email;
       emailSpan.title = session.email;
       panel.appendChild(emailSpan);
+
+      // 修改密码入口（仅 JWT 租户用户；超管 API Key 无"用户密码"概念）
+      panel.appendChild(createChangePasswordButton());
     }
 
     // ── 订阅档位徽标（可点击跳转 billing）──
+    // 账号级订阅带到期时间：显示剩余天数，7 天内变橙提醒
     var tier = session.plan || session.tier || "free";
     var tierLabel = TIER_LABELS[tier] || tier;
     var tierColor = TIER_COLORS[tier] || "#95a5a6";
+    var expiresInfo = "";
+    if (session.plan_expires_at) {
+      try {
+        var expDate = new Date(session.plan_expires_at);
+        if (!isNaN(expDate.getTime())) {
+          var daysLeft = Math.ceil((expDate.getTime() - Date.now()) / 86400000);
+          if (daysLeft < 0) {
+            expiresInfo = "（已过期）";
+          } else {
+            expiresInfo = "（剩 " + daysLeft + " 天）";
+            if (daysLeft <= 7) {
+              tierColor = "#e67e22"; // 临期提醒
+            }
+          }
+        }
+      } catch (e) { /* 忽略解析失败 */ }
+    }
     var tierBadge = document.createElement("a");
     tierBadge.className = "session-badge session-tier";
     tierBadge.style.background = tierColor;
     tierBadge.href = "billing.html";
     tierBadge.target = "_blank";
-    tierBadge.title = "当前订阅：" + tierLabel + "（点击查看订阅方案详情）";
-    tierBadge.textContent = "◈ " + tierLabel;
+    tierBadge.title = "当前订阅：" + tierLabel + expiresInfo + "（点击查看订阅方案详情）";
+    tierBadge.textContent = "◈ " + tierLabel + expiresInfo;
     panel.appendChild(tierBadge);
 
     // ── 开发模式标记 + tier 切换器 ──
-    // 开发模式（SQ_DEV=1）：显示 dev tier 切换器（调 /api/dev/set-tier）
-    // 超管（非 dev）：显示档位预览切换器（调 /api/admin/preview-tier）
-    if (session.is_dev) {
+    // 仅平台侧角色可见（租户点击也用不了，纯属干扰）：
+    // - 开发模式（SQ_DEV=1）+ 超管/dev：dev tier 切换器（调 /api/dev/set-tier）
+    // - 超管（非 dev）：档位预览切换器（调 /api/admin/preview-tier）
+    var isPlatformSide = session.role === "superadmin" || session.role === "dev";
+    if (session.is_dev && isPlatformSide) {
       var devSwitcher = createDevTierSwitcher(session);
       panel.appendChild(devSwitcher);
     } else if (session.role === "superadmin") {
@@ -188,13 +211,175 @@
     tierBadge.textContent = "◈ " + tierLabel;
     panel.appendChild(tierBadge);
 
-    if (session.is_dev) {
+    if (session.is_dev && (session.role === "superadmin" || session.role === "dev")) {
       var devSwitcher = createDevTierSwitcher(session);
       panel.appendChild(devSwitcher);
     } else if (session.role === "superadmin") {
       var previewSwitcher = createPreviewTierSwitcher(session);
       if (previewSwitcher) panel.appendChild(previewSwitcher);
     }
+  }
+
+  // ── 修改密码（仅 JWT 租户用户）──────────────────────────
+
+  /**
+   * 读取 JWT token（sessionStorage 优先，localStorage 兜底）。
+   * 与 users.js readToken 一致：新标签页 sessionStorage 快照缺失时回退。
+   */
+  function readJwtToken() {
+    try {
+      return sessionStorage.getItem("sq_jwt_token") ||
+             localStorage.getItem("sq_jwt_token") || "";
+    } catch (e) { return ""; }
+  }
+
+  /**
+   * 创建"修改密码"按钮。样式对齐 session-email（var(--muted) 灰字），
+   * hover 加下划线提示可点击——不用 session-badge（白字需要背景色）。
+   * 超管（API Key 登录）不显示——API Key 来自环境变量，无用户密码可改。
+   */
+  function createChangePasswordButton() {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "session-email session-chgpw";
+    btn.textContent = "修改密码";
+    btn.title = "修改当前账号的登录密码";
+    btn.style.cssText =
+      "border:none;background:none;cursor:pointer;font:inherit;" +
+      "font-size:11px;color:var(--muted,#6b7280);padding:3px 2px;flex-shrink:0;";
+    btn.onmouseenter = function () {
+      btn.style.textDecoration = "underline";
+    };
+    btn.onmouseleave = function () {
+      btn.style.textDecoration = "none";
+    };
+    btn.onclick = function () { openChangePasswordModal(); };
+    return btn;
+  }
+
+  /**
+   * 修改密码弹窗。样式内联——session-panel.js 被多个页面共用，
+   * 不能假设页面里已有弹窗 CSS。
+   */
+  function openChangePasswordModal() {
+    var root = document.getElementById("sqChgpwModalRoot");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "sqChgpwModalRoot";
+      document.body.appendChild(root);
+    }
+    root.innerHTML = "";
+
+    var overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;" +
+      "display:flex;align-items:center;justify-content:center;";
+
+    var card = document.createElement("div");
+    card.style.cssText =
+      "background:#fff;border-radius:12px;padding:28px;width:360px;max-width:90vw;" +
+      "box-shadow:0 8px 32px rgba(0,0,0,.18);font-family:inherit;";
+
+    var title = document.createElement("h3");
+    title.textContent = "修改密码";
+    title.style.cssText = "margin:0 0 6px;font-size:18px;color:#1a1a2e;";
+    card.appendChild(title);
+
+    var subtitle = document.createElement("p");
+    subtitle.textContent = "为账号设置新的登录密码（至少 8 位）";
+    subtitle.style.cssText = "margin:0 0 4px;font-size:13px;color:#6b7280;";
+    card.appendChild(subtitle);
+
+    function field(labelText, placeholder) {
+      var label = document.createElement("label");
+      label.textContent = labelText;
+      label.style.cssText =
+        "display:block;font-size:13px;font-weight:500;color:#374151;margin:10px 0 4px;";
+      var input = document.createElement("input");
+      input.type = "password";
+      input.placeholder = placeholder;
+      input.autocomplete = "new-password";
+      input.style.cssText =
+        "width:100%;padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;" +
+        "font-size:14px;box-sizing:border-box;";
+      label.appendChild(input);
+      card.appendChild(label);
+      return input;
+    }
+
+    var oldInput = field("旧密码", "输入当前密码");
+    var newInput = field("新密码", "至少 8 位");
+    var confirmInput = field("确认新密码", "再次输入新密码");
+
+    var errEl = document.createElement("div");
+    errEl.style.cssText = "color:#dc2626;font-size:13px;margin-top:10px;min-height:18px;";
+    card.appendChild(errEl);
+
+    var actions = document.createElement("div");
+    actions.style.cssText = "display:flex;gap:10px;margin-top:14px;";
+
+    var cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.textContent = "取消";
+    cancelBtn.style.cssText =
+      "flex:1;padding:10px;border:1px solid #d1d5db;border-radius:8px;background:#fff;" +
+      "cursor:pointer;font-size:14px;";
+    cancelBtn.onclick = function () { root.innerHTML = ""; };
+
+    var submitBtn = document.createElement("button");
+    submitBtn.type = "button";
+    submitBtn.textContent = "确认修改";
+    submitBtn.style.cssText =
+      "flex:1;padding:10px;border:none;border-radius:8px;background:#3b82f6;color:#fff;" +
+      "cursor:pointer;font-size:14px;font-weight:600;";
+    actions.appendChild(cancelBtn);
+    actions.appendChild(submitBtn);
+    card.appendChild(actions);
+
+    overlay.appendChild(card);
+    root.appendChild(overlay);
+
+    // 点遮罩关闭（点卡片本身不关）
+    overlay.addEventListener("click", function (e) {
+      if (e.target === overlay) root.innerHTML = "";
+    });
+
+    submitBtn.onclick = async function () {
+      var oldPassword = oldInput.value;
+      var newPassword = newInput.value;
+      errEl.style.color = "#dc2626";
+      errEl.textContent = "";
+      if (!oldPassword) { errEl.textContent = "请输入旧密码"; return; }
+      if (newPassword.length < 8) { errEl.textContent = "新密码至少 8 位"; return; }
+      if (newPassword !== confirmInput.value) { errEl.textContent = "两次输入的新密码不一致"; return; }
+
+      var apiBase = (window.getApiBase && window.getApiBase()) || "";
+      var token = readJwtToken();
+      if (!token) { errEl.textContent = "登录状态已失效，请重新登录"; return; }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "提交中...";
+      try {
+        var resp = await fetch(apiBase + "/api/auth/change-password", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) throw new Error(data.detail || "HTTP " + resp.status);
+        errEl.style.color = "#059669";
+        errEl.textContent = "密码已修改";
+        submitBtn.textContent = "已完成";
+        setTimeout(function () { root.innerHTML = ""; }, 1500);
+      } catch (err) {
+        errEl.textContent = err.message;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "确认修改";
+      }
+    };
   }
 
   /**
@@ -432,6 +617,14 @@
     var features = (session && session.features) || [];
     var isDev = session && session.is_dev;
     var isSuperadmin = session && session.role === "superadmin";
+
+    // 平台级操作（用户管理）仅平台侧角色可见——
+    // 注意用 role 判断而非 session.is_dev：is_dev 是部署级开关（SQ_DEV=1 时
+    // 租户的 session 里也是 true），用它会让租户在开发部署下看到超管按钮。
+    var isPlatformRole = session.role === "superadmin" || session.role === "dev";
+    document.querySelectorAll("[data-superadmin-only]").forEach(function (el) {
+      el.style.display = isPlatformRole ? "" : "none";
+    });
 
     var gated = document.querySelectorAll("[data-feature]");
     gated.forEach(function (el) {

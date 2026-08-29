@@ -3,6 +3,7 @@
 由以下 mixin 组合而成：
   - StoreBase:        连接管理、Schema 初始化、迁移
   - CompaniesMixin:   公司 CRUD + 访问令牌
+  - UsersMixin:       用户管理（列表/档位/启停/迁移/重置）
   - ConfigsMixin:     配置版本化保存/发布/回滚/导入导出/脱敏
   - ItemsMixin:       商品数据 CRUD
   - AuditMixin:       审计日志
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 from .base import DEFAULT_COMPANY_ID, SENSITIVE_FIELDS, ConfigCache, StoreBase
 from .companies import CompaniesMixin
+from .users import UsersMixin
 from .configs import ConfigsMixin
 from .items import ItemsMixin
 from .audit import AuditMixin
@@ -25,6 +27,7 @@ from .bundles import BundlesMixin
 
 class QuotationStore(
     CompaniesMixin,
+    UsersMixin,
     ConfigsMixin,
     ItemsMixin,
     AuditMixin,

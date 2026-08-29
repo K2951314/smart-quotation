@@ -741,6 +741,16 @@ class QuotaEnforcementTest(unittest.TestCase):
         """非超管调用 preview-tier 应返回 403。"""
         from backend.smart_quotation.api.routes_auth import _create_jwt, configure_jwt
         import secrets as _secrets
+        from contextlib import closing
+        from backend.smart_quotation.api.passwords import hash_password
+        # 插入真实用户（is_active 校验需要 user_id 存在于 DB）
+        with closing(self.store.connect()) as conn:
+            conn.execute(
+                "insert into users(id, email, password_hash, company_id, created_at) "
+                "values(?, ?, ?, ?, ?)",
+                ("user-1", "tenant@test.com", hash_password("password123"), "default", self.store.now()),
+            )
+            conn.commit()
         configure_jwt(_secrets.token_hex(32))
         jwt_token = _create_jwt("user-1", "default", "tenant@test.com")
         resp = self.client.post(
@@ -804,21 +814,23 @@ class QuotaEnforcementTest(unittest.TestCase):
         )
         # 注册一个租户用户（绑定到这家公司）
         # 使用 register 端点会创建新公司，这里直接插库
-        import secrets as _secrets
+        # user_id 用固定值，与下方 _create_jwt 的 user_id 一致，
+        # 否则 is_active 校验（require_admin_api 查库）会因 user_id 不存在而拒认证
         from contextlib import closing
+        from backend.smart_quotation.api.passwords import hash_password
         with closing(self.store.connect()) as conn:
             conn.execute(
                 "insert into users(id, email, password_hash, company_id, created_at) "
                 "values(?, ?, ?, ?, ?)",
-                (_secrets.token_urlsafe(8), "tenant@test.com", "hash", "tenant-co", self.store.now()),
+                ("user-1", "tenant@test.com", hash_password("password123"), "tenant-co", self.store.now()),
             )
             conn.commit()
-        # 登录获取 JWT
+        # 登录获取 JWT（password_hash 已为真实哈希，登录应成功）
         resp = self.client.post(
             "/api/auth/login",
             json={"email": "tenant@test.com", "password": "password123"},
         )
-        # 登录可能失败（密码 hash 不对），用 JWT 直接构造
+        # 登录失败则用 JWT 直接构造（保底）
         from backend.smart_quotation.api.routes_auth import _create_jwt
         jwt_token = _create_jwt("user-1", "tenant-co", "tenant@test.com")
         # 租户尝试自己升级到 team 档位——应被拒绝

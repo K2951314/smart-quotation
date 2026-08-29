@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import sqlite3
 from contextlib import closing
@@ -20,6 +21,10 @@ def _get_integrity_errors():
         return sqlite3.IntegrityError
 
 _IntegrityError = _get_integrity_errors()
+
+
+class CompanyNameTaken(ValueError):
+    """公司名已被占用（区别于 ID 冲突——register 据此决定 409 而非重试）。"""
 
 
 # 默认利润率（未配置 tier 且无 meta.profit_margin 时使用）
@@ -91,10 +96,17 @@ class CompaniesMixin:
             data_company_id = self.resolve_data_company_id(company_id)
             if data_company_id != company_id:
                 return self.resolve_subscription_plan(data_company_id)
-        # 管理员公司 / 独立公司：显式 meta.plan 优先
+        # 管理员公司 / 独立公司：显式 meta.plan 优先（供应商单独调档的覆盖）
         if plan in TIER_PRESETS:
             return plan
-        # 供应商性质的公司（is_admin / default）未显式设 plan 时，回退部署 license tier
+        # 无显式 plan → 回退 owner 账号的订阅（账号升级，名下公司自动跟着升级）。
+        # 用 resolve_user_plan 保证到期感知（账号档位过期 → 公司回退 free）；
+        # owner 无 plan/已失效 → fail-closed 到 free——绝不穿透部署 license 档位：
+        # 多租户下注册公司虽有 is_admin 标记，但不是供应商公司。
+        owner_id = meta.get("owner_user_id")
+        if owner_id:
+            return self.resolve_user_plan(owner_id)
+        # 无 owner 的历史公司：供应商性质（is_admin / default）回退部署 license tier
         if is_vendor:
             payload = verify_license()
             if payload:
@@ -102,6 +114,47 @@ class CompaniesMixin:
                 if tier in TIER_PRESETS:
                     return tier
         # 普通独立公司未显式设 plan 时 fail-closed 到 free
+        return TIER_FREE
+
+    def resolve_user_plan(self, user_id: str | None, company_id: str | None = None) -> str:
+        """解析用户的订阅档位（账号级优先，渐进兼容）。
+
+        优先级：
+        1. users.plan（账号级显式分配，覆盖公司级；带 plan_expires_at 到期时间，
+           过期后视为未分配）
+        2. 回退 resolve_subscription_plan(company_id)（现有公司级 plan + 继承逻辑）
+        3. fail-closed 到 free
+
+        设计：resolve_subscription_plan 完全不变（公司级配额/继承的权威）。
+        账号级 plan 只影响 session 展示和超管分配入口，配额门控仍用公司级。
+        """
+        from ..license import TIER_PRESETS, TIER_FREE
+        if user_id:
+            try:
+                with closing(self.connect()) as conn:
+                    row = conn.execute(
+                        "SELECT plan, plan_expires_at FROM users WHERE id = ?", (user_id,)
+                    ).fetchone()
+                if row and row["plan"] in TIER_PRESETS:
+                    expires_str = row["plan_expires_at"]
+                    if expires_str:
+                        # 到期检查：过期/非法时间都视为未分配，回退公司级
+                        try:
+                            expires_dt = datetime.fromisoformat(expires_str)
+                            if expires_dt.tzinfo is None:
+                                expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+                            if datetime.now(timezone.utc) >= expires_dt:
+                                return (
+                                    self.resolve_subscription_plan(company_id)
+                                    if company_id else TIER_FREE
+                                )
+                        except (ValueError, TypeError):
+                            pass
+                    return row["plan"]
+            except Exception:  # noqa: BLE001 users 表不存在或迁移未跑
+                pass
+        if company_id:
+            return self.resolve_subscription_plan(company_id)
         return TIER_FREE
 
     def resolve_profit_margin(self, company_id: str) -> float:
@@ -259,20 +312,31 @@ class CompaniesMixin:
         return {"id": row["id"], "name": row["name"], "created_at": row["created_at"], "meta": meta}
 
     def create_company(self, company_id: str, name: str, meta: dict[str, Any] | None = None) -> dict[str, Any]:
-        """创建公司，自动生成访问令牌。"""
+        """创建公司，自动生成访问令牌。
+
+        去重：同 ID → ValueError（已存在）；同名公司 → ValueError（公司名已存在）。
+        """
         company_id = str(company_id).strip()
         if not company_id:
             raise ValueError("company_id 不能为空")
+        name = str(name).strip()
+        if not name:
+            raise ValueError("公司名称不能为空")
         meta = dict(meta or {})
         if not meta.get("access_token"):
             meta["access_token"] = self._generate_access_token()
         if not meta.get("token_created_at"):
             meta["token_created_at"] = datetime.now(timezone.utc).isoformat()
         with closing(self.connect()) as conn:
+            # 公司名唯一（去重机制：已有名字不能再被其他账号注册）
+            if conn.execute(
+                "select 1 from companies where name = ?", (name,)
+            ).fetchone():
+                raise CompanyNameTaken(f"公司名「{name}」已被占用")
             try:
                 conn.execute(
                     "insert into companies(id, name, created_at, meta_json) values(?, ?, ?, ?)",
-                    (company_id, str(name).strip(), self.now(), json.dumps(meta, ensure_ascii=False)),
+                    (company_id, name, self.now(), json.dumps(meta, ensure_ascii=False)),
                 )
             except _IntegrityError as exc:
                 raise ValueError(f"company {company_id} 已存在") from exc
@@ -347,7 +411,33 @@ class CompaniesMixin:
         return self.update_company(company_id, meta=meta)
 
     def update_company(self, company_id: str, name: str | None = None, meta: dict[str, Any] | None = None) -> dict[str, Any]:
-        """更新公司名称和/或 meta。"""
+        """更新公司名称和/或 meta。
+
+        改名规则：每个公司只有一次改名机会（meta.name_changed_at 已用即拒绝）；
+        新名与其他公司重名 → ValueError。
+        """
+        if name is not None:
+            cur = self.get_company(company_id)
+            new_name = str(name).strip()
+            if not new_name:
+                raise ValueError("公司名称不能为空")
+            meta_now = dict(cur.get("meta") or {})
+            if new_name != cur.get("name"):
+                if meta_now.get("name_changed_at"):
+                    raise ValueError("该公司已用过改名机会，不能再改名")
+                with closing(self.connect()) as conn:
+                    if conn.execute(
+                        "select 1 from companies where name = ? and id != ?",
+                        (new_name, company_id),
+                    ).fetchone():
+                        raise ValueError(f"公司名「{new_name}」已被占用")
+                # 标记改名已用
+                meta_now["name_changed_at"] = self.now()
+                if meta is None:
+                    meta = meta_now
+                else:
+                    meta = dict(meta)
+                    meta["name_changed_at"] = meta_now["name_changed_at"]
         with closing(self.connect()) as conn:
             if name is not None:
                 conn.execute("update companies set name = ? where id = ?", (str(name).strip(), company_id))
@@ -361,6 +451,111 @@ class CompaniesMixin:
             conn.commit()
         self._mark_db_dirty(immediate=True)
         return self.get_company(company_id)
+
+    def rename_company_id(self, old_id: str, new_id: str, name: str | None = None) -> dict[str, Any]:
+        """改公司 ID（每个公司仅限一次）。级联更新所有引用：
+        users / quotation_configs / quotation_items / audit_events。
+        审计事件 id 也随公司走，rename 本身留审计（新 id 下记录 old→new）。
+        """
+        old_id = str(old_id).strip()
+        new_id = str(new_id).strip()
+        if not new_id:
+            raise ValueError("新 ID 不能为空")
+        if not re.match(r"^[a-zA-Z0-9_\-一-鿿]+$", new_id):
+            raise ValueError("公司ID只能含中文/英文/数字/下划线/连字符")
+        if new_id == DEFAULT_COMPANY_ID:
+            raise ValueError("default 是系统保留 ID")
+        if new_id == old_id:
+            return self.get_company(old_id)
+        cur = self.get_company(old_id)
+        meta = dict(cur.get("meta") or {})
+        if meta.get("id_changed_at"):
+            raise ValueError("该公司已用过改 ID 机会，不能再改")
+        meta["id_changed_at"] = self.now()
+        with closing(self.connect()) as conn:
+            if conn.execute("select 1 from companies where id = ?", (new_id,)).fetchone():
+                raise ValueError(f"公司 ID「{new_id}」已存在")
+            # 先建新行（保住 id 唯一性），再迁移数据引用，最后删旧行
+            conn.execute(
+                "insert into companies(id, name, created_at, meta_json) values(?, ?, ?, ?)",
+                (new_id, name or cur.get("name") or old_id, cur["created_at"], json.dumps(meta, ensure_ascii=False)),
+            )
+            for table in ("users", "quotation_configs", "quotation_items", "audit_events"):
+                conn.execute(
+                    f"update {table} set company_id = ? where company_id = ?",
+                    (new_id, old_id),
+                )
+            conn.execute("delete from companies where id = ?", (old_id,))
+            conn.commit()
+        # 记审计（新 id 下，公司历史随 id 迁移保持可查）
+        try:
+            with closing(self.connect()) as conn:
+                self.audit(
+                    conn, "superadmin", "company_rename", "company", new_id,
+                    {"old_id": old_id, "new_id": new_id}, company_id=new_id,
+                )
+                conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+        self._mark_db_dirty(immediate=True)
+        return self.get_company(new_id)
+
+    def get_company_by_name(self, name: str) -> dict[str, Any] | None:
+        """按公司名查（unique 校验用）。"""
+        with closing(self.connect()) as conn:
+            row = conn.execute(
+                "select id, name, created_at, meta_json from companies where name = ?",
+                (str(name).strip(),),
+            ).fetchone()
+        if not row:
+            return None
+        meta = json.loads(row["meta_json"] or "{}")
+        return {"id": row["id"], "name": row["name"], "created_at": row["created_at"], "meta": meta}
+
+    def count_users_in_company(self, company_id: str, active_only: bool = True) -> int:
+        """该公司下注册用户数（active_only=True 只统计启用的）。"""
+        with closing(self.connect()) as conn:
+            q = "select count(*) as n from users where company_id = ?"
+            if active_only:
+                q += " and is_active = 1"
+            row = conn.execute(q, (company_id,)).fetchone()
+        return int(row["n"])
+
+    def count_companies_owned_by(self, user_id: str, primary_company_id: str | None = None) -> int:
+        """该账号拥有的数据源管理员公司数（账号配额 max_companies 的计数口径）。
+
+        所有权 = meta.owner_user_id == user_id 的顶级公司（含注册时自动创建的
+        主公司）。成员公司不占此配额（营销口径的「N 家公司」= N 个管理员）。
+        """
+        return len(self.list_owned_company_ids(user_id, primary_company_id))
+
+    def list_owned_company_ids(self, user_id: str, primary_company_id: str | None = None) -> set[str]:
+        """账号拥有的顶级公司 ID 集合（主公司 + owner_user_id 标记的）。"""
+        owned: set[str] = set()
+        if primary_company_id:
+            owned.add(primary_company_id)
+        with closing(self.connect()) as conn:
+            rows = conn.execute("select id, meta_json from companies").fetchall()
+        for r in rows:
+            try:
+                meta = json.loads(r["meta_json"] or "{}")
+            except json.JSONDecodeError:
+                continue
+            if meta.get("owner_user_id") == user_id and not meta.get("parent_company_id"):
+                owned.add(r["id"])
+        return owned
+
+    def list_companies_for_tenant(self, user_id: str, primary_company_id: str) -> list[dict[str, Any]]:
+        """租户可见公司：自己拥有的管理员公司 + 这些公司下的成员公司。"""
+        owned = self.list_owned_company_ids(user_id, primary_company_id)
+        result: list[dict[str, Any]] = []
+        for c in self.list_companies():
+            meta = c.get("meta") or {}
+            if c["id"] in owned:
+                result.append(c)
+            elif meta.get("parent_company_id") in owned:
+                result.append(c)
+        return result
 
     def delete_company(self, company_id: str) -> dict[str, str]:
         """删除公司 + 级联删除其所有配置/数据/审计。
@@ -376,8 +571,14 @@ class CompaniesMixin:
             conn.execute("delete from quotation_configs where company_id = ?", (company_id,))
             conn.execute("delete from quotation_items where company_id = ?", (company_id,))
             conn.execute("delete from audit_events where company_id = ?", (company_id,))
+            # 级联停用关联用户（不删除，保留记录供审计；其 JWT 因 is_active=0 立即失效）
+            conn.execute(
+                "update users set is_active = 0 where company_id = ?", (company_id,)
+            )
             conn.execute("delete from companies where id = ?", (company_id,))
             conn.commit()
         self.cache.invalidate()
+        # 级联停用绕过了 update_user，这里手动失效 is_active 缓存
+        self._invalidate_user_active_cache()
         self._mark_db_dirty(immediate=True)
         return {"company_id": company_id, "status": "deleted"}

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用户管理 — 智能询价</title>
+<link rel="stylesheet" href="./styles/base.css?v=1">
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6fa; margin: 0; padding: 24px; color: #2c3e50; }
+.container { max-width: 1100px; margin: 0 auto; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+.header h1 { font-size: 24px; margin: 0; }
+.header a { color: #3498db; text-decoration: none; font-size: 14px; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+.toolbar input, .toolbar select { padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+.toolbar input { min-width: 200px; }
+.toolbar .btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; background: #3498db; color: #fff; }
+.toolbar .btn:hover { background: #2980b9; }
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 8px rgba(0,0,0,.06); }
+th, td { padding: 10px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+th { background: #f8f9fa; font-weight: 600; color: #6b7280; white-space: nowrap; }
+td { vertical-align: middle; }
+tr:hover { background: #fafbfc; }
+/* 每个用户一行：主信息 + 小字辅助信息同格堆叠 */
+.u-email { font-weight: 600; font-size: 13px; }
+.u-sub { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+.u-plan-line { display: flex; align-items: center; gap: 8px; }
+.u-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.badge-active { background: #d1fae5; color: #059669; }
+.badge-inactive { background: #fee2e2; color: #dc2626; }
+.badge-free { background: #f3f4f6; color: #6b7280; }
+.badge-pro { background: #dbeafe; color: #2563eb; }
+.badge-team { background: #ede9fe; color: #7c3aed; }
+.badge-inherit { background: #fef3c7; color: #92400e; }
+select.plan-select { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; }
+.action-btn { padding: 4px 10px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px; }
+.action-btn:hover { background: #f8f9fa; }
+.action-btn.danger { color: #dc2626; border-color: #fecaca; }
+/* 手机版一行显示不下：操作按钮换行到第二行，其余列保持单行 */
+@media (max-width: 720px) {
+  body { padding: 12px; }
+  th, td { padding: 8px 8px; }
+  td:last-child { white-space: normal; }
+  .action-btn { padding: 4px 7px; font-size: 11px; }
+}
+.pagination { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 16px; }
+.pagination button { padding: 6px 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; cursor: pointer; }
+.pagination button:disabled { opacity: .5; cursor: not-allowed; }
+.empty { text-align: center; padding: 40px; color: #9ca3af; }
+.status-bar { color: #6b7280; font-size: 13px; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; justify-content: center; align-items: center; z-index: 100; }
+.modal { background: #fff; border-radius: 12px; padding: 32px; width: 420px; max-width: 90vw; }
+.modal h3 { margin: 0 0 8px; }
+.modal p { color: #6b7280; font-size: 14px; margin: 0 0 16px; }
+.modal .temp-pw { font-family: monospace; font-size: 20px; font-weight: 700; background: #f0f9ff; padding: 12px; border-radius: 6px; text-align: center; letter-spacing: 1px; user-select: all; margin: 12px 0; }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.modal .actions button { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.modal .btn-primary { background: #3498db; color: #fff; }
+.modal .btn-secondary { background: #f3f4f6; color: #374151; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1 id="pageTitle">👥 用户管理</h1>
+    <a href="index.html">← 返回配置中心</a>
+  </div>
+
+  <!-- 子账号添加表单（仅租户模式显示） -->
+  <div id="subAccountForm" style="display:none;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+    <input type="text" id="subEmail" placeholder="子账号邮箱" style="padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;min-width:200px;">
+    <input type="password" id="subPassword" placeholder="初始密码（至少 8 位）" style="padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;min-width:160px;">
+    <button class="btn" id="subAccountSubmit" style="padding:8px 16px;border:none;border-radius:6px;font-size:14px;cursor:pointer;background:#3498db;color:#fff;">添加子账号</button>
+    <span class="status-bar" id="seatsHint" style="color:#6b7280;font-size:13px;"></span>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="按邮箱搜索...">
+    <select id="planFilter">
+      <option value="">全部档位</option>
+      <option value="free">免费版</option>
+      <option value="pro">个人版</option>
+      <option value="team">专业版</option>
+      <option value="inherit">继承公司</option>
+    </select>
+    <select id="statusFilter">
+      <option value="">全部状态</option>
+      <option value="true">启用</option>
+      <option value="false">停用</option>
+    </select>
+    <button class="btn" id="searchBtn">查询</button>
+    <span class="status-bar" id="statusBar"></span>
+  </div>
+
+  <table id="usersTable">
+    <thead>
+      <tr id="tableHead">
+        <th>用户</th>
+        <th>订阅</th>
+        <th>状态</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="usersBody"></tbody>
+  </table>
+
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<div id="modalRoot"></div>
+
+<script src="./lib/admin-core.js?v=2"></script>
+<script src="./lib/users.js?v=8"></script>
+</body>
+</html>

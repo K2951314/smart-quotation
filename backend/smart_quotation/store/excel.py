@@ -50,8 +50,13 @@ class ExcelMixin:
         sheet_index: int = 0,
         company_id: str = DEFAULT_COMPANY_ID,
         face_price_tax_inclusive: bool | None = None,
+        column_mapper: Any = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """解析 Excel(.xlsx) 或 CSV，使用当前发布配置的 excel_aliases 自动映射字段。
+
+        column_mapper: 可选回调 (unmatched_columns, fields) -> {列名: field_key}。
+        静态别名表全部未命中时调用（LLM 兜底建议）；返回值必须可信，
+        mapper 内部自行处理失败（返回 {}），解析不因 mapper 抛错而失败。
 
         返回 (rows, mapping_report)
           rows: 可直接传给 replace_items 的列表
@@ -164,6 +169,19 @@ class ExcelMixin:
             norm = _norm_alias(col)
             if norm in COMMON_ALIASES:
                 col_mapping[col] = COMMON_ALIASES[norm]
+
+        # LLM 兜底映射（kimi-k3；未配置/限流/熔断时 mapper 返回 {}，
+        # 行为与无 LLM 完全一致——解析永远成功，LLM 只是锦上添花）
+        unmatched_before_llm = [col for col in headers if col not in col_mapping]
+        if unmatched_before_llm and column_mapper:
+            try:
+                suggestions = column_mapper(unmatched_before_llm, config.get("fields", [])) or {}
+            except Exception:  # noqa: BLE001 mapper 必须自吞异常，这里双保险
+                suggestions = {}
+            valid_keys = {f.get("key") for f in config.get("fields", []) if f.get("key")}
+            for col, key in suggestions.items():
+                if col in unmatched_before_llm and key in valid_keys:
+                    col_mapping[col] = key
 
         matched = sorted({v for v in col_mapping.values()})
         unmatched = [col for col in headers if col not in col_mapping]

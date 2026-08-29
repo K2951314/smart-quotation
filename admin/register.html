@@ -86,8 +86,10 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
     // 动态获取 API base（与 admin-core.js 逻辑一致）
     let apiBase = window.SQ_PROD_API_BASE || "";
     if (!apiBase) {
+      // ?api= 仅本地开发生效（file:/localhost/127.0.0.1），防生产环境 API 劫持
+      const isDev = location.protocol === "file:" || location.hostname === "127.0.0.1" || location.hostname === "localhost";
       const params = new URLSearchParams(location.search);
-      apiBase = params.get("api") || localStorage.getItem("sq_admin_api_base") || "";
+      apiBase = (isDev ? params.get("api") : null) || localStorage.getItem("sq_admin_api_base") || "";
       if (!apiBase) {
         if (location.protocol === "file:") apiBase = "http://127.0.0.1:8001";
         else apiBase = location.origin;

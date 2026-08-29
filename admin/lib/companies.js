@@ -1,9 +1,9 @@
 /**
- * companies.js — 公司管理 UI：树形列表渲染、创建管理员/成员、删除、令牌重置。
+ * companies.js — 公司管理 UI：树形列表渲染、创建主公司/客户、删除、令牌重置。
  *
  * 树形结构设计（从第一性原理出发）：
- * - 数据源管理员（is_admin=true, 无 parent）→ 拥有独立 config/data/折扣/tiers
- * - 成员公司（有 parent_company_id）→ 继承管理员配置，通过 tier 获取利润率
+ * - 主公司（is_admin=true, 无 parent）→ 拥有独立 config/data/折扣/tiers
+ * - 客户公司（有 parent_company_id）→ 继承管理员配置，通过 tier 获取利润率
  * - 独立公司（default 等，无 parent 非 admin）→ 向后兼容
  *
  * 依赖：admin-core.js（request、setStatus、escapeHtml、getCurrentCompanyId、setCurrentCompanyId、run）
@@ -15,6 +15,7 @@
 var g_Companies = [];        // 所有公司列表
 var g_TiersCache = {};       // { adminId: [tier, ...] }  各管理员的 tier 定义
 var g_ExpandedAdmins = {};   // { adminId: true/false }  管理员卡片展开状态
+var g_GroupExpanded = {};    // { groupKey: true/false } 超管视图按账号分组的折叠状态
 
 // ─── 加载公司列表 + 预加载 tiers ─────────────────────────
 
@@ -23,11 +24,51 @@ async function loadCompanies() {
   try {
     g_Companies = await request("/api/companies");
     await preloadTiers();
+    fixTenantCurrentCompany();
     renderCompanyTree();
+    updateCompanyQuotaHint();
     // 同步顶部公司选择下拉框
     syncCompanySelect();
   } catch (err) {
     setStatus("加载公司列表失败: " + err.message, true);
+  }
+}
+
+/**
+ * 创建面板配额提示：租户显示「已用 / 上限」（max_companies = 可拥有的
+ * 主公司公司数）；超管不显示（不受账号配额限制）。
+ */
+function updateCompanyQuotaHint() {
+  var el = document.getElementById("companyQuotaHint");
+  if (!el) return;
+  var session = window.SQ_SESSION;
+  if (!session || session.role !== "tenant") { el.textContent = ""; return; }
+  var quota = window.SQ_QUOTA || {};
+  var max = quota.max_companies;
+  if (max == null) { el.textContent = ""; return; }
+  var owned = g_Companies.filter(function (c) {
+    var meta = c.meta || {};
+    return !meta.parent_company_id;
+  }).length;
+  el.textContent = "已用 " + owned + " / " + (max < 0 ? "不限" : max) +
+    " 家主公司" + (max >= 0 && owned >= max ? "（已达上限，升级订阅可扩容）" : "");
+}
+
+/**
+ * 租户当前公司兜底：注册/登录虽已写入自己的 company_id，但 localStorage
+ * 可能残留其他值（如曾以超管身份操作过、多账号共用浏览器），导致租户
+ * 一直操作无权访问的公司而到处报错。这里在列表加载后自动纠正为自己的公司。
+ */
+function fixTenantCurrentCompany() {
+  var session = window.SQ_SESSION;
+  var ownCompanyId = session && session.role === "tenant" ? session.company_id : null;
+  if (!ownCompanyId) return;
+  var stillVisible = g_Companies.some(function (c) { return c.id === getCurrentCompanyId(); });
+  if (getCurrentCompanyId() !== ownCompanyId || !stillVisible) {
+    setCurrentCompanyId(ownCompanyId);
+    // 同步下拉框选中项（syncCompanySelect 在调用方随后执行）
+    var sel = document.getElementById("companySelect");
+    if (sel) sel.value = ownCompanyId;
   }
 }
 
@@ -55,7 +96,7 @@ function syncCompanySelect() {
     opt.value = c.id;
     var meta = c.meta || {};
     var prefix = "";
-    if (meta.is_admin) prefix = "[管理员] ";
+    if (meta.is_admin) prefix = "[主] ";
     else if (meta.parent_company_id) prefix = "  └ ";
     opt.textContent = prefix + c.id + (c.name ? "（" + c.name + "）" : "");
     if (c.id === currentId) opt.selected = true;
@@ -71,14 +112,14 @@ function renderCompanyTree() {
   list.innerHTML = "";
 
   if (g_Companies.length === 0) {
-    list.innerHTML = '<p style="color:#999;font-size:13px;">暂无公司。请在左侧创建第一个数据源管理员。</p>';
+    list.innerHTML = '<p style="color:#999;font-size:13px;">暂无公司。请在左侧创建第一个主公司。</p>';
     return;
   }
 
-  // 分类：管理员 / 成员 / 独立公司
+  // 分类：主公司 / 客户公司。无 is_admin 的「独立公司」已废弃（注册即数据源
+  // 管理员），不再渲染——历史残留数据仍存在于列表/下拉中，可由超管删除。
   var admins = [];
   var members = [];
-  var standalone = [];
 
   g_Companies.forEach(function (c) {
     var meta = c.meta || {};
@@ -86,47 +127,127 @@ function renderCompanyTree() {
       members.push(c);
     } else if (meta.is_admin) {
       admins.push(c);
-    } else {
-      standalone.push(c);
     }
   });
 
-  if (admins.length === 0 && standalone.length <= 1) {
+  if (admins.length === 0) {
     list.innerHTML = '<div style="padding:16px;text-align:center;color:#999;font-size:12px;border:1px dashed #ddd;border-radius:6px;">' +
-      '暂无数据源管理员。<br>请在左侧创建第一个管理员，然后在其卡片上添加成员公司。</div>';
-    // 仍然渲染独立公司
-    standalone.forEach(function (c) { list.appendChild(renderStandaloneCard(c)); });
+      "暂无主公司。<br>注册账号会自动创建主公司；超管可在左侧手动创建。</div>";
     return;
   }
 
-  // 渲染管理员卡片
+  // ── 超管视图：按归属账号分组（平台公司置顶，账号组默认折叠省空间）──
+  if (!isTenantUser()) {
+    var groups = {};
+    var order = [];
+    admins.forEach(function (admin) {
+      var meta = admin.meta || {};
+      var key = meta.owner_user_id || "__platform__";
+      if (!groups[key]) {
+        // owner_email 在公司对象顶层（API 附带），不在 meta 里
+        groups[key] = {
+          key: key,
+          label: admin.owner_email || (meta.owner_user_id ? meta.owner_user_id : "平台公司（未归属账号）"),
+          admins: [],
+          platform: !meta.owner_user_id,
+        };
+        order.push(key);
+      }
+      groups[key].admins.push(admin);
+    });
+    // 平台组置顶，其余按邮箱排序
+    order.sort(function (a, b) {
+      if (groups[a].platform !== groups[b].platform) return groups[a].platform ? -1 : 1;
+      return groups[a].label.localeCompare(groups[b].label);
+    });
+    order.forEach(function (key) {
+      var g = groups[key];
+      // 默认：平台组展开，账号组折叠（避免多账号公司占满整屏）
+      var expanded = g_GroupExpanded[g.key] !== undefined ? g_GroupExpanded[g.key] : g.platform;
+      list.appendChild(renderOwnerGroupHeader(g, expanded));
+      if (expanded) {
+        appendGroupAdmins(list, g, members);
+      }
+    });
+    return;
+  }
+
+  // ── 租户视图：平铺自己的主公司（通常 1~5 家）──
   admins.forEach(function (admin) {
     var adminMembers = members.filter(function (m) {
       return (m.meta || {}).parent_company_id === admin.id;
     });
     list.appendChild(renderAdminCard(admin, adminMembers));
   });
+}
 
-  // 渲染独立公司区块
-  if (standalone.length > 0) {
-    var divider = document.createElement("div");
-    divider.style.cssText = "margin:16px 0 8px;padding:6px 10px;border-top:1px solid #e8e0d5;font-size:11px;color:#999;";
-    divider.textContent = "独立公司（无管理员，向后兼容）";
-    list.appendChild(divider);
-    standalone.forEach(function (c) {
-      list.appendChild(renderStandaloneCard(c));
+/** 超管分组折叠头：账号邮箱 + 主公司数，点击展开/收起。 */
+function renderOwnerGroupHeader(g, expanded) {
+  var header = document.createElement("div");
+  header.style.cssText =
+    "display:flex;align-items:center;gap:8px;padding:8px 10px;margin-top:10px;" +
+    "background:#f4f1ea;border:1px solid #e8e0d5;border-radius:6px;cursor:pointer;" +
+    "user-select:none;";
+  header.innerHTML =
+    '<span style="font-size:11px;color:#8a7a5c;">' + (expanded ? "▼" : "▶") + "</span>" +
+    '<strong style="font-size:12px;color:#4a4a4a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+    escapeHtml(g.label) + "</strong>" +
+    '<span style="font-size:11px;color:#999;margin-left:auto;flex-shrink:0;">' +
+    g.admins.length + " 家主公司</span>";
+  header.title = expanded ? "点击收起" : "点击展开该账号名下的公司";
+  header.onclick = function () {
+    g_GroupExpanded[g.key] = !expanded;
+    renderCompanyTree();
+  };
+  return header;
+}
+
+/** 渲染一组主公司卡片（含各自客户公司）。 */
+function appendGroupAdmins(list, g, members) {
+  g.admins.forEach(function (admin) {
+    var adminMembers = members.filter(function (m) {
+      return (m.meta || {}).parent_company_id === admin.id;
     });
-  }
+    list.appendChild(renderAdminCard(admin, adminMembers));
+  });
 }
 
 // ─── 订阅档位（plan）管理 ───────────────────────────────
-// 管理员公司（供应商的客户）+ 独立公司（注册用户）独立订阅档位（free/pro/team），
-// 决定功能开关 + 配额 + 水印；成员公司（客户的客户）继承其管理员公司的订阅，不自订阅。
+// 主公司（含注册用户自己的公司，注册即主公司）独立订阅档位
+// （free/pro/team），决定功能开关 + 配额 + 水印；客户公司（客户的客户）
+// 继承其主公司的订阅，不自订阅。无 is_admin 的独立公司仅向后兼容。
 // 与利润率分组（tier）是两套独立体系。
 
 var PLAN_LABELS = { free: "免费版", pro: "个人版", team: "专业版" };
 
+/**
+ * 当前登录用户是否为 JWT 租户（非超管/开发模式）。
+ * 用于隐藏平台级按钮（删除公司、分配档位等超管专属操作），避免点击后 403。
+ * session 已加载时用权威角色；未加载时按实际发送的凭证类型判断
+ * （API Key 优先于 JWT，与 admin-core.js getAuthToken 一致）。
+ */
+function isTenantUser() {
+  if (window.SQ_SESSION && window.SQ_SESSION.role) {
+    return window.SQ_SESSION.role === "tenant";
+  }
+  try {
+    var apiKey = sessionStorage.getItem("sq_admin_api_key") || "";
+    var jwt = sessionStorage.getItem("sq_jwt_token") || localStorage.getItem("sq_jwt_token") || "";
+    return !apiKey && !!jwt;
+  } catch (e) { return false; }
+}
+
 function makePlanSelect(company, meta) {
+  // 生效档位（显式覆盖 > 账号档位 > free）——展示一律用它，而非 meta.plan 快照
+  var resolved = company.resolved_plan || "";
+  // 租户不能分配订阅档位（后端会剥离 meta.plan）——渲染生效档位静态标签
+  if (isTenantUser()) {
+    var label = document.createElement("span");
+    label.style.cssText = "padding:2px 6px;font-size:11px;color:#666;flex-shrink:0;";
+    label.textContent = PLAN_LABELS[resolved] || "继承账号";
+    label.title = "当前生效订阅档位（跟随账号订阅）";
+    return label;
+  }
   var sel = document.createElement("select");
   sel.setAttribute("data-plan-company", company.id);
   sel.style.cssText = "padding:2px 6px;font-size:11px;border:1px solid #ddd;border-radius:4px;background:#fff;color:#333;cursor:pointer;flex-shrink:0;box-sizing:border-box;";
@@ -134,7 +255,7 @@ function makePlanSelect(company, meta) {
   if (!current) {
     var emptyOpt = document.createElement("option");
     emptyOpt.value = "";
-    emptyOpt.textContent = "全局";
+    emptyOpt.textContent = "继承账号";
     emptyOpt.selected = true;
     sel.appendChild(emptyOpt);
   }
@@ -154,7 +275,21 @@ function makePlanSelect(company, meta) {
     sel.style.width = "calc(" + (len + 0.5) + "em + 29px)";
   }
   fitWidth();
-  return sel;
+  // 生效档位标注：显式覆盖与实际生效可能不同（继承账号时跟随账号订阅）
+  var wrap = document.createElement("span");
+  wrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;flex-shrink:0;";
+  wrap.appendChild(sel);
+  var effective = document.createElement("span");
+  effective.style.cssText = "font-size:10px;color:#999;white-space:nowrap;";
+  var explicitLabel = current ? (PLAN_LABELS[current] || current) : "继承账号";
+  if ((PLAN_LABELS[resolved] || resolved) !== explicitLabel) {
+    effective.textContent = "生效:" + (PLAN_LABELS[resolved] || resolved);
+    effective.title = "无显式分配时跟随账号订阅档位";
+  } else {
+    effective.textContent = "生效:" + (PLAN_LABELS[resolved] || resolved);
+  }
+  wrap.appendChild(effective);
+  return wrap;
 }
 
 async function setCompanyPlan(companyId, plan) {
@@ -217,7 +352,7 @@ function renderAdminCard(admin, members) {
   }
   infoArea.onclick = function () { if (!isCurrent) switchToCompany(admin.id); };
 
-  // 第一行：展开按钮 + 图标 + 公司名 + 数据源管理员 + 当前
+  // 第一行：展开按钮 + 图标 + 公司名 + 主公司 + 当前
   var toggleBtn = document.createElement("div");
   toggleBtn.style.cssText = "padding:0 4px 0 0;cursor:pointer;font-size:14px;color:#666;flex-shrink:0;";
   toggleBtn.textContent = isExpanded ? "▼" : "▶";
@@ -230,16 +365,16 @@ function renderAdminCard(admin, members) {
   nameRow.innerHTML = '<span style="font-size:14px;">🏢</span>' +
     '<strong style="font-size:14px;color:#2c5282;">' + safeId + '</strong>' +
     (safeName ? '<span style="color:#666;font-size:12px;">' + safeName + '</span>' : '') +
-    '<span style="padding:2px 8px;background:#8e44ad;color:#fff;border-radius:3px;font-size:10px;">数据源管理员</span>' +
+    '<span style="padding:2px 8px;background:#8e44ad;color:#fff;border-radius:3px;font-size:10px;">主公司</span>' +
     (isCurrent ? '<span style="padding:2px 6px;background:#2c5282;color:#fff;border-radius:3px;font-size:10px;">✓ 当前</span>' : '');
   nameRow.insertBefore(toggleBtn, nameRow.firstChild);
-  // 第二行：成员/分组/令牌 + 订阅档位下拉同一行（手机版下拉靠右、介绍超长省略）
+  // 第二行：客户/分组/令牌 + 订阅档位下拉同一行（手机版下拉靠右、介绍超长省略）
   var metaLine = document.createElement("div");
   metaLine.className = "cc-meta";
   metaLine.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:10px;color:#999;margin-top:3px;";
   var infoText = document.createElement("span");
   infoText.className = "cc-meta-info";
-  infoText.textContent = "成员: " + memberCount + " 家 · 利润率分组: " + tiers.length + " 个 · 令牌: " + tokenDisplay;
+  infoText.textContent = "客户: " + memberCount + " 家 · 利润率分组: " + tiers.length + " 个 · 令牌: " + tokenDisplay;
   metaLine.appendChild(infoText);
   var planLabel = document.createElement("span");
   planLabel.textContent = "订阅档位:";
@@ -253,9 +388,9 @@ function renderAdminCard(admin, members) {
   var actions = document.createElement("div");
   actions.className = "cc-actions";
   actions.style.cssText = "display:flex;align-items:center;gap:4px;padding:6px 8px;flex-shrink:0;flex-wrap:wrap;";
-  // 功能门控：成员公司创建是 admin_member_inheritance 功能（pro/team）
+  // 功能门控：客户公司创建是 admin_member_inheritance 功能（pro/team）
   if (window.hasFeature && window.hasFeature("admin_member_inheritance")) {
-    actions.appendChild(makeActionBtn("添加成员", "#38a169", "在该管理员下创建成员公司（继承配置/数据）", function (e) {
+    actions.appendChild(makeActionBtn("添加客户", "#38a169", "在该管理员下创建客户公司（继承配置/数据）", function (e) {
       e.stopPropagation();
       showAddMemberForm(admin.id);
     }));
@@ -274,8 +409,19 @@ function renderAdminCard(admin, members) {
     e.stopPropagation();
     editCompanyDatasource(admin.id, meta);
   }));
-  if (admin.id !== "default") {
-    actions.appendChild(makeActionBtn("删除", "#e74c3c", "删除管理员及其所有成员", function (e) {
+  // 改名/改 ID（各公司仅限一次，超管专属）
+  if (!isTenantUser()) {
+    actions.appendChild(makeActionBtn("改名", "#16a085", "修改公司显示名（仅一次机会）", function (e) {
+      e.stopPropagation();
+      renameCompanyName(admin.id, admin.name);
+    }));
+    actions.appendChild(makeActionBtn("改ID", "#7f8c8d", "修改公司 ID（仅一次机会，用户/配置/数据引用一并迁移）", function (e) {
+      e.stopPropagation();
+      renameCompanyId(admin.id);
+    }));
+  }
+  if (admin.id !== "default" && !isTenantUser()) {
+    actions.appendChild(makeActionBtn("删除", "#e74c3c", "删除主公司及其所有客户公司", function (e) {
       e.stopPropagation();
       deleteAdminCompany(admin.id);
     }));
@@ -283,7 +429,7 @@ function renderAdminCard(admin, members) {
   header.appendChild(actions);
   wrapper.appendChild(header);
 
-  // ── 展开内容：Tier 管理 + 成员列表 ──
+  // ── 展开内容：Tier 管理 + 客户列表 ──
   if (isExpanded) {
     // Tier 管理面板
     var tierSection = document.createElement("div");
@@ -298,18 +444,18 @@ function renderAdminCard(admin, members) {
       }
     }, 0);
 
-    // 成员列表
+    // 客户列表
     var memberSection = document.createElement("div");
     memberSection.style.cssText = "padding:8px 12px;";
     var memberTitle = document.createElement("div");
     memberTitle.style.cssText = "font-size:12px;font-weight:600;color:#666;margin-bottom:6px;";
-    memberTitle.textContent = "成员公司（" + memberCount + " 家）";
+    memberTitle.textContent = "客户公司（" + memberCount + " 家）";
     memberSection.appendChild(memberTitle);
 
     if (members.length === 0) {
       var empty = document.createElement("div");
       empty.style.cssText = "padding:12px;text-align:center;color:#bbb;font-size:11px;border:1px dashed #eee;border-radius:4px;";
-      empty.textContent = "暂无成员公司。点击上方「添加成员」创建。";
+      empty.textContent = "暂无客户公司。点击上方「添加客户」创建。";
       memberSection.appendChild(empty);
     } else {
       members.forEach(function (m) {
@@ -322,7 +468,7 @@ function renderAdminCard(admin, members) {
   return wrapper;
 }
 
-// ─── 渲染成员公司行 ─────────────────────────────────────
+// ─── 渲染客户公司行 ─────────────────────────────────────
 
 function renderMemberRow(member, adminId) {
   var meta = member.meta || {};
@@ -418,90 +564,15 @@ function renderMemberRow(member, adminId) {
     e.stopPropagation();
     regenerateToken(member.id);
   }));
-  actions.appendChild(makeActionBtn("删除", "#e74c3c", "删除成员公司", function (e) {
-    e.stopPropagation();
-    deleteCompany(member.id);
-  }));
+  if (!isTenantUser()) {
+    actions.appendChild(makeActionBtn("删除", "#e74c3c", "删除客户公司", function (e) {
+      e.stopPropagation();
+      deleteCompany(member.id);
+    }));
+  }
   row.appendChild(actions);
 
   return row;
-}
-
-// ─── 渲染独立公司卡片 ───────────────────────────────────
-
-function renderStandaloneCard(company) {
-  var meta = company.meta || {};
-  var isCurrent = company.id === getCurrentCompanyId();
-  var safeId = escapeHtml(company.id);
-  var safeName = company.name ? escapeHtml(company.name) : "";
-  var tokenDisplay = meta.access_token ? meta.access_token.substring(0, 8) + "..." : "未生成";
-
-  var card = document.createElement("div");
-  card.style.cssText = (
-    "display:flex;align-items:center;gap:0;border:1px solid " +
-    (isCurrent ? "#2c5282" : "#e8e0d5") + ";border-radius:6px;background:" +
-    (isCurrent ? "#eef4fb" : "#fff") + ";overflow:hidden;margin-bottom:6px;"
-  );
-
-  var infoArea = document.createElement("div");
-  infoArea.style.cssText = (
-    "flex:1;padding:8px 12px;cursor:" + (isCurrent ? "default" : "pointer") + ";min-width:0;" +
-    "border-left:3px solid " + (isCurrent ? "#2c5282" : "transparent") + ";"
-  );
-  if (!isCurrent) {
-    infoArea.onmouseenter = function () { infoArea.style.background = "#f0f7ff"; };
-    infoArea.onmouseleave = function () { infoArea.style.background = ""; };
-  }
-  infoArea.onclick = function () { if (!isCurrent) switchToCompany(company.id); };
-
-  var nameLine = '<div style="display:flex;align-items:center;gap:6px;">' +
-    '<strong style="font-size:13px;">' + safeId + '</strong>' +
-    (safeName ? '<span style="color:#666;font-size:12px;">' + safeName + '</span>' : '') +
-    '<span style="padding:1px 5px;background:#aaa;color:#fff;border-radius:2px;font-size:10px;">独立</span>' +
-    (isCurrent ? '<span style="padding:1px 5px;background:#2c5282;color:#fff;border-radius:2px;font-size:10px;">✓ 当前</span>' : '') +
-    '</div>';
-  // 第二行：令牌 + 订阅档位下拉同一行（手机版下拉靠右）
-  var metaLine = document.createElement("div");
-  metaLine.className = "cc-meta";
-  metaLine.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:10px;color:#999;margin-top:2px;";
-  var infoText = document.createElement("span");
-  infoText.className = "cc-meta-info";
-  infoText.textContent = "令牌: " + tokenDisplay;
-  metaLine.appendChild(infoText);
-  var planLabel = document.createElement("span");
-  planLabel.textContent = "订阅档位:";
-  metaLine.appendChild(planLabel);
-  metaLine.appendChild(makePlanSelect(company, meta));
-  infoArea.innerHTML = nameLine;
-  infoArea.appendChild(metaLine);
-  card.appendChild(infoArea);
-
-  var actions = document.createElement("div");
-  actions.style.cssText = "display:flex;align-items:center;gap:4px;padding:6px 8px;flex-shrink:0;";
-  if (meta.access_token) {
-    actions.appendChild(makeActionBtn("复制", "#2c5282", "复制客户访问链接", function (e) {
-      e.stopPropagation();
-      copyCustomerLink(company.id, meta.access_token);
-    }));
-  }
-  actions.appendChild(makeActionBtn("令牌", "#f39c12", "重置访问令牌", function (e) {
-    e.stopPropagation();
-    regenerateToken(company.id);
-  }));
-  if (company.id !== "default") {
-    // 允许将独立公司升级为管理员
-    actions.appendChild(makeActionBtn("升级为管理员", "#8e44ad", "将此独立公司升级为数据源管理员", function (e) {
-      e.stopPropagation();
-      upgradeToAdmin(company.id, meta);
-    }));
-    actions.appendChild(makeActionBtn("删除", "#e74c3c", "删除公司", function (e) {
-      e.stopPropagation();
-      deleteCompany(company.id);
-    }));
-  }
-  card.appendChild(actions);
-
-  return card;
 }
 
 // ─── 辅助：创建操作按钮 ─────────────────────────────────
@@ -522,17 +593,17 @@ function makeActionBtn(text, color, title, onclick) {
   return btn;
 }
 
-// ─── 添加成员公司表单 ───────────────────────────────────
+// ─── 添加客户公司表单 ───────────────────────────────────
 
 function showAddMemberForm(adminId) {
   var member = prompt(
-    "在管理员「" + adminId + "」下创建成员公司\n\n" +
-    "请输入成员公司 ID（英文/数字，如 client01）：\n" +
-    "（成员公司将自动继承管理员的配置/数据/折扣）"
+    "在管理员「" + adminId + "」下创建客户公司\n\n" +
+    "请输入客户公司 ID（英文/数字，如 client01）：\n" +
+    "（客户公司将自动继承管理员的配置/数据/折扣）"
   );
   if (member === null) return;
   var memberId = member.trim();
-  if (!memberId) { setStatus("成员公司ID不能为空", true); return; }
+  if (!memberId) { setStatus("客户公司ID不能为空", true); return; }
   if (!/^[a-zA-Z0-9_-]+$/.test(memberId)) { setStatus("公司ID只能用英文/数字/下划线/连字符", true); return; }
   if (memberId === "default") { setStatus("default 是系统保留ID", true); return; }
   if (g_Companies.some(function (c) { return c.id === memberId; })) {
@@ -540,7 +611,7 @@ function showAddMemberForm(adminId) {
     return;
   }
 
-  var memberName = prompt("成员公司名称（可选，如 客户A）：", "");
+  var memberName = prompt("客户公司名称（可选，如 客户A）：", "");
   if (memberName === null) return;
 
   // 选择初始 Tier（可选）
@@ -574,16 +645,16 @@ async function createMemberCompany(adminId, memberId, memberName, meta) {
       method: "POST",
       body: JSON.stringify({ id: memberId, name: memberName, meta: meta }),
     });
-    setStatus("成员公司「" + memberId + "」已在管理员「" + adminId + "」下创建成功");
+    setStatus("客户公司「" + memberId + "」已在管理员「" + adminId + "」下创建成功");
     g_ExpandedAdmins[adminId] = true; // 展开该管理员
     await loadCompanies();
-    // 不自动切换到成员公司——成员公司继承管理员配置，切换到管理员编辑配置更有意义
+    // 不自动切换到客户公司——客户公司继承管理员配置，切换到管理员编辑配置更有意义
   } catch (err) {
-    setStatus("创建成员公司失败: " + err.message, true);
+    setStatus("创建客户公司失败: " + err.message, true);
   }
 }
 
-// ─── 创建数据源管理员 ───────────────────────────────────
+// ─── 创建主公司 ───────────────────────────────────
 
 async function createCompany() {
   var id = document.getElementById("newCompanyId").value.trim();
@@ -595,12 +666,17 @@ async function createCompany() {
     setStatus("公司ID「" + id + "」已存在", true);
     return;
   }
+  // 公司名去重预检（后端兜底 409）
+  if (name && g_Companies.some(function (c) { return (c.name || "").trim() === name; })) {
+    setStatus("公司名「" + name + "」已被占用", true);
+    return;
+  }
   try {
     await request("/api/companies", {
       method: "POST",
       body: JSON.stringify({ id: id, name: name, meta: {} }),
     });
-    setStatus("数据源管理员「" + id + "」创建成功。可在其卡片上添加成员公司。");
+    setStatus("主公司「" + id + "」创建成功。可在其卡片上添加客户公司。");
     document.getElementById("newCompanyId").value = "";
     document.getElementById("newCompanyName").value = "";
     g_ExpandedAdmins[id] = true;
@@ -613,26 +689,50 @@ async function createCompany() {
   }
 }
 
-// ─── 升级独立公司为管理员 ───────────────────────────────
+// ─── 公司改名 / 改 ID（各仅限一次） ─────────────────────
 
-async function upgradeToAdmin(companyId, currentMeta) {
-  if (!confirm("确认将「" + companyId + "」升级为数据源管理员？\n\n" +
-    "升级后该公司将拥有独立的配置/数据/折扣规则，并可在其下添加成员公司。")) return;
-  var newMeta = Object.assign({}, currentMeta);
-  newMeta.is_admin = true;
+async function renameCompanyName(companyId, currentName) {
+  var newName = prompt("修改公司显示名（仅此一次机会）：", currentName || companyId);
+  if (newName === null) return;
+  newName = newName.trim();
+  if (!newName) { setStatus("公司名称不能为空", true); return; }
+  if (newName === (currentName || "")) return;
   try {
     await request("/api/companies/" + encodeURIComponent(companyId), {
       method: "PATCH",
-      body: JSON.stringify({ meta: newMeta }),
+      body: JSON.stringify({ name: newName }),
     });
-    setStatus("「" + companyId + "」已升级为数据源管理员");
+    setStatus("公司名已改为「" + newName + "」（改名机会已用）");
     await loadCompanies();
   } catch (err) {
-    setStatus("升级失败: " + err.message, true);
+    setStatus("改名失败: " + err.message, true);
   }
 }
 
-// ─── 删除管理员公司（级联删除成员） ─────────────────────
+async function renameCompanyId(companyId) {
+  var newId = prompt(
+    "修改公司 ID（仅此一次机会）。\n\n" +
+    "⚠️ 该公司下的用户/配置/数据/审计引用会一并迁移，客户访问令牌不变。\n" +
+    "当前 ID：" + companyId + "\n新 ID（中文/英文/数字/下划线/连字符）："
+  );
+  if (newId === null) return;
+  newId = newId.trim();
+  if (!newId) { setStatus("公司 ID 不能为空", true); return; }
+  if (newId === companyId) return;
+  try {
+    await request("/api/companies/" + encodeURIComponent(companyId) + "/rename-id", {
+      method: "POST",
+      body: JSON.stringify({ new_id: newId }),
+    });
+    setStatus("公司 ID 已改为「" + newId + "」（改 ID 机会已用）");
+    if (getCurrentCompanyId() === companyId) setCurrentCompanyId(newId);
+    await loadCompanies();
+  } catch (err) {
+    setStatus("改 ID 失败: " + err.message, true);
+  }
+}
+
+// ─── 删除主公司（级联删除客户公司） ─────────────────────
 
 async function deleteAdminCompany(adminId) {
   var admin = g_Companies.find(function (c) { return c.id === adminId; });
@@ -640,28 +740,41 @@ async function deleteAdminCompany(adminId) {
   var members = g_Companies.filter(function (c) {
     return (c.meta || {}).parent_company_id === adminId;
   });
-  var msg = "确认删除数据源管理员「" + adminId + "」？\n\n";
+  var msg = "确认删除主公司「" + adminId + "」？\n\n";
   if (members.length > 0) {
-    msg += "⚠️ 该管理员下有 " + members.length + " 家成员公司，将一并删除：\n";
+    msg += "⚠️ 该管理员下有 " + members.length + " 家客户公司，将一并删除：\n";
     members.forEach(function (m) { msg += "  - " + m.id + "\n"; });
-    msg += "\n所有成员公司的配置和数据都会丢失！\n\n";
+    msg += "\n所有客户公司的配置和数据都会丢失！\n\n";
   }
   msg += "该管理员的配置、数据、折扣规则将全部删除。";
   if (!confirm(msg)) return;
-  // 先删除所有成员
+  // 先删除所有客户公司
   try {
     for (var i = 0; i < members.length; i++) {
       await request("/api/companies/" + encodeURIComponent(members[i].id), { method: "DELETE" });
     }
     // 再删除管理员本身
     await request("/api/companies/" + encodeURIComponent(adminId), { method: "DELETE" });
-    setStatus("数据源管理员「" + adminId + "」及其 " + members.length + " 家成员公司已删除");
+    setStatus("主公司「" + adminId + "」及其 " + members.length + " 家客户公司已删除");
     if (getCurrentCompanyId() === adminId || members.some(function (m) { return m.id === getCurrentCompanyId(); })) {
       setCurrentCompanyId("default");
     }
     await loadCompanies();
   } catch (err) {
-    setStatus("删除失败: " + err.message, true);
+    // 409 = 公司下仍有注册用户（租户无法自行重建公司）——需显式强制
+    if (/注册用户/.test(err.message) && confirm(err.message + "\n\n确定强制删除？其下用户将被停用。")) {
+      try {
+        await request("/api/companies/" + encodeURIComponent(adminId) + "?force=true", { method: "DELETE" });
+        setStatus("主公司「" + adminId + "」已强制删除（用户已停用，可在用户管理清理）");
+        if (getCurrentCompanyId() === adminId) setCurrentCompanyId("default");
+        await loadCompanies();
+        return;
+      } catch (err2) {
+        setStatus("强制删除失败: " + err2.message, true);
+      }
+    } else {
+      setStatus("删除失败: " + err.message, true);
+    }
     await loadCompanies();
   }
 }
@@ -725,7 +838,19 @@ async function deleteCompany(id) {
     }
     await loadCompanies();
   } catch (err) {
-    setStatus("删除失败: " + err.message, true);
+    if (/注册用户/.test(err.message) && confirm(err.message + "\n\n确定强制删除？其下用户将被停用。")) {
+      try {
+        await request("/api/companies/" + encodeURIComponent(id) + "?force=true", { method: "DELETE" });
+        setStatus("公司 " + id + " 已强制删除（用户已停用）");
+        if (getCurrentCompanyId() === id) setCurrentCompanyId("default");
+        await loadCompanies();
+        return;
+      } catch (err2) {
+        setStatus("强制删除失败: " + err2.message, true);
+      }
+    } else {
+      setStatus("删除失败: " + err.message, true);
+    }
   }
 }
 
