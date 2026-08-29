@@ -10,12 +10,13 @@ from typing import Any
 from fastapi import Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
+import io
 import logging
 
 from ..license import get_plan_quota
 from ..observability import capture_event
 from .auth import resolve_company_id
-from .models import ItemsReplace
+from .models import ItemsReplace, ItemsUploadJson
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,48 @@ def register(app) -> None:
         store.replace_items(payload.data_revision, payload.rows, company_id=company_id)
         capture_event("items.replaced", company_id=company_id, data_revision=payload.data_revision, count=len(payload.rows))
         return {"count": len(payload.rows)}
+
+    @app.post("/api/items/upload-json")
+    async def upload_items_json(
+        payload: ItemsUploadJson,
+        company_id: str = Depends(resolve_company_id),
+    ) -> dict[str, Any]:
+        """JSON 行上传（免费租户的后端托管发布路径）。
+
+        数据拼接区合并后的行（列名→值 字典）直接上传，后端复用与 Excel
+        完全同源的映射（别名/COMMON_ALIASES/LLM 兜底/税率转换）后写入
+        items 表。门户走后端代理 /price.bundle.json 读取——无需 Supabase。
+        配额：_check_sku_quota 按账号档位强制（免费 500 SKU）。
+        """
+        if not payload.rows:
+            raise HTTPException(status_code=422, detail="rows 不能为空")
+        content = io.StringIO()
+        import csv as _csv
+        writer = _csv.DictWriter(content, fieldnames=list(payload.rows[0].keys()))
+        writer.writeheader()
+        for row in payload.rows:
+            writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
+        file_bytes = content.getvalue().encode("utf-8-sig")
+        filename = payload.filename or "upload.csv"
+        try:
+            rows, report = await run_in_threadpool(
+                store.parse_excel_to_rows,
+                file_bytes, filename,
+                company_id=company_id,
+                face_price_tax_inclusive=payload.face_price_tax_inclusive,
+            )
+        except ImportError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if payload.write:
+            _check_sku_quota(len(rows), store, company_id)
+            data_revision = payload.data_revision or (filename.rsplit(".", 1)[0] + "_" + store.now()[:10])
+            store.replace_items(data_revision, rows, company_id=company_id)
+            capture_event("items.replaced", company_id=company_id, data_revision=data_revision, count=len(rows))
+        return {"ok": True, "report": report, "count": len(rows),
+                "data_revision": data_revision if payload.write else None,
+                "written": bool(payload.write)}
 
     @app.post("/api/items/upload")
     async def upload_items(

@@ -34,6 +34,15 @@ class ConfigImport(BaseModel):
     status: Literal["draft", "published"] = "draft"
 
 
+class ItemsUploadJson(BaseModel):
+    """JSON 行上传（数据拼接区 → 后端托管发布）。rows 为列名→值字典列表。"""
+    rows: list[dict[str, Any]]
+    data_revision: str = ""  # 留空自动从时间戳生成
+    filename: str = ""       # 用于生成 data_revision（可选）
+    write: bool = True
+    face_price_tax_inclusive: bool | None = None
+
+
 class BundleGenerate(BaseModel):
     password: str = ""
     deploy: bool = False

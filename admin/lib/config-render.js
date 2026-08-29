@@ -254,7 +254,9 @@ function renderPricing() {
 }
 
 function updateAdvancedJson() {
-  $("advancedJson").value = JSON.stringify(state.config, null, 2);
+  // 高级 JSON 编辑器已随「发布配置」区块移除；保留函数避免外部引用断裂
+  const el = $("advancedJson");
+  if (el) el.value = JSON.stringify(state.config, null, 2);
 }
 
 function updatePreview() {

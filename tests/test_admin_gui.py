@@ -19,7 +19,7 @@ class AdminGuiTest(unittest.TestCase):
         html, js = self._read()
 
         # 导航项
-        for label in ["字段配置", "报价规则", "复制模板", "发布配置",
+        for label in ["字段配置", "报价规则", "复制模板",
                       "页面显示", "版本历史", "审计日志", "数据拼接"]:
             self.assertIn(label, html, f"HTML 中未找到导航项: {label}")
 
@@ -27,8 +27,10 @@ class AdminGuiTest(unittest.TestCase):
         for endpoint in ["/api/config", "/configs", "/audit", "/publish"]:
             self.assertIn(endpoint, js, f"app.js 中未找到端点: {endpoint}")
 
-        # 高级 JSON 区域
-        self.assertIn("advancedJson", html)
+        # 高级 JSON 编辑器已移除（发布配置区块退役）
+        self.assertNotIn("advancedJson", html)
+        # 导出配置备份已并入版本历史区
+        self.assertIn("exportJsonBtn", html)
 
         # 核心渲染函数
         for fn in ["renderFieldRows", "renderRuleRows", "renderCopyRows", "renderUiConfig", "renderPricing"]:
@@ -63,13 +65,13 @@ class AdminGuiTest(unittest.TestCase):
         for fn in ["loadConfig", "saveConfig", "validateConfig", "collectConfig"]:
             self.assertIn(fn, js, f"app.js 中未找到函数: {fn}")
 
-    def test_admin_gui_has_validate_section(self):
-        """发布配置区应有校验按钮和校验结果区"""
+    def test_publish_validation_moved_to_backend(self):
+        """校验已并入发布动作（后端 published 强制校验），独立按钮退役"""
         html, js = self._read()
 
-        self.assertIn("validateConfigBtn", html)
-        self.assertIn("validateResult", html)
-        self.assertIn("validateConfig", js)
+        self.assertNotIn("validateConfigBtn", html)
+        self.assertNotIn("exportYamlBtn", html)
+        self.assertNotIn("importJsonBtn", html)
 
     def test_admin_gui_has_merger_section(self):
         """数据拼接区使用 mcard 卡片 UI"""

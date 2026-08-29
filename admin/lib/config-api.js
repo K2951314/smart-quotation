@@ -114,18 +114,6 @@ async function saveConfig(status) {
   await updatePreview();
 }
 
-async function validateConfig() {
-  try {
-    const result = await request("/api/config/validate");
-    if (result.valid) {
-      setStatus("服务器端验证通过：配置合法");
-    } else {
-      setStatus("验证失败：\n" + result.errors.join("\n"), true);
-    }
-  } catch (err) {
-    setStatus("加载失败: " + (err.message || err), true);
-  }
-}
 
 async function loadHistory() {
   const configs = await request("/api/configs");
@@ -225,18 +213,3 @@ async function exportConfig(fmt) {
   }
 }
 
-async function importJson() {
-  const content = $("advancedJson").value.trim();
-  if (!content) { setStatus("请在高级 JSON 文本框中粘贴配置内容", true); return; }
-  try {
-    state.config = normalizeAdminConfig(await request("/api/config/import", {
-      method: "POST",
-      body: JSON.stringify({ content, fmt: "json" }),
-    }));
-    renderAll();
-    if (window.refreshQuotaIndicators) window.refreshQuotaIndicators();
-    setStatus("配置已导入为草稿");
-  } catch (err) {
-    setStatus("导入失败: " + (err.message || err), true);
-  }
-}

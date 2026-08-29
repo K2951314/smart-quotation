@@ -3,7 +3,7 @@
  *
  * 依赖：admin-core.js（$、g_AdminEventsBound、SB_KEY、sbAnonKeyInput、sbBaseUrlInput、run、collectConfig）
  *       config-render.js（renderAll、renderRuleRows、renderCopyRows、renderUiConfig）
- *       config-api.js（loadConfig、saveConfig、validateConfig、exportConfig、importJson、loadHistory、loadAudit、rollbackToRevision、deleteConfigRevision）
+ *       config-api.js（loadConfig、saveConfig、exportConfig、loadHistory、loadAudit、rollbackToRevision、deleteConfigRevision）
  *       companies.js（switchCompany、createCompany、loadCompanies）
  *       supabase-deploy.js（sbAutoFillBaseUrl、sbSetStatus、sbUploadFile、sbUpdateVersionJson）
  *       standalone-html.js（generateStandalone、deployStandalone）
@@ -104,7 +104,6 @@ function bind() {
   $("loadConfigBtn").addEventListener("click", () => run(loadConfig));
   $("saveDraftBtn").addEventListener("click", () => run(() => saveConfig("draft")));
   $("publishBtn").addEventListener("click", () => run(() => saveConfig("published")));
-  $("validateConfigBtn").addEventListener("click", () => run(validateConfig));
 
   // ── 字段/规则/复制列 添加（含配额前置阻断）──
   $("addFieldBtn").addEventListener("click", () => {
@@ -138,8 +137,6 @@ function bind() {
 
   // ── 导入导出/历史/审计 ──
   $("exportJsonBtn").addEventListener("click", () => run(() => exportConfig("json")));
-  $("exportYamlBtn").addEventListener("click", () => run(() => exportConfig("yaml")));
-  $("importJsonBtn").addEventListener("click", () => run(importJson));
   $("loadHistoryBtn").addEventListener("click", () => run(loadHistory));
   $("loadAuditBtn").addEventListener("click", () => run(loadAudit));
 
@@ -248,6 +245,52 @@ function bind() {
 
   // base_url input 聚焦时自动填充
   if (sbBaseUrlInput) sbBaseUrlInput.addEventListener("focus", sbAutoFillBaseUrl);
+
+  // 上传数据到服务器（后端托管，所有档位可用——免费版主发布路径）
+  const ubPriceBtn = $("merger-uploadBackendPriceBtn");
+  if (ubPriceBtn) ubPriceBtn.addEventListener("click", async () => {
+    const ms = window._mergerState || {};
+    const statusEl = $("backendUploadPriceStatus");
+    if (!ms.priceRows || !ms.priceRows.length) {
+      if (statusEl) statusEl.textContent = "请先点击「加载并合并」，再上传";
+      return;
+    }
+    ubPriceBtn.disabled = true;
+    if (statusEl) statusEl.textContent = "正在上传价格数据...";
+    try {
+      const resp = await request("/api/items/upload-json", {
+        method: "POST",
+        body: JSON.stringify({ rows: ms.priceRows, filename: "price.xlsx", write: true }),
+      });
+      if (statusEl) statusEl.textContent = "✅ 价格数据已上传（" + resp.count + " 行，数据版本 " + resp.data_revision + "）。客户门户将自动加载最新数据。";
+    } catch (err) {
+      if (statusEl) statusEl.textContent = "❌ 上传失败：" + err.message;
+    } finally {
+      ubPriceBtn.disabled = false;
+    }
+  });
+  const ubStockBtn = $("merger-uploadBackendStockBtn");
+  if (ubStockBtn) ubStockBtn.addEventListener("click", async () => {
+    const ms = window._mergerState || {};
+    const statusEl = $("backendUploadStockStatus");
+    if (!ms.stockRows || !ms.stockRows.length) {
+      if (statusEl) statusEl.textContent = "请先点击「加载库存」，再上传";
+      return;
+    }
+    ubStockBtn.disabled = true;
+    if (statusEl) statusEl.textContent = "正在上传库存数据...";
+    try {
+      const resp = await request("/api/items/upload-json", {
+        method: "POST",
+        body: JSON.stringify({ rows: ms.stockRows, filename: "stock.xlsx", write: true }),
+      });
+      if (statusEl) statusEl.textContent = "✅ 库存数据已上传（" + resp.count + " 行，数据版本 " + resp.data_revision + "）。客户门户将自动加载最新数据。";
+    } catch (err) {
+      if (statusEl) statusEl.textContent = "❌ 上传失败：" + err.message;
+    } finally {
+      ubStockBtn.disabled = false;
+    }
+  });
 
   // 一键同步全部
   const sbSyncAllBtn = $("sb-syncAllBtn");

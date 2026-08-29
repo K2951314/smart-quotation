@@ -409,17 +409,16 @@ function renderAdminCard(admin, members) {
     e.stopPropagation();
     editCompanyDatasource(admin.id, meta);
   }));
-  // 改名/改 ID（各公司仅限一次，超管专属）
-  if (!isTenantUser()) {
-    actions.appendChild(makeActionBtn("改名", "#16a085", "修改公司显示名（仅一次机会）", function (e) {
-      e.stopPropagation();
-      renameCompanyName(admin.id, admin.name);
-    }));
-    actions.appendChild(makeActionBtn("改ID", "#7f8c8d", "修改公司 ID（仅一次机会，用户/配置/数据引用一并迁移）", function (e) {
-      e.stopPropagation();
-      renameCompanyId(admin.id);
-    }));
-  }
+  // 改名/改 ID（各公司仅限一次）——注册时自动生成的名称/ID 不友好，
+  // 这个功能的本意就是让租户自助修正；超管亦可代改
+  actions.appendChild(makeActionBtn("改名", "#16a085", "修改公司显示名（仅一次机会）", function (e) {
+    e.stopPropagation();
+    renameCompanyName(admin.id, admin.name);
+  }));
+  actions.appendChild(makeActionBtn("改ID", "#7f8c8d", "修改公司 ID（仅一次机会，用户/配置/数据引用一并迁移）", function (e) {
+    e.stopPropagation();
+    renameCompanyId(admin.id);
+  }));
   if (admin.id !== "default" && !isTenantUser()) {
     actions.appendChild(makeActionBtn("删除", "#e74c3c", "删除主公司及其所有客户公司", function (e) {
       e.stopPropagation();

@@ -266,16 +266,38 @@ def resolve_company_id(
     """
     if auth["role"] != "tenant":
         return company_id
-    if company_id == auth["company_id"]:
+    store = request.app.state.store
+    auth_cid = _effective_tenant_company(store, auth)
+    if company_id == auth_cid:
         return company_id
     # 名下公司（owner_user_id 标记 + 其成员）允许切换
-    store = request.app.state.store
     visible = {
-        c["id"] for c in store.list_companies_for_tenant(auth["user_id"], auth["company_id"])
+        c["id"] for c in store.list_companies_for_tenant(auth["user_id"], auth_cid)
     }
     if company_id in visible:
         return company_id
-    return auth["company_id"]
+    return auth_cid
+
+
+def _effective_tenant_company(store, auth: dict) -> str:
+    """租户当前真实公司 ID：JWT 内的 company_id 在改 ID 后会过时
+    （users 行已级联迁移到新 ID）——旧值不存在时自动跟随用户表当前值，
+    租户无需重新登录。"""
+    cid = auth.get("company_id") or ""
+    uid = auth.get("user_id")
+    if cid and uid:
+        try:
+            store.get_company(cid)
+            return cid  # JWT 里的公司仍存在
+        except Exception:  # noqa: BLE001 已被改名/删除 → 跟随用户表
+            pass
+        try:
+            user = store.get_user(uid)
+            if user and user.get("company_id"):
+                return user["company_id"]
+        except Exception:  # noqa: BLE001
+            pass
+    return cid
 
 
 def require_company_access(

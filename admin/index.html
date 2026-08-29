@@ -67,7 +67,6 @@
         <a href="#copy">📋 复制模板</a>
         <a href="#ui-config">🖥️ 页面显示</a>
         <a href="#merger">🔀 数据拼接</a>
-        <a href="#publish">🚀 发布配置</a>
         <a href="#history">📚 版本历史</a>
         <a href="#audit" data-feature="audit_log">📝 审计日志</a>
         <a href="billing.html" target="_blank">💳 订阅方案</a>
@@ -111,7 +110,6 @@
           <a href="#copy">复制模板</a>
           <a href="#ui-config">页面显示</a>
           <a href="#merger">数据拼接</a>
-          <a href="#publish">发布配置</a>
           <a href="#history">版本历史</a>
           <a href="#audit" data-feature="audit_log">审计日志</a>
         </nav>
@@ -295,6 +293,7 @@
                       <button type="button" class="file-picker-btn" id="merger-priceFilesBtn">📁 选择文件</button>
                       <span class="file-picker-name" id="merger-priceFileName">未选择文件</span>
                       <input id="merger-priceFiles" type="file" accept=".xlsx,.xls" multiple hidden>
+                      <button id="merger-loadPriceBtn" type="button" class="mcard-btn primary" style="margin-left:auto;flex-shrink:0;">加载并合并</button>
                     </div>
                     <div class="mcard-meta">
                       <span>文件数：<strong id="merger-fileCount">0</strong></span>
@@ -312,9 +311,10 @@
                     </label>
                   </div>
                   <div class="mcard-foot">
-                    <button id="merger-loadPriceBtn" type="button" class="mcard-btn primary">加载并合并</button>
+                    <button id="merger-uploadBackendPriceBtn" type="button" class="mcard-btn primary">⬆ 上传价格数据</button>
                     <button id="merger-exportPriceBtn" type="button" class="mcard-btn secondary">导出价格包</button>
                   </div>
+                  <p class="mcard-desc" id="backendUploadPriceStatus" style="margin-top:6px;"></p>
                 </div>
 
                 <!-- 库存文件（合并：加载+导出+上传到Supabase） -->
@@ -332,22 +332,23 @@
                       <button type="button" class="file-picker-btn" id="merger-stockFilesBtn">📁 选择文件</button>
                       <span class="file-picker-name" id="merger-stockFileName">未选择文件</span>
                       <input id="merger-stockFiles" type="file" accept=".xlsx,.xls" multiple hidden>
+                      <button id="merger-loadStockBtn" type="button" class="mcard-btn primary" style="margin-left:auto;flex-shrink:0;">加载库存</button>
                     </div>
                     <div class="mcard-meta">
                       <span>库存行数：<strong id="merger-stockCount">0</strong></span>
                     </div>
                   </div>
                   <div class="mcard-foot">
-                    <button id="merger-loadStockBtn" type="button" class="mcard-btn primary">加载库存</button>
+                    <button id="merger-uploadBackendStockBtn" type="button" class="mcard-btn primary">⬆ 上传库存数据</button>
                     <button id="merger-exportStockBtn" type="button" class="mcard-btn secondary">导出库存包</button>
                   </div>
+                  <p class="mcard-desc" id="backendUploadStockStatus" style="margin-top:6px;"></p>
                 </div>
 
                 <!-- 隐藏的备用文件选择器（admin/app.js 回退逻辑用） -->
                 <input id="sb-priceFileInput" type="file" accept=".json" hidden>
                 <input id="sb-stockFileInput" type="file" accept=".json" hidden>
 
-<!-- Supabase 部署（原独立报价单位置） -->
 <div class="mcard mcard--highlight" data-feature="supabase_deploy">
   <div class="mcard-head">
     <span class="mcard-icon mcard-icon--accent">🗄️</span>
@@ -377,30 +378,13 @@
             </section>
 
 
-      <!-- 发布配置 -->
-      <section id="publish" class="band" style="scroll-margin-top:130px;">
-
-        <div class="section-head">
-          <h2>发布配置</h2>
-          <div class="actions publish-actions">
-            <button id="validateConfigBtn" type="button"><span aria-hidden="true">✓</span>校验配置</button>
-            <button id="exportJsonBtn" type="button"><span aria-hidden="true">↓</span>导出 JSON</button>
-            <button id="exportYamlBtn" type="button"><span aria-hidden="true">↓</span>导出 YAML</button>
-            <button id="importJsonBtn" type="button"><span aria-hidden="true">↑</span>从示例导入</button>
-          </div>
-        </div>
-        <!-- 校验结果 -->
-        <div id="validateResult" style="display:none;margin-bottom:12px;"></div>
-        <details style="margin-top:4px;">
-          <summary style="font-weight:600;color:var(--accent);cursor:pointer;">高级 JSON（示例配置；点击"从示例导入"后会载入并导入草稿）</summary>
-          <textarea id="advancedJson" rows="14" style="margin-top:8px;"></textarea>
-        </details>
-      </section>
-
       <!-- 版本历史 -->
       <section id="history" class="band" style="scroll-margin-top:130px;">
         <div class="section-head">
           <h2>版本历史</h2>
+            <div class="actions publish-actions">
+              <button id="exportJsonBtn" type="button"><span aria-hidden="true">↓</span>导出配置备份</button>
+            </div>
           <button id="loadHistoryBtn" type="button"><span aria-hidden="true">↻</span>加载历史</button>
         </div>
         <div class="table-wrap">
@@ -455,14 +439,14 @@
 <script src="./merger-app.js?v=17"></script>
 <script src="./lib/admin-core.js?v=23"></script>
 <script src="./lib/session-panel.js?v=7"></script>
-<script src="./lib/companies.js?v=33"></script>
+<script src="./lib/companies.js?v=34"></script>
 <script src="./lib/tiers.js?v=18"></script>
 <script src="./lib/supabase-deploy.js?v=20"></script>
 <script src="./lib/standalone-html.js?v=18"></script>
 <script src="./lib/config-collect.js?v=17"></script>
-<script src="./lib/config-render.js?v=19"></script>
-<script src="./lib/config-api.js?v=17"></script>
-<script src="./lib/event-bindings.js?v=20"></script>
+<script src="./lib/config-render.js?v=20"></script>
+<script src="./lib/config-api.js?v=18"></script>
+<script src="./lib/event-bindings.js?v=23"></script>
 <script src="./app.js?v=18"></script>
 </body>
 </html>

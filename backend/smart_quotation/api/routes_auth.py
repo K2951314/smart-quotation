@@ -225,6 +225,13 @@ def register(app) -> None:
 
         store._mark_db_dirty(immediate=True)
 
+        # 开箱即用：初始化默认配置（已发布）——字段/规则可直接编辑，
+        # 上传数据的 bundle 生成依赖已发布配置的字段定义
+        try:
+            store.seed_default_config(company_id, actor_id=user_id)
+        except Exception:  # noqa: BLE001 初始化失败不阻断注册
+            logger.warning("默认配置初始化失败: %s", company_id, exc_info=True)
+
         token = _create_jwt(user_id, company_id, email)
         logger.info("注册成功: email=%s, company_id=%s", email, company_id)
         return {
@@ -502,9 +509,13 @@ def register(app) -> None:
             "watermark": get_plan_quota(plan, "watermark", True),
         }
 
-        # JWT 用户的 email/company_id 已由 require_admin_api 解码并放入 auth context
+        # JWT 用户的 email/company_id 已由 require_admin_api 解码并放入 auth context；
+        # company_id 在改 ID 后会过时——自动跟随用户表当前值（租户无需重新登录）
         email = auth.get("email") if auth["role"] == "tenant" else None
         company_id = auth.get("company_id") if auth["role"] == "tenant" else None
+        if company_id and auth.get("user_id"):
+            from .auth import _effective_tenant_company as _etc
+            company_id = _etc(store, {**auth, "company_id": company_id})
 
         # 订阅到期时间（租户可见自己的订阅状态；注意 resolve_user_plan
         # 过期后会回退公司级——这里查的是列上的原始到期时间，已过期的

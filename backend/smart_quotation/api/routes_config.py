@@ -114,6 +114,12 @@ def register(app) -> None:
             _check_brands_quota(rules, store, company_id)
         # 版本历史上限检查：超出时自动删除最旧版本
         _enforce_revision_limit(store, company_id)
+        # 发布强制校验：坏配置发布会导致门户渲染/报价异常——在发布关口拦截
+        # （草稿是工作中间态，允许自由保存）
+        if payload.status == "published":
+            errors = engine.validate_config(payload.config)
+            if errors:
+                raise HTTPException(status_code=422, detail="配置校验失败：" + "；".join(errors))
         try:
             return store.save_config(payload.config, status=payload.status, company_id=company_id)
         except ValueError as exc:

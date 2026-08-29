@@ -19,14 +19,21 @@ from .auth import require_admin_api, require_superadmin
 from .models import CompanyCreate, CompanyUpdate
 
 
+def _effective_tenant_company(store: Any, auth: dict[str, Any]) -> str:
+    """租户当前真实公司 ID（改 ID 后 JWT 旧值自动跟随用户表）。"""
+    from .auth import _effective_tenant_company as _resolve
+    return _resolve(store, auth)
+
+
 def _ensure_company_access(auth: dict[str, Any], company_id: str, store: Any) -> None:
     """租户只能访问自己名下的公司（主公司 + 拥有的公司 + 其成员），超管任意。"""
     if auth["role"] != "tenant":
         return
-    if auth["company_id"] == company_id:
+    auth_cid = _effective_tenant_company(store, auth)
+    if auth_cid == company_id:
         return
     visible = {
-        c["id"] for c in store.list_companies_for_tenant(auth["user_id"], auth["company_id"])
+        c["id"] for c in store.list_companies_for_tenant(auth["user_id"], auth_cid)
     }
     if company_id in visible:
         return
@@ -297,13 +304,20 @@ def register(app) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.post("/api/companies/{company_id}/rename-id", dependencies=[Depends(require_superadmin)])
-    def rename_company_id(company_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """改公司 ID（超管，每个公司仅限一次）。
+    @app.post("/api/companies/{company_id}/rename-id")
+    def rename_company_id(
+        company_id: str,
+        payload: dict[str, Any],
+        auth: dict[str, Any] = Depends(require_admin_api),
+    ) -> dict[str, Any]:
+        """改公司 ID（每个公司仅限一次）。
 
+        注册时自动生成的 ID（slug+随机后缀）不友好，改名/改 ID 的本意就是
+        让注册用户自助修正——租户可改自己名下的公司；超管可改任意公司。
         级联更新 users/configs/items/audit 的 company_id 引用，令牌不变。
         body: {"new_id": "..."}
         """
+        _ensure_company_access(auth, company_id, store)
         new_id = str(payload.get("new_id", "")).strip()
         try:
             return store.rename_company_id(company_id, new_id)
