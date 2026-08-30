@@ -95,6 +95,8 @@ function loadDataLoadModule({ profile, supabaseBaseUrl, configBaseUrl }) {
     getCompanyId: () => "admin",
     getApiBase: () => "https://api.example.com",
     window: {},
+    // data-load.js 顶层注册了 DOMContentLoaded（数据更新感知），VM 环境需最小 document 桩
+    document: { addEventListener: () => {}, getElementById: () => null },
   };
   vm.createContext(context);
   const code = fs.readFileSync(path.join(__dirname, "../apps/lib/data-load.js"), "utf8");

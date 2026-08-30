@@ -236,9 +236,20 @@ function parseStockResultLine(text) {
   return result;
 }
 
+// 三菱产品判定：名称字段包含"刀具"的行（品名品类口径，与折扣规则的三菱品类一致）。
+// ISO 刀片型号各厂家通用，非三菱型号在三菱官网常被误匹配成"查到但 0 库存"，
+// 因此查询前先过滤，非三菱产品不输出任何库存信息。
+function isMitsubishiRow(row) {
+  var name = String((row && (row.name || row.n)) || "");
+  return name.indexOf("刀具") >= 0;
+}
+
 async function doMitsubishiStockQuery() {
-  var selected = g_Results.filter(function (row) { return row.checked; });
-  if (selected.length === 0) { showToast("请先勾选需要查询库存的规格"); return; }
+  var checked = g_Results.filter(function (row) { return row.checked; });
+  if (checked.length === 0) { showToast("请先勾选需要查询库存的规格"); return; }
+  var skipped = checked.filter(function (row) { return !isMitsubishiRow(row); }).length;
+  var selected = checked.filter(isMitsubishiRow);
+  if (selected.length === 0) { showToast("勾选中没有三菱产品，未查询库存"); return; }
   var total = selected.length;
 
   var queryText = selected.map(function (row) {
@@ -323,6 +334,7 @@ async function doMitsubishiStockQuery() {
           if (out) lines.push(out);
         });
         var toastMsg = "已复制 " + lines.length + " 条库存信息";
+        if (skipped > 0) toastMsg += "，已跳过 " + skipped + " 条非三菱产品";
         if (errorCount > 0) toastMsg += "（" + errorCount + " 条失败）";
         copyToClipboard(lines.join("\n") + "\n");
         showToast(toastMsg);
@@ -397,8 +409,8 @@ function buildStockClipboardLine(row, stockResult) {
     }
   } else {
     var stockParts = [];
-    if (stockResult.shanghai > 0) stockParts.push("上海" + stockResult.shanghai);
-    if (stockResult.japan > 0) stockParts.push("日本" + stockResult.japan);
+    if (stockResult.shanghai > 0) stockParts.push("上海库存" + stockResult.shanghai);
+    if (stockResult.japan > 0) stockParts.push("日本库存" + stockResult.japan);
     // 查得到型号但没库存 → 返回"厂家无货"
     stockStr = stockParts.length > 0 ? stockParts.join(" ") : "厂家无货";
     // 商流可视化/EC不可下单打勾 → 需要提供终端客户
@@ -438,8 +450,8 @@ function updateCardStock(row, state, result) {
     stockEl.style.display = "";
   } else if (state === "data" && result) {
     var parts = [];
-    if (result.shanghai > 0) parts.push("上海" + result.shanghai);
-    if (result.japan > 0) parts.push("日本" + result.japan);
+    if (result.shanghai > 0) parts.push("上海库存" + result.shanghai);
+    if (result.japan > 0) parts.push("日本库存" + result.japan);
     var html = "";
     if (parts.length > 0) {
       html = '<span class="stock-signal stock-live-data">' + parts.join(" · ") + '</span>';
@@ -453,4 +465,13 @@ function updateCardStock(row, state, result) {
     stockEl.innerHTML = html;
     stockEl.style.display = "";
   }
+}
+
+// Node 单测导出（浏览器端经 <script> 加载，typeof module 为 undefined 不受影响）
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    isMitsubishiRow: isMitsubishiRow,
+    parseStockResultLine: parseStockResultLine,
+    buildStockClipboardLine: buildStockClipboardLine,
+  };
 }

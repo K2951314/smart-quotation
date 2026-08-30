@@ -10,6 +10,8 @@ function loadDataModule() {
     console,
     Date,
     window: { APP_CONFIG: {} },
+    // data-load.js 顶层注册了 DOMContentLoaded（数据更新感知），VM 环境需最小 document 桩
+    document: { addEventListener: () => {}, getElementById: () => null },
     SUPABASE_BASE_URL: "",
     getAppConfig: () => ({}),
     getCompanyId: () => "default",
@@ -50,6 +52,7 @@ function loadDataModuleWithApiFailure() {
     console,
     Date,
     window: { APP_CONFIG: {} },
+    document: { addEventListener: () => {}, getElementById: () => null },
     SUPABASE_BASE_URL: "",
     getAppConfig: () => ({}),
     getCompanyId: () => "default",
